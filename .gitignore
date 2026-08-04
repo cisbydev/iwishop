@@ -1,0 +1,77 @@
+# ============================================
+# BACKEND DJANGO
+# ============================================
+
+# Environnement virtuel Python (jamais versionné, chacun le recrée localement)
+venv/
+env/
+*.venv
+
+# Fichiers Python compilés
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Base de données locale (SQLite) — contient tes vraies données de test/production
+db.sqlite3
+db.sqlite3-journal
+
+# Fichiers uploadés par les utilisateurs (logos, photos produits)
+# Ce sont des données, pas du code — elles ne doivent pas être dans Git
+media/
+
+# Fichiers de configuration sensibles (clés secrètes, mots de passe, etc.)
+.env
+.env.local
+.env.*.local
+
+# Fichiers statiques collectés (générés automatiquement, pas à versionner)
+staticfiles/
+static_root/
+
+# Logs
+*.log
+
+# Fichiers spécifiques à l'IDE / éditeur
+.vscode/
+.idea/
+*.swp
+
+# ============================================
+# FRONTEND REACT / VITE
+# ============================================
+
+# Dépendances npm (réinstallées via `npm install`, jamais versionnées)
+node_modules/
+
+# Fichiers de build (générés, pas à versionner)
+dist/
+build/
+
+# Variables d'environnement frontend (contient l'URL de l'API, etc.)
+.env
+.env.local
+.env.production
+
+# Cache Vite
+.vite/
+
+# Logs npm/yarn
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ============================================
+# SYSTÈME D'EXPLOITATION
+# ============================================
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# macOS
+.DS_Store
+
+# Fichiers temporaires
+*.tmp
+*.bak
