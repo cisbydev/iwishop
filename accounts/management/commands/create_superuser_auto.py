@@ -1,9 +1,10 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
 from decouple import config
+from tenants.models import Boutique, Profil
 
 class Command(BaseCommand):
-    help = "Crée un superuser automatiquement depuis les variables d'environnement, si aucun n'existe déjà."
+    help = "Crée un superuser + sa Boutique + son Profil automatiquement depuis les variables d'environnement, si aucun superuser n'existe déjà."
 
     def handle(self, *args, **options):
         username = config('DJANGO_SUPERUSER_USERNAME', default=None)
@@ -17,10 +18,28 @@ class Command(BaseCommand):
             return
 
         if User.objects.filter(is_superuser=True).exists():
-            self.stdout.write(self.style.SUCCESS(
-                "Un superuser existe déjà, création ignorée."
-            ))
+            superuser_sans_profil = User.objects.filter(is_superuser=True, profil__isnull=True).first()
+            if superuser_sans_profil:
+                boutique, _ = Boutique.objects.get_or_create(
+                    slug='ma-boutique',
+                    defaults={'nom': 'Ma Boutique', 'actif': True}
+                )
+                Profil.objects.create(user=superuser_sans_profil, boutique=boutique, est_proprietaire=True)
+                self.stdout.write(self.style.SUCCESS(
+                    f"Profil manquant créé pour le superuser existant '{superuser_sans_profil.username}'."
+                ))
+            else:
+                self.stdout.write(self.style.SUCCESS("Un superuser existe déjà, création ignorée."))
             return
 
-        User.objects.create_superuser(username=username, email=email, password=password)
-        self.stdout.write(self.style.SUCCESS(f"Superuser '{username}' créé avec succès."))
+        user = User.objects.create_superuser(username=username, email=email, password=password)
+
+        boutique, _ = Boutique.objects.get_or_create(
+            slug='ma-boutique',
+            defaults={'nom': 'Ma Boutique', 'actif': True}
+        )
+        Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
+
+        self.stdout.write(self.style.SUCCESS(
+            f"Superuser '{username}' créé avec succès, avec sa Boutique '{boutique.nom}' et son Profil."
+        ))
