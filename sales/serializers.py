@@ -27,6 +27,10 @@ class VenteSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        boutique = self.context['request'].user.profil.boutique
+        if not boutique.actif:
+            raise serializers.ValidationError("Cette boutique a été désactivée.")
+
         lignes_data = validated_data.pop('lignes')
 
         # Assigner l'utilisateur connecté si présent dans le contexte de la requête
@@ -34,7 +38,6 @@ class VenteSerializer(serializers.ModelSerializer):
         if request and hasattr(request, 'user'):
             validated_data['utilisateur'] = request.user
 
-        boutique = self.context['request'].user.profil.boutique
         vente = Vente.objects.create(boutique=boutique, **validated_data)
 
         montant_total = 0

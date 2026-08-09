@@ -22,8 +22,11 @@ class AchatSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        lignes_data = validated_data.pop('lignes')
         boutique = self.context['request'].user.profil.boutique
+        if not boutique.actif:
+            raise serializers.ValidationError("Cette boutique a été désactivée.")
+
+        lignes_data = validated_data.pop('lignes')
         achat = Achat.objects.create(boutique=boutique, **validated_data)
 
         montant_total = 0

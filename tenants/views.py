@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from .models import DemandeAcces, Boutique, Profil
-from .serializers import DemandeAccesSerializer
+from .serializers import DemandeAccesSerializer, BoutiqueSerializer
 from .permissions import IsPlatformOwner
 from .emails import envoyer_identifiants_email, notifier_nouvelle_demande
 
@@ -101,3 +101,29 @@ class RejeterDemandeView(APIView):
         demande.statut = 'REJETEE'
         demande.save()
         return Response({"detail": "Demande rejetée."}, status=status.HTTP_200_OK)
+
+class BoutiqueListView(generics.ListAPIView):
+    """Liste toutes les boutiques, réservée à moi (admin plateforme)."""
+    queryset = Boutique.objects.all().order_by('-date_creation')
+    serializer_class = BoutiqueSerializer
+    permission_classes = [IsPlatformOwner]
+
+class ToggleBoutiqueActifView(APIView):
+    """Active/désactive une boutique. Réservée à moi."""
+    permission_classes = [IsPlatformOwner]
+
+    def post(self, request, boutique_id, *args, **kwargs):
+        try:
+            boutique = Boutique.objects.get(pk=boutique_id)
+        except Boutique.DoesNotExist:
+            return Response({"detail": "Boutique introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        boutique.actif = not boutique.actif
+        boutique.save()
+
+        return Response({
+            "id": boutique.id,
+            "nom": boutique.nom,
+            "actif": boutique.actif,
+            "detail": f"Boutique {'réactivée' if boutique.actif else 'désactivée'}."
+        }, status=status.HTTP_200_OK)

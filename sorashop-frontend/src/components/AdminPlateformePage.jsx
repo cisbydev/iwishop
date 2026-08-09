@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
-import { ShieldCheck, CheckCircle, XCircle, Loader2, Copy } from 'lucide-react';
+import { ShieldCheck, CheckCircle, XCircle, Loader2, Copy, Store, Power } from 'lucide-react';
 
 function AdminLoginForm({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -73,6 +73,106 @@ const STATUT_LABELS = {
   APPROUVEE: 'Approuvée',
   REJETEE: 'Rejetée',
 };
+
+function BoutiquesPanel() {
+  const [boutiques, setBoutiques] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [enCoursId, setEnCoursId] = useState(null);
+
+  const fetchBoutiques = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await api.get('tenants/boutiques/');
+      setBoutiques(response.data);
+    } catch (err) {
+      setError(getErrorMessage(err, "Erreur lors du chargement des boutiques."));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBoutiques();
+  }, [fetchBoutiques]);
+
+  const handleToggleActif = async (boutique) => {
+    if (boutique.actif && !window.confirm(`Désactiver "${boutique.nom}" ? Ses utilisateurs ne pourront plus se connecter ni accéder à leurs données.`)) {
+      return;
+    }
+    setEnCoursId(boutique.id);
+    setError('');
+    try {
+      await api.post(`tenants/boutiques/${boutique.id}/toggle-actif/`);
+      fetchBoutiques();
+    } catch (err) {
+      setError(getErrorMessage(err, "Erreur lors du changement de statut de la boutique."));
+    } finally {
+      setEnCoursId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <Store className="w-5 h-5 text-blue-600" />
+        <h2 className="text-xl font-bold text-gray-800">Boutiques</h2>
+      </div>
+
+      {error && <div className="text-sm text-red-600 bg-red-100 p-3 rounded">{error}</div>}
+
+      <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-x-auto">
+        {loading ? (
+          <div className="p-6 text-center text-gray-500 flex items-center justify-center gap-2">
+            <Loader2 className="w-4 h-4 animate-spin" /> Chargement...
+          </div>
+        ) : boutiques.length === 0 ? (
+          <div className="p-6 text-center text-gray-500">Aucune boutique pour le moment.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50 text-left text-gray-500">
+                <th className="p-3">Nom</th>
+                <th className="p-3">Membres</th>
+                <th className="p-3">Statut</th>
+                <th className="p-3">Créée le</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {boutiques.map((b) => (
+                <tr key={b.id} className="border-b last:border-0">
+                  <td className="p-3 font-medium text-gray-800">{b.nom}</td>
+                  <td className="p-3">{b.nombre_membres}</td>
+                  <td className="p-3">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      b.actif ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                    }`}>
+                      {b.actif ? 'Active' : 'Désactivée'}
+                    </span>
+                  </td>
+                  <td className="p-3 text-gray-500">{new Date(b.date_creation).toLocaleDateString('fr-FR')}</td>
+                  <td className="p-3">
+                    <button
+                      onClick={() => handleToggleActif(b)}
+                      disabled={enCoursId === b.id}
+                      className={`flex items-center gap-1 px-3 py-1 rounded-md transition text-xs text-white disabled:opacity-50 ${
+                        b.actif ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+                      }`}
+                    >
+                      <Power className="w-3 h-3" /> {b.actif ? 'Désactiver' : 'Réactiver'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DemandesPanel() {
   const [demandes, setDemandes] = useState([]);
@@ -251,6 +351,8 @@ function DemandesPanel() {
             </table>
           )}
         </div>
+
+        <BoutiquesPanel />
       </div>
     </div>
   );

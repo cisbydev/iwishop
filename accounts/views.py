@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth.models import User
 
 from .serializers import (
@@ -10,7 +11,12 @@ from .serializers import (
     EmployeCreateSerializer,
     MeSerializer,
 )
+from .serializers_auth import CustomTokenObtainPairSerializer
 from .permissions import IsOwner
+
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
 
 
 class MeView(APIView):

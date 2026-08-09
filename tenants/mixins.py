@@ -1,6 +1,14 @@
+from rest_framework.exceptions import PermissionDenied
+
 class BoutiqueScopedMixin:
     def get_queryset(self):
-        return super().get_queryset().filter(boutique=self.request.user.profil.boutique)
+        boutique = self.request.user.profil.boutique
+        if not boutique.actif:
+            raise PermissionDenied("Cette boutique a été désactivée.")
+        return super().get_queryset().filter(boutique=boutique)
 
     def perform_create(self, serializer):
-        serializer.save(boutique=self.request.user.profil.boutique)
+        boutique = self.request.user.profil.boutique
+        if not boutique.actif:
+            raise PermissionDenied("Cette boutique a été désactivée.")
+        serializer.save(boutique=boutique)
