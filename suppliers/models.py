@@ -1,6 +1,7 @@
 from django.db import models
 
 class Fournisseur(models.Model):
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     nom = models.CharField(max_length=150)
     telephone = models.CharField(max_length=30, blank=True, null=True)
     adresse = models.TextField(blank=True, null=True)

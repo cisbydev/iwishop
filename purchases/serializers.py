@@ -23,7 +23,8 @@ class AchatSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         lignes_data = validated_data.pop('lignes')
-        achat = Achat.objects.create(**validated_data)
+        boutique = self.context['request'].user.profil.boutique
+        achat = Achat.objects.create(boutique=boutique, **validated_data)
 
         montant_total = 0
         for ligne_data in lignes_data:
@@ -32,7 +33,7 @@ class AchatSerializer(serializers.ModelSerializer):
             produit = ligne_data['produit']
 
             # Créer la ligne d'achat
-            ligne = LigneAchat.objects.create(achat=achat, **ligne_data)
+            ligne = LigneAchat.objects.create(achat=achat, boutique=boutique, **ligne_data)
             montant_total += ligne.sous_total
 
             # Mettre à jour le stock du produit
@@ -47,6 +48,7 @@ class AchatSerializer(serializers.ModelSerializer):
 
             # Enregistrer le mouvement de stock correspondant
             MouvementStock.objects.create(
+                boutique=boutique,
                 produit=produit,
                 type_mouvement='ENTREE',
                 quantite=quantite,

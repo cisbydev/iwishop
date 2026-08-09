@@ -8,3 +8,4 @@ class ProduitSerializer(serializers.ModelSerializer):
     class Meta:
         model = Produit
         fields = '__all__'
+        read_only_fields = ['boutique']

@@ -12,6 +12,7 @@ class Vente(models.Model):
         ('AUTRE', 'Autre'),
     )
 
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     numero = models.CharField(max_length=50, unique=True, editable=False)
     date_vente = models.DateTimeField(auto_now_add=True)
     client = models.CharField(max_length=150, blank=True, null=True, default="Client comptoir")
@@ -46,6 +47,7 @@ class LigneVente(models.Model):
         ('DOUZAINE', 'Douzaine'),
     )
 
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     vente = models.ForeignKey(Vente, on_delete=models.CASCADE, related_name='lignes')
     produit = models.ForeignKey(Produit, on_delete=models.CASCADE, related_name='lignes_vente')
     quantite = models.IntegerField()

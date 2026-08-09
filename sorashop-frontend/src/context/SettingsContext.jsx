@@ -52,7 +52,7 @@ export function SettingsProvider({ children }) {
 // Hook pratique à utiliser dans n'importe quel composant :
 // const { parametres, utilisateur } = useSettings();
 // const devise = parametres?.devise || 'FCFA';
-// const estProprietaire = utilisateur?.is_superuser;
+// const estProprietaire = utilisateur?.est_proprietaire;
 export function useSettings() {
   const context = useContext(SettingsContext);
   if (!context) {

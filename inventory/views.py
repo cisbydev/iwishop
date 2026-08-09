@@ -3,11 +3,12 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
+from tenants.mixins import BoutiqueScopedMixin
 from .models import MouvementStock
 from .serializers import MouvementStockSerializer
 
 
-class MouvementStockViewSet(viewsets.ModelViewSet):
+class MouvementStockViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
     queryset = MouvementStock.objects.select_related('produit').all()
     serializer_class = MouvementStockSerializer
     permission_classes = [IsAuthenticated]
@@ -16,7 +17,7 @@ class MouvementStockViewSet(viewsets.ModelViewSet):
 
     @transaction.atomic
     def perform_create(self, serializer):
-        mouvement = serializer.save()
+        mouvement = serializer.save(boutique=self.request.user.profil.boutique)
         produit = mouvement.produit
 
         if mouvement.type_mouvement == 'ENTREE':

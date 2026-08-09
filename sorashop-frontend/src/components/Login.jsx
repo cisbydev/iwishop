@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import api from '../services/api';
+import logoParDefaut from '../assets/iwishop-logo-removebg-preview.png';
 
 export default function Login({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -21,7 +22,10 @@ export default function Login({ onLoginSuccess }) {
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
       <div className="px-8 py-6 mt-4 text-left bg-white shadow-lg rounded-lg w-96">
-        <h3 className="text-2xl font-bold text-center text-gray-800">SoraShop - Connexion</h3>
+        <div className="w-16 h-16 rounded-full overflow-hidden bg-white flex items-center justify-center border border-gray-200 mx-auto mb-2">
+          <img src={logoParDefaut} alt="Logo" className="w-4/5 h-4/5 object-contain" />
+        </div>
+        <h3 className="text-2xl font-bold text-center text-gray-800">iwiShop - Connexion</h3>
         {error && <div className="mt-4 text-sm text-red-600 bg-red-100 p-2 rounded">{error}</div>}
         <form onSubmit={handleSubmit}>
           <div className="mt-4">

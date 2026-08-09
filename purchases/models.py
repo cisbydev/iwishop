@@ -5,6 +5,7 @@ from inventory.models import MouvementStock
 from django.db import transaction
 
 class Achat(models.Model):
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     fournisseur = models.ForeignKey(Fournisseur, on_delete=models.SET_NULL, null=True, related_name='achats')
     date_achat = models.DateTimeField(auto_now_add=True)
     montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
@@ -20,6 +21,7 @@ class Achat(models.Model):
         ordering = ['-date_achat']
 
 class LigneAchat(models.Model):
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     achat = models.ForeignKey(Achat, on_delete=models.CASCADE, related_name='lignes')
     produit = models.ForeignKey(Produit, on_delete=models.CASCADE, related_name='lignes_achat')
     quantite = models.IntegerField()

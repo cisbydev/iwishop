@@ -1,7 +1,8 @@
 from django.db import models
 
 class ParametresBoutique(models.Model):
-    nom_boutique = models.CharField(max_length=150, default="SoraShop")
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
+    nom_boutique = models.CharField(max_length=150, default="iwiShop")
     logo = models.ImageField(upload_to='logos/', blank=True, null=True)
     adresse = models.TextField(blank=True, null=True)
     telephone = models.CharField(max_length=30, blank=True, null=True)

@@ -34,7 +34,8 @@ class VenteSerializer(serializers.ModelSerializer):
         if request and hasattr(request, 'user'):
             validated_data['utilisateur'] = request.user
 
-        vente = Vente.objects.create(**validated_data)
+        boutique = self.context['request'].user.profil.boutique
+        vente = Vente.objects.create(boutique=boutique, **validated_data)
 
         montant_total = 0
 
@@ -55,7 +56,7 @@ class VenteSerializer(serializers.ModelSerializer):
                 )
 
             # Créer la ligne de vente
-            ligne = LigneVente.objects.create(vente=vente, **ligne_data)
+            ligne = LigneVente.objects.create(vente=vente, boutique=boutique, **ligne_data)
             montant_total += ligne.sous_total
 
             # Mettre à jour le stock du produit
@@ -64,6 +65,7 @@ class VenteSerializer(serializers.ModelSerializer):
 
             # Enregistrer le mouvement de stock (SORTIE)
             MouvementStock.objects.create(
+                boutique=boutique,
                 produit=produit,
                 type_mouvement='SORTIE',
                 quantite=unites_a_deduire,

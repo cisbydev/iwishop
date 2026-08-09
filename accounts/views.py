@@ -36,11 +36,17 @@ class ChangePasswordView(APIView):
 
 class EmployeViewSet(viewsets.ModelViewSet):
     """
-    CRUD des comptes employés, réservé exclusivement au propriétaire (superuser).
+    CRUD des comptes employés, réservé exclusivement au propriétaire de la boutique.
     Le propriétaire lui-même n'apparaît pas dans cette liste.
     """
-    queryset = User.objects.filter(is_superuser=False).order_by('username')
     permission_classes = [IsOwner]
+
+    def get_queryset(self):
+        boutique = self.request.user.profil.boutique
+        return User.objects.filter(
+            profil__boutique=boutique,
+            profil__est_proprietaire=False
+        ).order_by('username')
 
     def get_serializer_class(self):
         if self.action == 'create':

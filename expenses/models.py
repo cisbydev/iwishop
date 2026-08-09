@@ -1,6 +1,7 @@
 from django.db import models
 
 class Depense(models.Model):
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     CATEGORIES_DEPENSE = (
         ('LOYER', 'Loyer'),
         ('TRANSPORT', 'Transport'),

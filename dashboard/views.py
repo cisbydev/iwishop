@@ -12,19 +12,20 @@ class TableauDeBordView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
+        boutique = request.user.profil.boutique
         maintenant = timezone.now()
         aujourd_hui = maintenant.date()
         mois_courant = maintenant.month
         annee_courante = maintenant.year
 
-        ca_jour = Vente.objects.filter(date_vente__date=aujourd_hui).aggregate(total=Sum('montant_net'))['total'] or 0
-        ca_mois = Vente.objects.filter(date_vente__year=annee_courante, date_vente__month=mois_courant).aggregate(total=Sum('montant_net'))['total'] or 0
-        nombre_ventes_jour = Vente.objects.filter(date_vente__date=aujourd_hui).count()
+        ca_jour = Vente.objects.filter(boutique=boutique, date_vente__date=aujourd_hui).aggregate(total=Sum('montant_net'))['total'] or 0
+        ca_mois = Vente.objects.filter(boutique=boutique, date_vente__year=annee_courante, date_vente__month=mois_courant).aggregate(total=Sum('montant_net'))['total'] or 0
+        nombre_ventes_jour = Vente.objects.filter(boutique=boutique, date_vente__date=aujourd_hui).count()
 
-        produits_rupture = Produit.objects.filter(quantite_en_stock__lte=0).count()
-        produits_stock_faible = Produit.objects.filter(quantite_en_stock__gt=0, quantite_en_stock__lte=F('stock_minimum')).count()
+        produits_rupture = Produit.objects.filter(boutique=boutique, quantite_en_stock__lte=0).count()
+        produits_stock_faible = Produit.objects.filter(boutique=boutique, quantite_en_stock__gt=0, quantite_en_stock__lte=F('stock_minimum')).count()
 
-        derniers_mouvements = MouvementStock.objects.select_related('produit')[:5]
+        derniers_mouvements = MouvementStock.objects.select_related('produit').filter(boutique=boutique)[:5]
         mouvements_data = [{
             "id": m.id,
             "produit": m.produit.nom,
@@ -49,10 +50,12 @@ class TableauDeBordView(APIView):
         )
 
         benefice_jour = LigneVente.objects.filter(
+            boutique=boutique,
             vente__date_vente__date=aujourd_hui
         ).aggregate(total=Sum(benefice_ligne_expr))['total'] or 0
 
         benefice_mois = LigneVente.objects.filter(
+            boutique=boutique,
             vente__date_vente__year=annee_courante,
             vente__date_vente__month=mois_courant
         ).aggregate(total=Sum(benefice_ligne_expr))['total'] or 0
@@ -60,6 +63,7 @@ class TableauDeBordView(APIView):
         # --- Meilleurs produits (top 5, toutes ventes confondues) ---
         meilleurs_produits_qs = (
             LigneVente.objects
+            .filter(boutique=boutique)
             .values('produit__id', 'produit__nom')
             .annotate(
                 unites_vendues=Sum(unites_reelles_expr),

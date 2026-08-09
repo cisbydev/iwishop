@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import Login from './components/Login';
+import DemandeAccesPage from './components/DemandeAccesPage';
+import AdminPlateformePage from './components/AdminPlateformePage';
 import Dashboard from './components/Dashboard';
 import Products from './components/Products';
 import Categories from './components/Categories';
@@ -12,9 +15,10 @@ import Settings from './components/Settings';
 import Sales from './components/Sales';
 import SalesHistory from './components/SalesHistory';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
-import { LayoutDashboard, Package, Tag, Warehouse, Truck, ShoppingBag, Wallet, FileBarChart, Settings as SettingsIcon, ShoppingCart, History, LogOut, Store } from 'lucide-react';
+import { LayoutDashboard, Package, Tag, Warehouse, Truck, ShoppingBag, Wallet, FileBarChart, Settings as SettingsIcon, ShoppingCart, History, LogOut } from 'lucide-react';
+import logoParDefaut from './assets/iwishop-logo-removebg-preview.png';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/';
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
 const SERVER_BASE_URL = API_URL.replace(/api\/?$/, '');
 
 function resoudreUrlLogo(logo) {
@@ -33,18 +37,16 @@ function AppContent({ onLogout }) {
     onLogout();
   };
 
-  const nomBoutique = parametres?.nom_boutique || 'SoraShop Management';
-  const logoUrl = resoudreUrlLogo(parametres?.logo);
+  const nomBoutique = parametres?.nom_boutique || 'iwiShop';
+  const logoUrl = resoudreUrlLogo(parametres?.logo) || logoParDefaut;
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white shadow-sm border-b px-6 py-4 flex justify-between items-center">
         <h1 className="text-xl font-bold text-blue-600 flex items-center gap-2">
-          {logoUrl ? (
-            <img src={logoUrl} alt="Logo" className="w-7 h-7 object-contain rounded" />
-          ) : (
-            <Store className="w-5 h-5" />
-          )}
+          <div className="w-7 h-7 rounded-full overflow-hidden bg-white flex items-center justify-center border border-gray-200">
+            <img src={logoUrl} alt="Logo" className="w-4/5 h-4/5 object-contain" />
+          </div>
           {nomBoutique}
         </h1>
         <button
@@ -171,6 +173,7 @@ function AppContent({ onLogout }) {
       <main className="flex-1 p-6">
         <div className="max-w-7xl mx-auto">
           {activeTab === 'dashboard' && <Dashboard />}
+          {activeTab === 'sales' && <Sales />}
           {activeTab === 'products' && <Products />}
           {activeTab === 'categories' && <Categories />}
           {activeTab === 'stock' && <Stock />}
@@ -179,7 +182,6 @@ function AppContent({ onLogout }) {
           {activeTab === 'expenses' && <Expenses />}
           {activeTab === 'reports' && <Reports />}
           {activeTab === 'settings' && <Settings />}
-          {activeTab === 'sales' && <Sales />}
           {activeTab === 'history' && <SalesHistory />}
         </div>
       </main>
@@ -187,15 +189,12 @@ function AppContent({ onLogout }) {
   );
 }
 
-export default function App() {
+function AccueilApp() {
   const [isAuthenticated, setIsAuthenticated] = useState(
     !!localStorage.getItem('access_token')
   );
 
-  // IMPORTANT : SettingsProvider (qui appelle des routes protégées comme
-  // /parametres/ et /accounts/me/) ne doit être monté qu'APRÈS la connexion.
-  // Sinon ces appels partent sans token valide, provoquent des 401 en boucle,
-  // et déclenchent des rechargements de page infinis.
+
   if (!isAuthenticated) {
     return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
   }
@@ -204,5 +203,15 @@ export default function App() {
     <SettingsProvider>
       <AppContent onLogout={() => setIsAuthenticated(false)} />
     </SettingsProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<AccueilApp />} />
+      <Route path="/demande-acces" element={<DemandeAccesPage />} />
+      <Route path="/admin-plateforme" element={<AdminPlateformePage />} />
+    </Routes>
   );
 }

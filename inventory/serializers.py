@@ -8,3 +8,4 @@ class MouvementStockSerializer(serializers.ModelSerializer):
     class Meta:
         model = MouvementStock
         fields = '__all__'
+        read_only_fields = ['boutique']

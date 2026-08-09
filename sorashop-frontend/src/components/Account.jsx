@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
-import { KeyRound, Save } from 'lucide-react';
+import { useSettings } from '../context/SettingsContext';
+import { KeyRound, Save, Store } from 'lucide-react';
 
 export default function Account() {
+  const { utilisateur } = useSettings();
   const [ancienMotDePasse, setAncienMotDePasse] = useState('');
   const [nouveauMotDePasse, setNouveauMotDePasse] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -41,6 +43,16 @@ export default function Account() {
       {successMessage && (
         <div className="p-4 bg-green-100 text-green-700 rounded-lg">
           {successMessage}
+        </div>
+      )}
+
+      {utilisateur && (
+        <div className="flex items-center gap-2 p-4 bg-gray-50 border border-gray-100 rounded-lg text-sm text-gray-600">
+          <Store className="w-4 h-4 text-gray-400" />
+          Connecté en tant que <span className="font-medium text-gray-800">{utilisateur.username}</span>
+          {utilisateur.boutique_nom && (
+            <> — <span className="font-medium text-gray-800">{utilisateur.boutique_nom}</span></>
+          )}
         </div>
       )}
 

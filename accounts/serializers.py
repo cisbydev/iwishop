@@ -39,16 +39,29 @@ class EmployeCreateSerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'first_name', 'last_name', 'password']
 
     def create(self, validated_data):
+        from tenants.models import Profil
         password = validated_data.pop('password')
         user = User(**validated_data)
         user.is_staff = False
         user.is_superuser = False
         user.set_password(password)
         user.save()
+
+        boutique = self.context['request'].user.profil.boutique
+        Profil.objects.create(user=user, boutique=boutique, est_proprietaire=False)
         return user
 
 
 class MeSerializer(serializers.ModelSerializer):
+    est_proprietaire = serializers.SerializerMethodField()
+    boutique_nom = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'is_superuser']
+        fields = ['id', 'username', 'first_name', 'last_name', 'est_proprietaire', 'boutique_nom']
+
+    def get_est_proprietaire(self, obj):
+        return hasattr(obj, 'profil') and obj.profil.est_proprietaire
+
+    def get_boutique_nom(self, obj):
+        return obj.profil.boutique.nom if hasattr(obj, 'profil') else None

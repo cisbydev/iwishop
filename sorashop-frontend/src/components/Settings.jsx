@@ -5,9 +5,10 @@ import { useSettings } from '../context/SettingsContext';
 import Account from './Account';
 import Employees from './Employees';
 import { Store, Save, Upload, KeyRound, Users } from 'lucide-react';
+import logoParDefaut from '../assets/iwishop-logo-removebg-preview.png';
 
 // Déduit l'URL de base du serveur (sans le "/api/") pour construire l'URL complète du logo
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/';
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
 const SERVER_BASE_URL = API_URL.replace(/api\/?$/, '');
 
 function resoudreUrlLogo(logo) {
@@ -98,7 +99,7 @@ function BoutiqueSettings() {
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement des paramètres...</div>;
 
-  const logoAffiche = apercuNouveauLogo || resoudreUrlLogo(logoActuel);
+  const logoAffiche = apercuNouveauLogo || resoudreUrlLogo(logoActuel) || logoParDefaut;
 
   return (
     <div className="max-w-2xl">
@@ -113,12 +114,8 @@ function BoutiqueSettings() {
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Logo de la boutique</label>
           <div className="flex items-center gap-4">
-            <div className="w-20 h-20 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden">
-              {logoAffiche ? (
-                <img src={logoAffiche} alt="Logo boutique" className="w-full h-full object-contain" />
-              ) : (
-                <Store className="w-8 h-8 text-gray-300" />
-              )}
+            <div className="w-20 h-20 rounded-full overflow-hidden bg-white flex items-center justify-center border border-gray-200">
+              <img src={logoAffiche} alt="Logo boutique" className="w-4/5 h-4/5 object-contain" />
             </div>
             <label className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer text-sm">
               <Upload className="w-4 h-4" /> Choisir une image
@@ -198,7 +195,7 @@ function BoutiqueSettings() {
 
 export default function Settings() {
   const { utilisateur } = useSettings();
-  const estProprietaire = utilisateur?.is_superuser;
+  const estProprietaire = utilisateur?.est_proprietaire;
   const [sousOnglet, setSousOnglet] = useState('boutique');
 
   const boutonClasse = (val) =>

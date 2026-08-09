@@ -19,15 +19,15 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
-    
-    
+
+
     # Packages tiers
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
 
     # Modules SoraShop (à créer au fil des phases)
+    'tenants',
     'accounts',
     'parametres', # (pour settings de la boutique, renommé pour éviter la collision avec settings.py de Django)
     'categories',
@@ -39,7 +39,11 @@ INSTALLED_APPS = [
     'expenses',
     'reports',
     'dashboard',
-    
+
+    # Placé après nos apps : accounts définit une commande `runserver` personnalisée
+    # (port par défaut fixé à 8001) qui doit avoir priorité sur celle de staticfiles.
+    'django.contrib.staticfiles',
+
 ]
 
 MIDDLEWARE = [
@@ -57,6 +61,10 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5175",
 ]
 
 ROOT_URLCONF = 'sorashop_backend.urls'

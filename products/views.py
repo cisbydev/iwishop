@@ -2,10 +2,11 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+from tenants.mixins import BoutiqueScopedMixin
 from .models import Produit
 from .serializers import ProduitSerializer
 
-class ProduitViewSet(viewsets.ModelViewSet):
+class ProduitViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
     queryset = Produit.objects.all()
     serializer_class = ProduitSerializer
     permission_classes = [IsAuthenticated]

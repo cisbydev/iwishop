@@ -3,6 +3,7 @@ from categories.models import Categorie
 import uuid 
 
 class Produit(models.Model):
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     nom = models.CharField(max_length=150)
     reference = models.CharField(max_length=50, unique=True, blank=True)
     categorie = models.ForeignKey(Categorie, on_delete=models.SET_NULL, null=True, blank=True, related_name='produits')

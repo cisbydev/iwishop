@@ -5,3 +5,4 @@ class DepenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Depense
         fields = '__all__'
+        read_only_fields = ['boutique']

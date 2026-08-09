@@ -11,13 +11,14 @@ class ResumeFinancierView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
+        boutique = request.user.profil.boutique
         # Récupérer les filtres de date optionnels (?date_debut=YYYY-MM-DD&date_fin=YYYY-MM-DD)
         date_debut = request.GET.get('date_debut')
         date_fin = request.GET.get('date_fin')
 
-        ventes_qs = Vente.objects.all()
-        achats_qs = Achat.objects.all()
-        depenses_qs = Depense.objects.all()
+        ventes_qs = Vente.objects.filter(boutique=boutique)
+        achats_qs = Achat.objects.filter(boutique=boutique)
+        depenses_qs = Depense.objects.filter(boutique=boutique)
 
         if date_debut and date_fin:
             ventes_qs = ventes_qs.filter(date_vente__date__range=[date_debut, date_fin])
@@ -49,6 +50,7 @@ class ResumeFinancierView(APIView):
         )
 
         benefice_brut = LigneVente.objects.filter(
+            boutique=boutique,
             vente__in=ventes_qs
         ).aggregate(total=Sum(benefice_ligne_expr))['total'] or 0
 

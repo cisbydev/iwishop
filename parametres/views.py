@@ -9,6 +9,6 @@ class ParametresBoutiqueView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
-        # Récupère toujours le premier objet ou le crée s'il n'existe pas encore
-        obj, created = ParametresBoutique.objects.get_or_create(pk=1)
+        boutique = self.request.user.profil.boutique
+        obj, created = ParametresBoutique.objects.get_or_create(boutique=boutique)
         return obj
