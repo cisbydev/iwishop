@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { setSupportBoutiqueId } from '../services/supportViewState';
@@ -9,6 +9,7 @@ export function SupportViewProvider({ children }) {
   // null = pas de session Vue Support en cours (comportement normal)
   const [session, setSession] = useState(null);
   const location = useLocation();
+  const pathnamePrecedentRef = useRef(location.pathname);
 
   const demarrer = useCallback(async (boutiqueId, boutiqueNom) => {
     await api.post(`tenants/boutiques/${boutiqueId}/vue-support/`);
@@ -31,12 +32,30 @@ export function SupportViewProvider({ children }) {
     setSupportBoutiqueId(session?.boutiqueId ?? null);
   }, [session]);
 
-  // Retour sur l'espace d'administration plateforme = fin de la session
-  // de consultation, qu'on soit passé par le bouton "Quitter" ou non.
+  // Retour sur l'espace d'administration plateforme = fin de la session de
+  // consultation, qu'on soit passé par le bouton "Quitter" ou non (ex:
+  // bouton retour du navigateur, lien direct vers /admin-plateforme).
+  //
+  // Important : on ne se contente PAS de vérifier le pathname courant, on
+  // compare l'ancien pathname (via une ref) au nouveau pour ne détecter
+  // qu'une vraie TRANSITION vers /admin-plateforme. Une simple vérification
+  // du pathname courant provoquait une race avec handleConsulter : au
+  // moment où demarrer() met à jour le contexte (session devient non-null),
+  // le Router peut ne pas avoir encore pris en compte navigate('/') - donc
+  // location.pathname valait encore '/admin-plateforme' l'espace d'un rendu,
+  // ce qui déclenchait un quitter() immédiat et effaçait la session tout
+  // juste créée, avant même que la navigation vers '/' aboutisse.
   useEffect(() => {
-    if (session && location.pathname.startsWith('/admin-plateforme')) {
+    const pathnamePrecedent = pathnamePrecedentRef.current;
+    const vientDarriverSurAdminPlateforme =
+      !pathnamePrecedent.startsWith('/admin-plateforme') &&
+      location.pathname.startsWith('/admin-plateforme');
+
+    if (session && vientDarriverSurAdminPlateforme) {
       quitter();
     }
+
+    pathnamePrecedentRef.current = location.pathname;
   }, [location.pathname, session, quitter]);
 
   return (
