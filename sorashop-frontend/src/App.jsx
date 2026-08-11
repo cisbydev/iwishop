@@ -15,6 +15,8 @@ import Settings from './components/Settings';
 import Sales from './components/Sales';
 import SalesHistory from './components/SalesHistory';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
+import { SupportViewProvider, useSupportView } from './context/SupportViewContext';
+import SupportViewBanner from './components/SupportViewBanner';
 import { LayoutDashboard, Package, Tag, Warehouse, Truck, ShoppingBag, Wallet, FileBarChart, Settings as SettingsIcon, ShoppingCart, History, LogOut } from 'lucide-react';
 import logoParDefaut from './assets/iwishop-logo-removebg-preview.png';
 
@@ -30,8 +32,10 @@ function resoudreUrlLogo(logo) {
 function AppContent({ onLogout }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { parametres } = useSettings();
+  const { quitter: quitterVueSupport } = useSupportView();
 
   const handleLogout = () => {
+    quitterVueSupport();
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     onLogout();
@@ -42,6 +46,7 @@ function AppContent({ onLogout }) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      <SupportViewBanner />
       <header className="bg-white shadow-sm border-b px-6 py-4 flex justify-between items-center">
         <h1 className="text-xl font-bold text-blue-600 flex items-center gap-2">
           <div className="w-7 h-7 rounded-full overflow-hidden bg-white flex items-center justify-center border border-gray-200">
@@ -208,10 +213,12 @@ function AccueilApp() {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<AccueilApp />} />
-      <Route path="/demande-acces" element={<DemandeAccesPage />} />
-      <Route path="/admin-plateforme" element={<AdminPlateformePage />} />
-    </Routes>
+    <SupportViewProvider>
+      <Routes>
+        <Route path="/" element={<AccueilApp />} />
+        <Route path="/demande-acces" element={<DemandeAccesPage />} />
+        <Route path="/admin-plateforme" element={<AdminPlateformePage />} />
+      </Routes>
+    </SupportViewProvider>
   );
 }

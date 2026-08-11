@@ -12,7 +12,12 @@ class TableauDeBordView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        boutique = request.user.profil.boutique
+        support_boutique_id = request.headers.get('X-Support-Boutique')
+        if support_boutique_id and request.user.is_superuser:
+            from tenants.models import Boutique
+            boutique = Boutique.objects.get(pk=support_boutique_id)
+        else:
+            boutique = request.user.profil.boutique
         maintenant = timezone.now()
         aujourd_hui = maintenant.date()
         mois_courant = maintenant.month

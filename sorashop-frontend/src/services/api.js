@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { getSupportBoutiqueId } from './supportViewState';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
 
@@ -16,6 +17,16 @@ api.interceptors.request.use(
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
+
+    // Vue Support : si une session de consultation est active, on ajoute
+    // le header sur TOUTES les requêtes sortantes. Le backend ignore ce
+    // header pour tout utilisateur non-superuser et pour toute méthode
+    // d'écriture - ceci n'est qu'un confort côté client.
+    const supportBoutiqueId = getSupportBoutiqueId();
+    if (supportBoutiqueId) {
+      config.headers['X-Support-Boutique'] = String(supportBoutiqueId);
+    }
+
     return config;
   },
   (error) => Promise.reject(error)

@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { Truck, Plus, Trash2, CheckCircle, History } from 'lucide-react';
 
 export default function Purchases() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const { actif: modeSupport } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
   const [achats, setAchats] = useState([]);
@@ -61,6 +63,7 @@ export default function Purchases() {
 
   const handleAddLigne = (e) => {
     e.preventDefault();
+    if (modeSupport) return;
     const prod = produits.find(p => p.id === parseInt(selectedProduit));
     if (!prod) return;
 
@@ -96,6 +99,7 @@ export default function Purchases() {
   const totalAchat = panier.reduce((acc, item) => acc + item.sous_total, 0);
 
   const handleSubmitAchat = async () => {
+    if (modeSupport) return;
     if (panier.length === 0) {
       alert("Ajoute au moins un produit à l'achat.");
       return;
@@ -204,7 +208,11 @@ export default function Purchases() {
                 </div>
                 <button
                   type="submit"
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  disabled={modeSupport}
+                  title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+                  className={`w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
+                    modeSupport ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
+                  }`}
                 >
                   <Plus className="w-5 h-5" /> Ajouter à l'achat
                 </button>
@@ -240,7 +248,12 @@ export default function Purchases() {
                         <td className="px-4 py-3 text-sm text-gray-500">{item.prix_unitaire_achat} {devise}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-gray-800">{item.sous_total} {devise}</td>
                         <td className="px-4 py-3 text-right">
-                          <button onClick={() => handleRemoveLigne(index)} className="text-red-600 hover:text-red-800">
+                          <button
+                            onClick={() => handleRemoveLigne(index)}
+                            disabled={modeSupport}
+                            title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+                            className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
+                          >
                             <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
@@ -271,9 +284,10 @@ export default function Purchases() {
 
             <button
               onClick={handleSubmitAchat}
-              disabled={panier.length === 0}
+              disabled={panier.length === 0 || modeSupport}
+              title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
               className={`w-full py-3 rounded-lg text-white font-semibold transition ${
-                panier.length === 0 ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+                panier.length === 0 || modeSupport ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
               }`}
             >
               Valider l'Achat

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, Package, Pencil, Trash2 } from 'lucide-react';
 
@@ -17,6 +18,7 @@ const FORM_VIDE = {
 export default function Products() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const { actif: modeSupport } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -131,7 +133,11 @@ export default function Products() {
         <h2 className="text-2xl font-bold text-gray-800">Gestion des Produits & Stocks</h2>
         <button
           onClick={ouvrirAjout}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          disabled={modeSupport}
+          title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+          className={`flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
+            modeSupport ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
+          }`}
         >
           <Plus className="w-5 h-5" /> Ajouter un produit
         </button>
@@ -177,15 +183,17 @@ export default function Products() {
                     <div className="flex justify-end gap-3">
                       <button
                         onClick={() => ouvrirModification(p)}
-                        className="text-blue-600 hover:text-blue-800"
-                        title="Modifier"
+                        disabled={modeSupport}
+                        title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Modifier"}
+                        className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-blue-600 hover:text-blue-800'}
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => handleDelete(p)}
-                        className="text-red-600 hover:text-red-800"
-                        title="Supprimer"
+                        disabled={modeSupport}
+                        title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
+                        className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

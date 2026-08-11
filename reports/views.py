@@ -11,7 +11,12 @@ class ResumeFinancierView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        boutique = request.user.profil.boutique
+        support_boutique_id = request.headers.get('X-Support-Boutique')
+        if support_boutique_id and request.user.is_superuser:
+            from tenants.models import Boutique
+            boutique = Boutique.objects.get(pk=support_boutique_id)
+        else:
+            boutique = request.user.profil.boutique
         # Récupérer les filtres de date optionnels (?date_debut=YYYY-MM-DD&date_fin=YYYY-MM-DD)
         date_debut = request.GET.get('date_debut')
         date_fin = request.GET.get('date_fin')

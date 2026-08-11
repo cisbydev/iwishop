@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
-import { ShieldCheck, CheckCircle, XCircle, Loader2, Copy, Store, Power } from 'lucide-react';
+import { useSupportView } from '../context/SupportViewContext';
+import { ShieldCheck, CheckCircle, XCircle, Loader2, Copy, Store, Power, Search } from 'lucide-react';
 
 function AdminLoginForm({ onLoginSuccess }) {
   const [username, setUsername] = useState('');
@@ -79,6 +81,9 @@ function BoutiquesPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [enCoursId, setEnCoursId] = useState(null);
+  const [enCoursConsultationId, setEnCoursConsultationId] = useState(null);
+  const { demarrer } = useSupportView();
+  const navigate = useNavigate();
 
   const fetchBoutiques = useCallback(async () => {
     setLoading(true);
@@ -110,6 +115,19 @@ function BoutiquesPanel() {
       setError(getErrorMessage(err, "Erreur lors du changement de statut de la boutique."));
     } finally {
       setEnCoursId(null);
+    }
+  };
+
+  const handleConsulter = async (boutique) => {
+    setEnCoursConsultationId(boutique.id);
+    setError('');
+    try {
+      await demarrer(boutique.id, boutique.nom);
+      navigate('/');
+    } catch (err) {
+      setError(getErrorMessage(err, "Erreur lors du démarrage de la Vue Support."));
+    } finally {
+      setEnCoursConsultationId(null);
     }
   };
 
@@ -154,15 +172,27 @@ function BoutiquesPanel() {
                   </td>
                   <td className="p-3 text-gray-500">{new Date(b.date_creation).toLocaleDateString('fr-FR')}</td>
                   <td className="p-3">
-                    <button
-                      onClick={() => handleToggleActif(b)}
-                      disabled={enCoursId === b.id}
-                      className={`flex items-center gap-1 px-3 py-1 rounded-md transition text-xs text-white disabled:opacity-50 ${
-                        b.actif ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
-                      }`}
-                    >
-                      <Power className="w-3 h-3" /> {b.actif ? 'Désactiver' : 'Réactiver'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleToggleActif(b)}
+                        disabled={enCoursId === b.id}
+                        className={`flex items-center gap-1 px-3 py-1 rounded-md transition text-xs text-white disabled:opacity-50 ${
+                          b.actif ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+                        }`}
+                      >
+                        <Power className="w-3 h-3" /> {b.actif ? 'Désactiver' : 'Réactiver'}
+                      </button>
+                      {b.actif && (
+                        <button
+                          onClick={() => handleConsulter(b)}
+                          disabled={enCoursConsultationId === b.id}
+                          className="flex items-center gap-1 px-3 py-1 rounded-md transition text-xs text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50"
+                          title="Consulter les données de cette boutique en lecture seule"
+                        >
+                          <Search className="w-3 h-3" /> Consulter (lecture seule)
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { ShoppingCart, Plus, Trash2, CheckCircle } from 'lucide-react';
 
 export default function Sales() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const { actif: modeSupport } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [panier, setPanier] = useState([]);
   const [selectedProduit, setSelectedProduit] = useState('');
@@ -38,6 +40,7 @@ export default function Sales() {
 
   const handleAddLigne = (e) => {
     e.preventDefault();
+    if (modeSupport) return;
     const prod = produits.find(p => p.id === parseInt(selectedProduit));
     if (!prod) return;
 
@@ -74,6 +77,7 @@ export default function Sales() {
   const montantNet = totalBrut - (parseFloat(remise) || 0);
 
   const handleSubmitVente = async () => {
+    if (modeSupport) return;
     if (panier.length === 0) {
       alert("Le panier est vide.");
       return;
@@ -167,7 +171,11 @@ export default function Sales() {
 
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+              disabled={modeSupport}
+              title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
+                modeSupport ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
+              }`}
             >
               <Plus className="w-5 h-5" /> Ajouter au panier
             </button>
@@ -207,7 +215,9 @@ export default function Sales() {
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => handleRemoveLigne(index)}
-                            className="text-red-600 hover:text-red-800"
+                            disabled={modeSupport}
+                            title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+                            className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -278,9 +288,10 @@ export default function Sales() {
 
             <button
               onClick={handleSubmitVente}
-              disabled={panier.length === 0}
+              disabled={panier.length === 0 || modeSupport}
+              title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
               className={`w-full py-3 rounded-lg text-white font-semibold transition ${
-                panier.length === 0 ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+                panier.length === 0 || modeSupport ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
               }`}
             >
               Valider la Vente

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
+import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { PackagePlus, PackageMinus, ClipboardList, History } from 'lucide-react';
 
@@ -16,6 +17,7 @@ const TYPES_STYLES = {
 };
 
 export default function Stock() {
+  const { actif: modeSupport } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [mouvements, setMouvements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -63,6 +65,7 @@ export default function Stock() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (modeSupport) return;
     try {
       await api.post('inventory/mouvements/', {
         produit: selectedProduit,
@@ -154,8 +157,12 @@ export default function Stock() {
 
             <button
               type="submit"
+              disabled={modeSupport}
+              title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
               className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg transition ${
-                typeMouvement === 'SORTIE' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
+                modeSupport
+                  ? 'bg-gray-300 cursor-not-allowed'
+                  : typeMouvement === 'SORTIE' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'
               }`}
             >
               {typeMouvement === 'SORTIE' ? <PackageMinus className="w-5 h-5" /> : <PackagePlus className="w-5 h-5" />}

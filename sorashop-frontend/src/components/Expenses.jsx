@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, Receipt, Trash2, Wallet } from 'lucide-react';
 
@@ -33,6 +34,7 @@ const FORM_VIDE = {
 export default function Expenses() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const { actif: modeSupport } = useSupportView();
   const [depenses, setDepenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -98,7 +100,11 @@ export default function Expenses() {
         <h2 className="text-2xl font-bold text-gray-800">Gestion des Dépenses</h2>
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          disabled={modeSupport}
+          title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+          className={`flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
+            modeSupport ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
+          }`}
         >
           <Plus className="w-5 h-5" /> Ajouter une dépense
         </button>
@@ -165,8 +171,9 @@ export default function Expenses() {
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                     <button
                       onClick={() => handleDelete(d)}
-                      className="text-red-600 hover:text-red-800"
-                      title="Supprimer"
+                      disabled={modeSupport}
+                      title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
+                      className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

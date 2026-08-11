@@ -34,3 +34,14 @@ class DemandeAcces(models.Model):
 
     def __str__(self):
         return f"{self.nom_boutique_souhaite} ({self.statut})"
+
+class AccesSupport(models.Model):
+    admin = models.ForeignKey(User, on_delete=models.CASCADE, related_name='acces_support')
+    boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name='acces_support')
+    date_acces = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.admin.username} a consulté {self.boutique.nom} le {self.date_acces.strftime('%d/%m/%Y %H:%M')}"
+
+    class Meta:
+        ordering = ['-date_acces']
