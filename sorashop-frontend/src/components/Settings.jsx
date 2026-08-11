@@ -4,7 +4,8 @@ import { getErrorMessage } from '../services/errorUtils';
 import { useSettings } from '../context/SettingsContext';
 import Account from './Account';
 import Employees from './Employees';
-import { Store, Save, Upload, KeyRound, Users } from 'lucide-react';
+import AccesSupportHistorique from './AccesSupportHistorique';
+import { Store, Save, Upload, KeyRound, Users, ShieldCheck } from 'lucide-react';
 import logoParDefaut from '../assets/iwishop-logo-removebg-preview.png';
 
 // Déduit l'URL de base du serveur (sans le "/api/") pour construire l'URL complète du logo
@@ -219,11 +220,15 @@ export default function Settings() {
             <Users className="w-4 h-4" /> Employés
           </button>
         )}
+        <button className={boutonClasse('acces-support')} onClick={() => setSousOnglet('acces-support')}>
+          <ShieldCheck className="w-4 h-4" /> Accès Support
+        </button>
       </div>
 
       {sousOnglet === 'boutique' && <BoutiqueSettings />}
       {sousOnglet === 'compte' && <Account />}
       {sousOnglet === 'employes' && estProprietaire && <Employees />}
+      {sousOnglet === 'acces-support' && <AccesSupportHistorique />}
     </div>
   );
 }

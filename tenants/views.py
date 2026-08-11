@@ -4,9 +4,9 @@ from django.contrib.auth.models import User
 from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from .models import DemandeAcces, Boutique, Profil, AccesSupport
-from .serializers import DemandeAccesSerializer, BoutiqueSerializer
+from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer
 from .permissions import IsPlatformOwner
 from .emails import envoyer_identifiants_email, notifier_nouvelle_demande
 
@@ -145,3 +145,12 @@ class DemarrerVueSupportView(APIView):
             "boutique_id": boutique.id,
             "boutique_nom": boutique.nom,
         }, status=status.HTTP_200_OK)
+
+class MesAccesSupportView(generics.ListAPIView):
+    """Historique des consultations Vue Support subies par SA PROPRE boutique."""
+    serializer_class = AccesSupportSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        boutique = self.request.user.profil.boutique
+        return AccesSupport.objects.filter(boutique=boutique).order_by('-date_acces')

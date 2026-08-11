@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import DemandeAcces, Boutique
+from .models import DemandeAcces, Boutique, AccesSupport
 
 class DemandeAccesSerializer(serializers.ModelSerializer):
     class Meta:
@@ -16,3 +16,10 @@ class BoutiqueSerializer(serializers.ModelSerializer):
 
     def get_nombre_membres(self, obj):
         return obj.membres.count()
+
+class AccesSupportSerializer(serializers.ModelSerializer):
+    admin_username = serializers.ReadOnlyField(source='admin.username')
+
+    class Meta:
+        model = AccesSupport
+        fields = ['id', 'admin_username', 'date_acces']
