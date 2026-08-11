@@ -1,6 +1,7 @@
 from pathlib import Path
 from decouple import config  # <-- nouvelle ligne
 import dj_database_url
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -62,6 +63,11 @@ MIDDLEWARE = [
 # Autoriser les requêtes du frontend (liste définie via la variable d'environnement
 # CORS_ALLOWED_ORIGINS, ex: "http://localhost:5174,https://mon-app.vercel.app")
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=lambda v: [s.strip() for s in v.split(',') if s.strip()])
+
+# La Vue Support ajoute un header custom (X-Support-Boutique) sur les requêtes
+# sortantes du frontend - sans ça, le navigateur bloque la requête au niveau du
+# preflight CORS car ce header n'est pas dans la liste par défaut de corsheaders.
+CORS_ALLOW_HEADERS = list(default_headers) + ['x-support-boutique']
 
 ROOT_URLCONF = 'sorashop_backend.urls'
 
