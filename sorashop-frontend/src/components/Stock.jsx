@@ -17,7 +17,7 @@ const TYPES_STYLES = {
 };
 
 export default function Stock() {
-  const { actif: modeSupport } = useSupportView();
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [mouvements, setMouvements] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +56,7 @@ export default function Stock() {
   useEffect(() => {
     fetchProduits();
     fetchMouvements();
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   const handleFiltreChange = (type) => {
     setFiltreType(type);

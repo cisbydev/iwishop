@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/SupportViewContext';
 import { History, FileText, Calendar } from 'lucide-react';
 
 export default function SalesHistory() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [ventes, setVentes] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -22,7 +24,7 @@ export default function SalesHistory() {
 
   useEffect(() => {
     fetchVentes();
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement de l'historique...</div>;
 

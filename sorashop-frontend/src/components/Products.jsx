@@ -18,7 +18,7 @@ const FORM_VIDE = {
 export default function Products() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
-  const { actif: modeSupport } = useSupportView();
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +55,7 @@ export default function Products() {
   useEffect(() => {
     fetchProduits();
     fetchCategories();
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   const ouvrirAjout = () => {
     setEditingId(null);

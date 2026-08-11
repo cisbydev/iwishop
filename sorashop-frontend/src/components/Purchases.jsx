@@ -8,7 +8,7 @@ import { Truck, Plus, Trash2, CheckCircle, History } from 'lucide-react';
 export default function Purchases() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
-  const { actif: modeSupport } = useSupportView();
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [fournisseurs, setFournisseurs] = useState([]);
   const [achats, setAchats] = useState([]);
@@ -59,7 +59,7 @@ export default function Purchases() {
     fetchProduits();
     fetchFournisseurs();
     fetchAchats();
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   const handleAddLigne = (e) => {
     e.preventDefault();

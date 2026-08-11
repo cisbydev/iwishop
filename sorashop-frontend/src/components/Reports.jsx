@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/SupportViewContext';
 import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer } from 'lucide-react';
 
 function formatDate(d) {
@@ -28,6 +29,7 @@ function getPlagePeriode(periode) {
 export default function Reports() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [periode, setPeriode] = useState('mois');
   const [dateDebut, setDateDebut] = useState(getPlagePeriode('mois').debut);
   const [dateFin, setDateFin] = useState(getPlagePeriode('mois').fin);
@@ -49,7 +51,7 @@ export default function Reports() {
   useEffect(() => {
     fetchResume(dateDebut, dateFin);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   const handlePeriodeRapide = (nouvellePeriode) => {
     setPeriode(nouvellePeriode);

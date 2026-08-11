@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
+import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, Tag, Trash2 } from 'lucide-react';
 
 export default function Categories() {
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -24,7 +26,7 @@ export default function Categories() {
 
   useEffect(() => {
     fetchCategories();
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -59,7 +61,11 @@ export default function Categories() {
         <h2 className="text-2xl font-bold text-gray-800">Gestion des Catégories</h2>
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+          disabled={modeSupport}
+          title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+          className={`flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
+            modeSupport ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
+          }`}
         >
           <Plus className="w-5 h-5" /> Ajouter une catégorie
         </button>
@@ -86,8 +92,9 @@ export default function Categories() {
               </div>
               <button
                 onClick={() => handleDelete(cat.id, cat.nom)}
-                className="text-red-500 hover:text-red-700"
-                title="Supprimer"
+                disabled={modeSupport}
+                title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
+                className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}
               >
                 <Trash2 className="w-4 h-4" />
               </button>

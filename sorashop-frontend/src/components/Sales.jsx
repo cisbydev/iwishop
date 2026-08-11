@@ -8,7 +8,7 @@ import { ShoppingCart, Plus, Trash2, CheckCircle } from 'lucide-react';
 export default function Sales() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
-  const { actif: modeSupport } = useSupportView();
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [panier, setPanier] = useState([]);
   const [selectedProduit, setSelectedProduit] = useState('');
@@ -36,7 +36,7 @@ export default function Sales() {
 
   useEffect(() => {
     fetchProduits();
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   const handleAddLigne = (e) => {
     e.preventDefault();

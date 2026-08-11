@@ -1,16 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/SupportViewContext';
 import { DollarSign, ShoppingBag, AlertTriangle, TrendingUp, Award } from 'lucide-react';
 
 export default function Dashboard() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [kpis, setKpis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    setLoading(true);
+    setError('');
     api.get('dashboard/kpis/')
       .then(response => {
         setKpis(response.data);
@@ -20,7 +24,7 @@ export default function Dashboard() {
         setError('Erreur lors du chargement des indicateurs.');
         setLoading(false);
       });
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement du tableau de bord...</div>;
   if (error) return <div className="p-6 text-center text-red-600">{error}</div>;

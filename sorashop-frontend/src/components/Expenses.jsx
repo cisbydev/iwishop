@@ -34,7 +34,7 @@ const FORM_VIDE = {
 export default function Expenses() {
   const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
-  const { actif: modeSupport } = useSupportView();
+  const { actif: modeSupport, boutiqueId } = useSupportView();
   const [depenses, setDepenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -57,7 +57,7 @@ export default function Expenses() {
 
   useEffect(() => {
     fetchDepenses();
-  }, []);
+  }, [modeSupport, boutiqueId]);
 
   const handleFiltreChange = (categorie) => {
     setFiltreCategorie(categorie);
