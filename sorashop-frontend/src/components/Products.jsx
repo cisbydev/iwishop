@@ -3,7 +3,7 @@ import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
 import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
-import { Plus, Package, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Package, Pencil, Trash2, Search } from 'lucide-react';
 
 const FORM_VIDE = {
   nom: '',
@@ -29,6 +29,12 @@ export default function Products() {
 
   // Formulaire (partagé entre ajout et modification)
   const [form, setForm] = useState(FORM_VIDE);
+
+  const [recherche, setRecherche] = useState('');
+
+  const produitsFiltres = produits.filter((p) =>
+    p.nom.toLowerCase().includes(recherche.toLowerCase())
+  );
 
   const updateForm = (champ, valeur) => setForm(prev => ({ ...prev, [champ]: valeur }));
 
@@ -143,6 +149,17 @@ export default function Products() {
         </button>
       </div>
 
+      <div className="relative max-w-md">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          type="text"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+          placeholder="Rechercher un produit par nom..."
+          className="w-full pl-10 pr-4 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
+        />
+      </div>
+
       {/* Tableau des produits */}
       <div className="bg-white shadow-sm border border-gray-100 rounded-lg overflow-hidden">
         <table className="min-w-full divide-y divide-gray-200">
@@ -159,7 +176,7 @@ export default function Products() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {produits.map((p) => {
+            {produitsFiltres.map((p) => {
               const isRupture = p.quantite_en_stock <= 0;
               const isFaible = p.quantite_en_stock > 0 && p.quantite_en_stock <= p.stock_minimum;
               return (
@@ -204,6 +221,11 @@ export default function Products() {
             })}
           </tbody>
         </table>
+        {produitsFiltres.length === 0 && recherche !== '' && (
+          <p className="text-center text-gray-500 py-8">
+            Aucun produit ne correspond à "{recherche}".
+          </p>
+        )}
       </div>
 
       {/* Modal d'ajout / modification de produit */}
