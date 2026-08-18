@@ -1,8 +1,9 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Sum, F, Case, When, IntegerField, ExpressionWrapper, DecimalField
+from django.db.models import Sum, F, ExpressionWrapper, DecimalField
 from sales.models import LigneVente, Vente
+from sales.utils import unites_reelles_expr
 from purchases.models import Achat
 from expenses.models import Depense
 
@@ -40,17 +41,13 @@ class ResumeFinancierView(APIView):
         total_depenses = depenses_qs.aggregate(total=Sum('montant'))['total'] or 0
 
         # --- Bénéfice brut, calculé directement en base de données ---
-        # Une "douzaine" représente toujours 12 unités : on convertit donc chaque
-        # ligne de vente en nombre d'unités réelles avant de calculer le coût.
-        unites_reelles_expr = Case(
-            When(type_vente='DOUZAINE', then=F('quantite') * 12),
-            default=F('quantite'),
-            output_field=IntegerField()
-        )
+        # Convertit chaque ligne de vente en nombre d'unités réelles via le
+        # facteur de conversion centralisé sur son unité de vente.
+        unites_reelles = unites_reelles_expr()
 
         # Bénéfice d'une ligne = montant vendu (sous_total) - coût d'achat (prix_achat x unités réelles)
         benefice_ligne_expr = ExpressionWrapper(
-            F('sous_total') - F('produit__prix_achat') * unites_reelles_expr,
+            F('sous_total') - F('produit__prix_achat') * unites_reelles,
             output_field=DecimalField(max_digits=14, decimal_places=2)
         )
 

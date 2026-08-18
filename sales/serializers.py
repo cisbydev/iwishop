@@ -2,7 +2,10 @@ from rest_framework import serializers
 from django.db import transaction
 from .models import Vente, LigneVente
 from inventory.models import MouvementStock
+from products.models import UniteVente, ProduitPrix
 from rest_framework.exceptions import ValidationError
+
+NOM_UNITE_PAR_TYPE = {'UNITE': 'Unité', 'DOUZAINE': 'Douzaine'}
 
 class LigneVenteSerializer(serializers.ModelSerializer):
     produit_nom = serializers.ReadOnlyField(source='produit.nom')
@@ -46,10 +49,32 @@ class VenteSerializer(serializers.ModelSerializer):
             produit = ligne_data['produit']
             quantite = ligne_data['quantite']
             type_vente = ligne_data['type_vente']
+            nom_unite = NOM_UNITE_PAR_TYPE[type_vente]
 
-            # Calculer le nombre d'unités réelles à déduire du stock
-            # 1 douzaine = 12 unités
-            unites_a_deduire = quantite * 12 if type_vente == 'DOUZAINE' else quantite
+            try:
+                unite = UniteVente.objects.get(boutique=boutique, nom=nom_unite)
+            except UniteVente.DoesNotExist:
+                raise ValidationError(
+                    f"Aucune unité '{nom_unite}' n'est configurée pour votre boutique. "
+                    f"Contactez le support."
+                )
+
+            try:
+                produit_prix = ProduitPrix.objects.get(produit=produit, unite=unite)
+            except ProduitPrix.DoesNotExist:
+                raise ValidationError(
+                    f"Aucun prix configuré pour '{produit.nom}' en '{nom_unite}'."
+                )
+
+            # Calculer le nombre d'unités réelles à déduire du stock, via le
+            # facteur de conversion centralisé sur l'unité de vente.
+            unites_reelles = quantite * unite.facteur_conversion
+            if unites_reelles != unites_reelles.to_integral_value():
+                raise ValidationError(
+                    f"'{produit.nom}' ne peut pas être vendu en quantité fractionnaire "
+                    f"avec l'unité '{nom_unite}' pour le moment. Utilisez une quantité entière."
+                )
+            unites_a_deduire = int(unites_reelles)
 
             # Règle métier : Vérification stricte du stock disponible
             if produit.quantite_en_stock < unites_a_deduire:
@@ -57,6 +82,11 @@ class VenteSerializer(serializers.ModelSerializer):
                     f"Stock insuffisant pour le produit '{produit.nom}'. "
                     f"Demandé : {unites_a_deduire} unités, Disponible : {produit.quantite_en_stock} unités."
                 )
+
+            # Le prix appliqué est calculé côté serveur depuis ProduitPrix,
+            # jamais depuis la valeur envoyée par le client.
+            ligne_data['unite'] = unite
+            ligne_data['prix_applique'] = produit_prix.prix
 
             # Créer la ligne de vente
             ligne = LigneVente.objects.create(vente=vente, boutique=boutique, **ligne_data)

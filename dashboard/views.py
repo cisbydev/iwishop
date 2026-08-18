@@ -2,8 +2,9 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
-from django.db.models import Sum, F, Case, When, IntegerField, ExpressionWrapper, DecimalField
+from django.db.models import Sum, F, ExpressionWrapper, DecimalField
 from sales.models import Vente, LigneVente
+from sales.utils import unites_reelles_expr
 from products.models import Produit
 from inventory.models import MouvementStock
 
@@ -40,17 +41,13 @@ class TableauDeBordView(APIView):
         } for m in derniers_mouvements]
 
         # --- Calcul du bénéfice ---
-        # Une "douzaine" représente toujours 12 unités : on convertit donc chaque
-        # ligne de vente en nombre d'unités réelles avant de calculer le coût.
-        unites_reelles_expr = Case(
-            When(type_vente='DOUZAINE', then=F('quantite') * 12),
-            default=F('quantite'),
-            output_field=IntegerField()
-        )
+        # Convertit chaque ligne de vente en nombre d'unités réelles via le
+        # facteur de conversion centralisé sur son unité de vente.
+        unites_reelles = unites_reelles_expr()
 
         # Bénéfice d'une ligne = montant vendu (sous_total) - coût d'achat (prix_achat x unités réelles)
         benefice_ligne_expr = ExpressionWrapper(
-            F('sous_total') - F('produit__prix_achat') * unites_reelles_expr,
+            F('sous_total') - F('produit__prix_achat') * unites_reelles,
             output_field=DecimalField(max_digits=14, decimal_places=2)
         )
 
@@ -71,16 +68,19 @@ class TableauDeBordView(APIView):
             .filter(boutique=boutique)
             .values('produit__id', 'produit__nom')
             .annotate(
-                unites_vendues=Sum(unites_reelles_expr),
+                unites_vendues=Sum(unites_reelles),
                 chiffre_affaires=Sum('sous_total')
             )
             .order_by('-unites_vendues')[:5]
         )
 
+        def formater_unites(valeur):
+            return int(valeur) if valeur == valeur.to_integral_value() else float(valeur)
+
         meilleurs_produits = [{
             "produit_id": item['produit__id'],
             "nom": item['produit__nom'],
-            "unites_vendues": item['unites_vendues'],
+            "unites_vendues": formater_unites(item['unites_vendues']),
             "chiffre_affaires": item['chiffre_affaires'],
         } for item in meilleurs_produits_qs]
 

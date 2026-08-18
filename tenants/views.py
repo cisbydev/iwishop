@@ -5,6 +5,7 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from products.models import UniteVente, UNITES_PAR_DEFAUT
 from .models import DemandeAcces, Boutique, Profil, AccesSupport
 from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer
 from .permissions import IsPlatformOwner
@@ -54,6 +55,9 @@ class ApprouverDemandeView(APIView):
             compteur += 1
 
         boutique = Boutique.objects.create(nom=demande.nom_boutique_souhaite, slug=slug)
+
+        for nom, facteur in UNITES_PAR_DEFAUT:
+            UniteVente.objects.get_or_create(boutique=boutique, nom=nom, defaults={'facteur_conversion': facteur})
 
         username_base = demande.email.split('@')[0]
         username = username_base

@@ -52,6 +52,7 @@ class LigneVente(models.Model):
     produit = models.ForeignKey(Produit, on_delete=models.CASCADE, related_name='lignes_vente')
     quantite = models.IntegerField()
     type_vente = models.CharField(max_length=20, choices=TYPES_VENTE, default='UNITE')
+    unite = models.ForeignKey('products.UniteVente', on_delete=models.PROTECT, related_name='lignes_vente')
     prix_applique = models.DecimalField(max_digits=12, decimal_places=2)
     sous_total = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
 

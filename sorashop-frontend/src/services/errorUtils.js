@@ -17,6 +17,12 @@ export function getErrorMessage(err, fallback = "Une erreur est survenue.") {
     return data.non_field_errors.join(' ');
   }
 
+  // DRF renvoie un tableau JSON brut (sans clé) quand une ValidationError
+  // est levée avec une simple chaîne, ex: raise ValidationError("message")
+  if (Array.isArray(data)) {
+    return data.join(' ') || fallback;
+  }
+
   // Cas général : {"champ": ["erreur1", "erreur2"], "autre_champ": [...]}
   const messages = [];
   for (const [champ, valeur] of Object.entries(data)) {
