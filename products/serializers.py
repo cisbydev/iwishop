@@ -30,11 +30,27 @@ class ProduitSerializer(serializers.ModelSerializer):
                 )
 
 
+class CurrentBoutiqueDefault:
+    """Injecte la boutique de l'utilisateur courant, invisible côté client.
+    Nécessaire (pas juste read_only) pour que DRF génère le
+    UniqueTogetherValidator sur (boutique, nom) : un champ read_only sans
+    default n'est jamais inclus dans validated_data ni dans le calcul du
+    validateur (voir ModelSerializer.get_unique_together_validators)."""
+    requires_context = True
+
+    def __call__(self, serializer_field):
+        return serializer_field.context['request'].user.profil.boutique
+
+    def __repr__(self):
+        return '%s()' % self.__class__.__name__
+
+
 class UniteVenteSerializer(serializers.ModelSerializer):
+    boutique = serializers.HiddenField(default=CurrentBoutiqueDefault())
+
     class Meta:
         model = UniteVente
-        fields = ['id', 'nom', 'facteur_conversion']
-        read_only_fields = ['boutique']
+        fields = ['id', 'boutique', 'nom', 'facteur_conversion']
 
 
 class ProduitPrixSerializer(serializers.ModelSerializer):

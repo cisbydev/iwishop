@@ -83,9 +83,12 @@ class VenteSerializer(serializers.ModelSerializer):
                     f"Demandé : {unites_a_deduire} unités, Disponible : {produit.quantite_en_stock} unités."
                 )
 
-            # Le prix appliqué est calculé côté serveur depuis ProduitPrix,
-            # jamais depuis la valeur envoyée par le client.
+            # Le prix et le facteur de conversion sont figés sur la ligne au
+            # moment de la vente (comme prix_applique) : les rapports
+            # historiques ne doivent jamais être recalculés en direct depuis
+            # UniteVente, qui peut être modifiée après coup.
             ligne_data['unite'] = unite
+            ligne_data['facteur_conversion_applique'] = unite.facteur_conversion
             ligne_data['prix_applique'] = produit_prix.prix
 
             # Créer la ligne de vente

@@ -53,6 +53,7 @@ class LigneVente(models.Model):
     quantite = models.IntegerField()
     type_vente = models.CharField(max_length=20, choices=TYPES_VENTE, default='UNITE')
     unite = models.ForeignKey('products.UniteVente', on_delete=models.PROTECT, related_name='lignes_vente')
+    facteur_conversion_applique = models.DecimalField(max_digits=10, decimal_places=3)
     prix_applique = models.DecimalField(max_digits=12, decimal_places=2)
     sous_total = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
 
