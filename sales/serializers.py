@@ -9,10 +9,15 @@ NOM_UNITE_PAR_TYPE = {'UNITE': 'Unité', 'DOUZAINE': 'Douzaine'}
 
 class LigneVenteSerializer(serializers.ModelSerializer):
     produit_nom = serializers.ReadOnlyField(source='produit.nom')
+    unite_nom = serializers.ReadOnlyField(source='unite.nom')
+    # Optionnel : si absent, l'unité est dérivée de type_vente (chemin
+    # historique, compatible avec le frontend actuel). Si présent, elle
+    # prime et permet de vendre en unité personnalisée (Kg, Sac 25kg...).
+    unite = serializers.PrimaryKeyRelatedField(queryset=UniteVente.objects.all(), required=False)
 
     class Meta:
         model = LigneVente
-        fields = ['id', 'produit', 'produit_nom', 'quantite', 'type_vente', 'prix_applique', 'sous_total']
+        fields = ['id', 'produit', 'produit_nom', 'quantite', 'type_vente', 'unite', 'unite_nom', 'prix_applique', 'sous_total']
         read_only_fields = ['sous_total']
 
 class VenteSerializer(serializers.ModelSerializer):
@@ -48,22 +53,44 @@ class VenteSerializer(serializers.ModelSerializer):
         for ligne_data in lignes_data:
             produit = ligne_data['produit']
             quantite = ligne_data['quantite']
-            type_vente = ligne_data['type_vente']
-            nom_unite = NOM_UNITE_PAR_TYPE[type_vente]
+            unite_soumise = ligne_data.pop('unite', None)
 
-            try:
-                unite = UniteVente.objects.get(boutique=boutique, nom=nom_unite)
-            except UniteVente.DoesNotExist:
-                raise ValidationError(
-                    f"Aucune unité '{nom_unite}' n'est configurée pour votre boutique. "
-                    f"Contactez le support."
-                )
+            # Vérification explicite d'appartenance - ne jamais supposer
+            # qu'un produit ou une unité soumis appartiennent à la
+            # boutique de l'appelant (même faille trouvée et corrigée en
+            # Phase 4A pour ProduitPrixViewSet, appliquée ici aussi).
+            if produit.boutique_id != boutique.id:
+                raise ValidationError(f"Le produit '{produit.nom}' n'appartient pas à votre boutique.")
+
+            if unite_soumise is not None:
+                if unite_soumise.boutique_id != boutique.id:
+                    raise ValidationError("L'unité sélectionnée n'appartient pas à votre boutique.")
+                unite = unite_soumise
+                type_vente = {'Unité': 'UNITE', 'Douzaine': 'DOUZAINE'}.get(unite.nom, 'PERSONNALISE')
+            else:
+                # Chemin historique inchangé : dérive l'unité depuis
+                # type_vente, pour rester compatible avec le frontend actuel.
+                type_vente = ligne_data['type_vente']
+                if type_vente not in NOM_UNITE_PAR_TYPE:
+                    raise ValidationError(
+                        f"Merci de préciser une unité pour ce type de vente ('{type_vente}')."
+                    )
+                nom_unite = NOM_UNITE_PAR_TYPE[type_vente]
+                try:
+                    unite = UniteVente.objects.get(boutique=boutique, nom=nom_unite)
+                except UniteVente.DoesNotExist:
+                    raise ValidationError(
+                        f"Aucune unité '{nom_unite}' n'est configurée pour votre boutique. "
+                        f"Contactez le support."
+                    )
+
+            ligne_data['type_vente'] = type_vente
 
             try:
                 produit_prix = ProduitPrix.objects.get(produit=produit, unite=unite)
             except ProduitPrix.DoesNotExist:
                 raise ValidationError(
-                    f"Aucun prix configuré pour '{produit.nom}' en '{nom_unite}'."
+                    f"Aucun prix configuré pour '{produit.nom}' en '{unite.nom}'."
                 )
 
             # Calculer le nombre d'unités réelles à déduire du stock, via le
@@ -72,7 +99,7 @@ class VenteSerializer(serializers.ModelSerializer):
             if unites_reelles != unites_reelles.to_integral_value():
                 raise ValidationError(
                     f"'{produit.nom}' ne peut pas être vendu en quantité fractionnaire "
-                    f"avec l'unité '{nom_unite}' pour le moment. Utilisez une quantité entière."
+                    f"avec l'unité '{unite.nom}' pour le moment. Utilisez une quantité entière."
                 )
             unites_a_deduire = int(unites_reelles)
 

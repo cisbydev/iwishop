@@ -56,7 +56,8 @@ class UniteVenteSerializer(serializers.ModelSerializer):
 
 class ProduitPrixSerializer(serializers.ModelSerializer):
     unite_nom = serializers.ReadOnlyField(source='unite.nom')
+    produit_nom = serializers.ReadOnlyField(source='produit.nom')
 
     class Meta:
         model = ProduitPrix
-        fields = ['id', 'unite', 'unite_nom', 'prix']
+        fields = ['id', 'produit', 'produit_nom', 'unite', 'unite_nom', 'prix']

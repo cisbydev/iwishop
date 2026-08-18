@@ -45,6 +45,7 @@ class LigneVente(models.Model):
     TYPES_VENTE = (
         ('UNITE', 'Unité'),
         ('DOUZAINE', 'Douzaine'),
+        ('PERSONNALISE', 'Personnalisé'),
     )
 
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)

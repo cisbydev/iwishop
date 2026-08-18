@@ -1,12 +1,13 @@
 from django.db.models import ProtectedError
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from tenants.mixins import BoutiqueScopedMixin
 from .models import Produit, UniteVente, ProduitPrix
-from .serializers import ProduitSerializer, UniteVenteSerializer
+from .serializers import ProduitSerializer, UniteVenteSerializer, ProduitPrixSerializer
 
 class ProduitViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
     queryset = Produit.objects.all()
@@ -62,3 +63,32 @@ class UniteVenteViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProduitPrixViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
+    queryset = ProduitPrix.objects.all()
+    serializer_class = ProduitPrixSerializer
+    permission_classes = [IsAuthenticated]
+    boutique_lookup = 'produit__boutique'
+
+    def _verifier_appartenance(self, serializer, boutique):
+        produit = serializer.validated_data.get('produit', getattr(serializer.instance, 'produit', None))
+        if produit.boutique_id != boutique.id:
+            raise PermissionDenied("Ce produit n'appartient pas à votre boutique.")
+        unite = serializer.validated_data.get('unite', getattr(serializer.instance, 'unite', None))
+        if unite.boutique_id != boutique.id:
+            raise PermissionDenied("Cette unité n'appartient pas à votre boutique.")
+
+    def perform_create(self, serializer):
+        boutique = self._boutique_effective()
+        if not boutique.actif:
+            raise PermissionDenied("Cette boutique a été désactivée.")
+        self._verifier_appartenance(serializer, boutique)
+        serializer.save()
+
+    def perform_update(self, serializer):
+        boutique = self._boutique_effective()
+        if not boutique.actif:
+            raise PermissionDenied("Cette boutique a été désactivée.")
+        self._verifier_appartenance(serializer, boutique)
+        serializer.save()

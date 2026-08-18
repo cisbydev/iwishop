@@ -2,6 +2,11 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
 
 class BoutiqueScopedMixin:
+    # Chemin ORM vers la boutique, pour les modèles sans champ `boutique`
+    # direct (ex: ProduitPrix -> 'produit__boutique'). Ne change rien pour
+    # les ViewSets existants, tous scopés par un champ direct.
+    boutique_lookup = 'boutique'
+
     def _boutique_effective(self):
         request = self.request
 
@@ -24,7 +29,7 @@ class BoutiqueScopedMixin:
         boutique = self._boutique_effective()
         if not boutique.actif:
             raise PermissionDenied("Cette boutique a été désactivée.")
-        return super().get_queryset().filter(boutique=boutique)
+        return super().get_queryset().filter(**{self.boutique_lookup: boutique})
 
     def perform_create(self, serializer):
         boutique = self._boutique_effective()

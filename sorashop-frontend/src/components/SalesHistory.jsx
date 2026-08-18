@@ -67,7 +67,7 @@ export default function SalesHistory() {
                       {vente.lignes && vente.lignes.map((ligne, idx) => (
                         <li key={idx} className="text-xs bg-gray-50 p-1.5 rounded border border-gray-100">
                           <span className="font-medium text-gray-800">{ligne.produit_nom || `Produit #${ligne.produit}`}</span> 
-                          {' '}- {ligne.quantite} ({ligne.type_vente}) x {ligne.prix_applique} {devise}
+                          {' '}- {ligne.quantite} ({ligne.unite_nom || ligne.type_vente}) x {ligne.prix_applique} {devise}
                         </li>
                       ))}
                     </ul>
