@@ -50,7 +50,8 @@ class UniteVenteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = UniteVente
-        fields = ['id', 'boutique', 'nom', 'facteur_conversion']
+        fields = ['id', 'boutique', 'nom', 'facteur_conversion', 'est_systeme']
+        read_only_fields = ['est_systeme']
 
 
 class ProduitPrixSerializer(serializers.ModelSerializer):

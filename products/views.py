@@ -23,8 +23,23 @@ class UniteVenteViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
     serializer_class = UniteVenteSerializer
     permission_classes = [IsAuthenticated]
 
+    MESSAGE_UNITE_SYSTEME = (
+        "Cette unité est utilisée par le système, elle ne peut pas être "
+        "renommée ou supprimée."
+    )
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        nouveau_nom = request.data.get('nom')
+        if instance.est_systeme and nouveau_nom is not None and nouveau_nom != instance.nom:
+            return Response({"detail": self.MESSAGE_UNITE_SYSTEME}, status=status.HTTP_400_BAD_REQUEST)
+        return super().update(request, *args, **kwargs)
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+
+        if instance.est_systeme:
+            return Response({"detail": self.MESSAGE_UNITE_SYSTEME}, status=status.HTTP_400_BAD_REQUEST)
 
         nb_prix_lies = ProduitPrix.objects.filter(unite=instance).count()
         if nb_prix_lies > 0 and request.query_params.get('force') != 'true':

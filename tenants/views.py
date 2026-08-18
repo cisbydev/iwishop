@@ -57,7 +57,10 @@ class ApprouverDemandeView(APIView):
         boutique = Boutique.objects.create(nom=demande.nom_boutique_souhaite, slug=slug)
 
         for nom, facteur in UNITES_PAR_DEFAUT:
-            UniteVente.objects.get_or_create(boutique=boutique, nom=nom, defaults={'facteur_conversion': facteur})
+            UniteVente.objects.get_or_create(
+                boutique=boutique, nom=nom,
+                defaults={'facteur_conversion': facteur, 'est_systeme': True}
+            )
 
         username_base = demande.email.split('@')[0]
         username = username_base

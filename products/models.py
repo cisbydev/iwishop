@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.core.validators import MinValueValidator
 from django.db import models
 from categories.models import Categorie
 import uuid
@@ -49,10 +50,19 @@ class Produit(models.Model):
 class UniteVente(models.Model):
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE, related_name='unites_vente')
     nom = models.CharField(max_length=50)  # "Kg", "Sac 25kg", "Douzaine"...
-    facteur_conversion = models.DecimalField(max_digits=10, decimal_places=3)
+    facteur_conversion = models.DecimalField(
+        max_digits=10, decimal_places=3,
+        validators=[MinValueValidator(Decimal('0.001'))]
+    )
     # facteur_conversion = combien d'unités de STOCK (unité de base, en
     # DecimalField) représente une vente de cette unité.
     # Ex: "Kg" = 1.000, "Demi-kg" = 0.500, "Sac 25kg" = 25.000, "Douzaine" = 12.000
+    # est_systeme : "Unité"/"Douzaine" créées par le backfill/onboarding.
+    # Le flux de vente (NOM_UNITE_PAR_TYPE) et _sync_prix les résolvent par
+    # nom - renommer ou supprimer casserait toutes les ventes de ce type
+    # pour la boutique. Verrouillé par UniteVenteViewSet, pas ici : le
+    # facteur_conversion, lui, reste modifiable même sur une unité système.
+    est_systeme = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ['boutique', 'nom']
