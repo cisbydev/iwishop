@@ -10,9 +10,10 @@ export default function Sales() {
   const devise = parametres?.devise || 'FCFA';
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
+  const [prixParUnite, setPrixParUnite] = useState({}); // produitId -> [{ unite_id, unite_nom, prix, facteur_conversion }]
   const [panier, setPanier] = useState([]);
   const [selectedProduit, setSelectedProduit] = useState('');
-  const [typeVente, setTypeVente] = useState('UNITE');
+  const [selectedUniteId, setSelectedUniteId] = useState('');
   const [quantite, setQuantite] = useState(1);
   const [remise, setRemise] = useState(0);
   const [montantPaye, setMontantPaye] = useState('');
@@ -20,6 +21,8 @@ export default function Sales() {
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState('');
 
+  // Recharge uniquement les produits (stock à jour après une vente) sans
+  // retoucher aux prix/unités, qui ne changent pas en cours de session.
   const fetchProduits = async () => {
     try {
       const response = await api.get('produits/');
@@ -27,16 +30,65 @@ export default function Sales() {
       if (response.data.length > 0) {
         setSelectedProduit(response.data[0].id);
       }
-      setLoading(false);
     } catch (err) {
       console.error("Erreur chargement produits", err);
+    }
+  };
+
+  const fetchCatalogue = async () => {
+    try {
+      const [produitsRes, prixRes, unitesRes] = await Promise.all([
+        api.get('produits/'),
+        api.get('produits/prix/'),
+        api.get('produits/unites-vente/'),
+      ]);
+
+      const facteurParUnite = {};
+      unitesRes.data.forEach((u) => {
+        facteurParUnite[u.id] = parseFloat(u.facteur_conversion);
+      });
+
+      const rangUnite = (nom) => (nom === 'Unité' ? 0 : nom === 'Douzaine' ? 1 : 2);
+      const map = {};
+      prixRes.data.forEach((p) => {
+        const facteur = facteurParUnite[p.unite];
+        if (facteur === undefined) return; // unité inconnue : on ignore ce prix par sécurité
+        if (!map[p.produit]) map[p.produit] = [];
+        map[p.produit].push({
+          unite_id: p.unite,
+          unite_nom: p.unite_nom,
+          prix: parseFloat(p.prix),
+          facteur_conversion: facteur,
+        });
+      });
+      Object.values(map).forEach((options) => {
+        options.sort((a, b) => rangUnite(a.unite_nom) - rangUnite(b.unite_nom) || a.unite_nom.localeCompare(b.unite_nom));
+      });
+
+      setProduits(produitsRes.data);
+      setPrixParUnite(map);
+      if (produitsRes.data.length > 0) {
+        setSelectedProduit(produitsRes.data[0].id);
+      }
+    } catch (err) {
+      console.error("Erreur chargement catalogue", err);
+    } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchProduits();
+    fetchCatalogue();
   }, [modeSupport, boutiqueId]);
+
+  const uniteOptions = prixParUnite[parseInt(selectedProduit)] || [];
+  // L'unité choisie par l'utilisateur peut ne plus s'appliquer au produit
+  // qui vient d'être sélectionné (ex: elle n'existe pas pour ce produit) :
+  // on retombe alors sur la première unité disponible, dérivée au rendu
+  // plutôt que synchronisée via un effet.
+  const uniteIdEffectif = uniteOptions.some(u => u.unite_id === parseInt(selectedUniteId))
+    ? parseInt(selectedUniteId)
+    : (uniteOptions[0]?.unite_id ?? '');
 
   const handleAddLigne = (e) => {
     e.preventDefault();
@@ -44,23 +96,38 @@ export default function Sales() {
     const prod = produits.find(p => p.id === parseInt(selectedProduit));
     if (!prod) return;
 
-    // Vérification du stock selon les règles métier
+    const uniteChoisie = uniteOptions.find(u => u.unite_id === uniteIdEffectif);
+    if (!uniteChoisie) {
+      alert("Aucun prix configuré pour ce produit sur l'unité sélectionnée.");
+      return;
+    }
+
     const qteNum = parseInt(quantite);
-    const unitesRequises = typeVente === 'DOUZAINE' ? qteNum * 12 : qteNum;
-    if (unitesRequises > prod.quantite_en_stock) {
+
+    // Nombre réel d'unités de stock à déduire, via le facteur de
+    // conversion de l'unité choisie (même règle que sales/serializers.py).
+    const unitesReellesRaw = qteNum * uniteChoisie.facteur_conversion;
+    const unitesADeduire = Math.round(unitesReellesRaw);
+    if (Math.abs(unitesReellesRaw - unitesADeduire) > 1e-6) {
+      alert(`'${prod.nom}' ne peut pas être vendu en quantité fractionnaire avec l'unité '${uniteChoisie.unite_nom}'. Utilisez une quantité entière compatible.`);
+      return;
+    }
+
+    // Vérification du stock selon les règles métier
+    if (unitesADeduire > prod.quantite_en_stock) {
       alert(`Stock insuffisant ! Stock disponible en unités : ${prod.quantite_en_stock}`);
       return;
     }
 
-    const prixUnitaireApplique = typeVente === 'DOUZAINE' ? prod.prix_douzaine : prod.prix_unitaire;
-    const sousTotal = prixUnitaireApplique * qteNum;
+    const sousTotal = uniteChoisie.prix * qteNum;
 
     const nouvelleLigne = {
       produit_id: prod.id,
       nom: prod.nom,
-      type_vente: typeVente,
+      unite_id: uniteChoisie.unite_id,
+      unite_nom: uniteChoisie.unite_nom,
       quantite: qteNum,
-      prix_unitaire: prixUnitaireApplique,
+      prix_unitaire: uniteChoisie.prix,
       sous_total: sousTotal,
     };
 
@@ -96,7 +163,7 @@ export default function Sales() {
         mode_paiement: modePaiement,
         lignes: panier.map(item => ({
           produit: item.produit_id,
-          type_vente: item.type_vente,
+          unite: item.unite_id,
           quantite: item.quantite,
           prix_applique: item.prix_unitaire,
         }))
@@ -147,14 +214,21 @@ export default function Sales() {
 
             <div>
               <label className="block text-sm font-medium text-gray-700">Type de vente</label>
-              <select
-                value={typeVente}
-                onChange={(e) => setTypeVente(e.target.value)}
-                className="mt-1 w-full p-2 border rounded-md"
-              >
-                <option value="UNITE">À l'unité</option>
-                <option value="DOUZAINE">Par douzaine (12 unités)</option>
-              </select>
+              {uniteOptions.length > 0 ? (
+                <select
+                  value={uniteIdEffectif}
+                  onChange={(e) => setSelectedUniteId(e.target.value)}
+                  className="mt-1 w-full p-2 border rounded-md"
+                >
+                  {uniteOptions.map((u) => (
+                    <option key={u.unite_id} value={u.unite_id}>
+                      {u.unite_nom} ({u.prix} {devise})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-1 text-sm text-red-600">Aucun prix configuré pour ce produit.</p>
+              )}
             </div>
 
             <div>
@@ -171,10 +245,16 @@ export default function Sales() {
 
             <button
               type="submit"
-              disabled={modeSupport}
-              title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+              disabled={modeSupport || uniteOptions.length === 0}
+              title={
+                modeSupport
+                  ? "Action désactivée en Vue Support (lecture seule)"
+                  : uniteOptions.length === 0
+                    ? "Aucun prix configuré pour ce produit"
+                    : undefined
+              }
               className={`w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
-                modeSupport ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
+                modeSupport || uniteOptions.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
               }`}
             >
               <Plus className="w-5 h-5" /> Ajouter au panier
@@ -208,7 +288,7 @@ export default function Sales() {
                     {panier.map((item, index) => (
                       <tr key={index}>
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.nom}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{item.type_vente}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{item.unite_nom}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.quantite}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.prix_unitaire} {devise}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-gray-800">{item.sous_total} {devise}</td>
