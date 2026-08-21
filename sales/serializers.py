@@ -49,9 +49,23 @@ class VenteSerializer(serializers.ModelSerializer):
         vente = Vente.objects.create(boutique=boutique, **validated_data)
 
         montant_total = 0
+        # Une même vente peut contenir plusieurs lignes pour le même
+        # produit (ex: 2 Kg + 1 Sac 25kg du même article). DRF désérialise
+        # chaque ligne indépendamment, donc ligne_data['produit'] est une
+        # instance Python différente par ligne, chacune chargée avec le
+        # stock d'avant-transaction. Sans ce cache, chaque `produit.save()`
+        # écraserait le précédent au lieu de cumuler les déductions (seule
+        # la dernière ligne du panier "survivrait" en base). En réutilisant
+        # la même instance pour un produit donné, les mutations
+        # s'accumulent correctement en mémoire avant chaque save().
+        produits_par_id = {}
 
         for ligne_data in lignes_data:
             produit = ligne_data['produit']
+            if produit.pk in produits_par_id:
+                produit = produits_par_id[produit.pk]
+            else:
+                produits_par_id[produit.pk] = produit
             quantite = ligne_data['quantite']
             unite_soumise = ligne_data.pop('unite', None)
 
