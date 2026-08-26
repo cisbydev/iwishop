@@ -1,4 +1,5 @@
 import secrets
+from django.utils import timezone
 from django.utils.text import slugify
 from django.contrib.auth.models import User
 from rest_framework import generics, status
@@ -161,3 +162,34 @@ class MesAccesSupportView(generics.ListAPIView):
     def get_queryset(self):
         boutique = self.request.user.profil.boutique
         return AccesSupport.objects.filter(boutique=boutique).order_by('-date_acces')
+
+class MonAbonnementView(APIView):
+    """Statut de l'abonnement de la boutique connectée."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        boutique = request.user.profil.boutique
+
+        if not hasattr(boutique, 'abonnement'):
+            return Response({
+                "a_abonnement": False,
+                "formule": None,
+                "date_debut": None,
+                "date_fin": None,
+                "statut": None,
+                "abonnement_valide": True,
+                "jours_restants": None,
+            })
+
+        abonnement = boutique.abonnement
+        jours_restants = (abonnement.date_fin - timezone.localdate()).days
+
+        return Response({
+            "a_abonnement": True,
+            "formule": abonnement.formule.nom,
+            "date_debut": abonnement.date_debut,
+            "date_fin": abonnement.date_fin,
+            "statut": abonnement.statut,
+            "abonnement_valide": boutique.abonnement_valide(),
+            "jours_restants": jours_restants,
+        })

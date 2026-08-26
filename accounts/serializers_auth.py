@@ -11,4 +11,5 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
                     "Ce compte est désactivé. Contacte l'administrateur de la plateforme.",
                     code='boutique_inactive'
                 )
+            data['abonnement_valide'] = user.profil.boutique.abonnement_valide()
         return data

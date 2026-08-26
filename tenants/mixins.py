@@ -25,14 +25,18 @@ class BoutiqueScopedMixin:
 
         return request.user.profil.boutique
 
-    def get_queryset(self):
-        boutique = self._boutique_effective()
+    def _verifier_acces(self, boutique):
         if not boutique.actif:
             raise PermissionDenied("Cette boutique a été désactivée.")
+        if not boutique.abonnement_valide():
+            raise PermissionDenied("Abonnement expiré. Merci de renouveler votre abonnement.")
+
+    def get_queryset(self):
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
         return super().get_queryset().filter(**{self.boutique_lookup: boutique})
 
     def perform_create(self, serializer):
         boutique = self._boutique_effective()
-        if not boutique.actif:
-            raise PermissionDenied("Cette boutique a été désactivée.")
+        self._verifier_acces(boutique)
         serializer.save(boutique=boutique)
