@@ -3,7 +3,7 @@ import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
 import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
-import { Plus, Package, Pencil, Trash2, Search } from 'lucide-react';
+import { Plus, Package, Pencil, Trash2, Search, X } from 'lucide-react';
 
 const FORM_VIDE = {
   nom: '',
@@ -29,6 +29,12 @@ export default function Products() {
 
   // Formulaire (partagé entre ajout et modification)
   const [form, setForm] = useState(FORM_VIDE);
+
+  // Prix par unité personnalisée (en plus des 2 champs Unité/Douzaine ci-dessus)
+  const [unitesPersonnalisees, setUnitesPersonnalisees] = useState([]);
+  const [prixExistants, setPrixExistants] = useState([]); // tous les ProduitPrix de la boutique (pas de filtre serveur par produit)
+  const [lignesPrix, setLignesPrix] = useState([]); // [{ clientId, produitPrixId, unite, uniteNom, prix }]
+  const [lignesPrixOriginales, setLignesPrixOriginales] = useState([]); // snapshot pris à l'ouverture du modal, pour le diff à la sauvegarde
 
   const [recherche, setRecherche] = useState('');
 
@@ -58,14 +64,36 @@ export default function Products() {
     }
   };
 
+  const fetchUnitesVente = async () => {
+    try {
+      const response = await api.get('produits/unites-vente/');
+      setUnitesPersonnalisees(response.data.filter((u) => !u.est_systeme));
+    } catch (err) {
+      console.error("Erreur chargement unités de vente", err);
+    }
+  };
+
+  const fetchPrix = async () => {
+    try {
+      const response = await api.get('produits/prix/');
+      setPrixExistants(response.data);
+    } catch (err) {
+      console.error("Erreur chargement prix par unité", err);
+    }
+  };
+
   useEffect(() => {
     fetchProduits();
     fetchCategories();
+    fetchUnitesVente();
+    fetchPrix();
   }, [modeSupport, boutiqueId]);
 
   const ouvrirAjout = () => {
     setEditingId(null);
     setForm(FORM_VIDE);
+    setLignesPrix([]);
+    setLignesPrixOriginales([]);
     setShowModal(true);
   };
 
@@ -80,6 +108,17 @@ export default function Products() {
       quantiteStock: p.quantite_en_stock,
       stockMinimum: p.stock_minimum,
     });
+    const lignesExistantes = prixExistants
+      .filter((pp) => pp.produit === p.id && unitesPersonnalisees.some((u) => u.id === pp.unite))
+      .map((pp) => ({
+        clientId: `existing-${pp.id}`,
+        produitPrixId: pp.id,
+        unite: pp.unite,
+        uniteNom: pp.unite_nom,
+        prix: pp.prix,
+      }));
+    setLignesPrix(lignesExistantes);
+    setLignesPrixOriginales(lignesExistantes);
     setShowModal(true);
   };
 
@@ -87,10 +126,38 @@ export default function Products() {
     setShowModal(false);
     setEditingId(null);
     setForm(FORM_VIDE);
+    setLignesPrix([]);
+    setLignesPrixOriginales([]);
+  };
+
+  const unitesDisponiblesPour = (clientId) => {
+    const utilisees = new Set(lignesPrix.filter((l) => l.clientId !== clientId).map((l) => l.unite));
+    return unitesPersonnalisees.filter((u) => !utilisees.has(u.id));
+  };
+
+  const ajouterLignePrix = () => {
+    setLignesPrix((prev) => [
+      ...prev,
+      { clientId: `new-${Date.now()}-${Math.random()}`, produitPrixId: null, unite: '', uniteNom: '', prix: '' },
+    ]);
+  };
+
+  const updateLignePrix = (clientId, champ, valeur) => {
+    setLignesPrix((prev) => prev.map((l) => (l.clientId === clientId ? { ...l, [champ]: valeur } : l)));
+  };
+
+  const retirerLignePrix = (clientId) => {
+    setLignesPrix((prev) => prev.filter((l) => l.clientId !== clientId));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const ligneIncomplete = lignesPrix.some((l) => !l.unite || l.prix === '' || l.prix === null);
+    if (ligneIncomplete) {
+      alert("Chaque ligne de prix personnalisé doit avoir une unité et un prix renseignés. Complète-la ou retire-la avant d'enregistrer.");
+      return;
+    }
 
     const payload = {
       nom: form.nom,
@@ -103,15 +170,50 @@ export default function Products() {
     };
 
     try {
+      let produitId = editingId;
       if (editingId) {
         // Modification d'un produit existant
         await api.put(`produits/${editingId}/`, payload);
       } else {
         // Création d'un nouveau produit
-        await api.post('produits/', payload);
+        const response = await api.post('produits/', payload);
+        produitId = response.data.id;
       }
+
+      // Synchronise les prix par unité personnalisée : nouvelles lignes -> POST,
+      // lignes existantes toujours présentes -> PATCH (idempotent, même si le
+      // prix n'a pas changé), lignes retirées par le commerçant -> DELETE.
+      const nouvelles = lignesPrix.filter((l) => !l.produitPrixId);
+      const conservees = lignesPrix.filter((l) => l.produitPrixId);
+      const idsConserves = new Set(conservees.map((l) => l.produitPrixId));
+      const supprimees = lignesPrixOriginales.filter((l) => !idsConserves.has(l.produitPrixId));
+
+      const erreursPrix = [];
+      await Promise.all([
+        ...nouvelles.map((l) =>
+          api.post('produits/prix/', { produit: produitId, unite: l.unite, prix: l.prix })
+            .catch((err) => erreursPrix.push(`${l.uniteNom || 'unité'} : ${getErrorMessage(err)}`))
+        ),
+        ...conservees.map((l) =>
+          api.patch(`produits/prix/${l.produitPrixId}/`, { prix: l.prix })
+            .catch((err) => erreursPrix.push(`${l.uniteNom || 'unité'} : ${getErrorMessage(err)}`))
+        ),
+        ...supprimees.map((l) =>
+          api.delete(`produits/prix/${l.produitPrixId}/`)
+            .catch((err) => erreursPrix.push(`${l.uniteNom || 'unité'} : ${getErrorMessage(err)}`))
+        ),
+      ]);
+
+      if (erreursPrix.length > 0) {
+        alert(
+          "Le produit a été enregistré, mais certains prix par unité personnalisée n'ont pas pu être synchronisés :\n"
+          + erreursPrix.join('\n')
+        );
+      }
+
       fermerModal();
       fetchProduits();
+      fetchPrix();
     } catch (err) {
       alert(getErrorMessage(err, editingId
         ? "Erreur lors de la modification du produit."
@@ -231,7 +333,7 @@ export default function Products() {
       {/* Modal d'ajout / modification de produit */}
       {showModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold text-gray-800 mb-4">
               {editingId ? 'Modifier le produit' : 'Ajouter un nouveau produit'}
             </h3>
@@ -323,6 +425,68 @@ export default function Products() {
                   required
                 />
               </div>
+
+              <div className="pt-2 border-t">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Prix par unité personnalisée</label>
+                {unitesPersonnalisees.length === 0 ? (
+                  <p className="text-xs text-gray-500">
+                    Aucune unité personnalisée disponible — crée-les dans Paramètres &gt; Unités de vente.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {lignesPrix.map((ligne) => (
+                      <div key={ligne.clientId} className="flex items-center gap-2">
+                        {ligne.produitPrixId ? (
+                          <span className="flex-1 p-2 text-sm text-gray-700 bg-gray-50 border rounded-md">
+                            {ligne.uniteNom}
+                          </span>
+                        ) : (
+                          <select
+                            value={ligne.unite}
+                            onChange={(e) => updateLignePrix(ligne.clientId, 'unite', Number(e.target.value) || '')}
+                            className="flex-1 p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="">— Choisir une unité —</option>
+                            {unitesDisponiblesPour(ligne.clientId).map((u) => (
+                              <option key={u.id} value={u.id}>{u.nom}</option>
+                            ))}
+                          </select>
+                        )}
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={ligne.prix}
+                          onChange={(e) => updateLignePrix(ligne.clientId, 'prix', e.target.value)}
+                          placeholder="Prix"
+                          className="w-28 p-2 border rounded-md"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => retirerLignePrix(ligne.clientId)}
+                          className="text-gray-400 hover:text-red-600"
+                          title="Retirer cette ligne"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={ajouterLignePrix}
+                      disabled={unitesDisponiblesPour(null).length === 0}
+                      className={`flex items-center gap-1 text-sm font-medium ${
+                        unitesDisponiblesPour(null).length === 0
+                          ? 'text-gray-300 cursor-not-allowed'
+                          : 'text-blue-600 hover:text-blue-800'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4" /> Ajouter un prix
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-end gap-3 mt-6">
                 <button
                   type="button"
