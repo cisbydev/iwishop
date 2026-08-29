@@ -202,8 +202,15 @@ class MonAbonnementView(APIView):
         abonnement = boutique.abonnement
         jours_restants = info["jours_restants"]
 
+        logger.warning(
+            "[DEBUG-J3] boutique=%s(id=%s) jours_restants=%s alerte_envoyee=%s condition=%s",
+            boutique.nom, boutique.id, jours_restants, abonnement.alerte_envoyee,
+            jours_restants <= 3 and not abonnement.alerte_envoyee,
+        )
+
         if jours_restants <= 3 and not abonnement.alerte_envoyee:
             maj = Abonnement.objects.filter(pk=abonnement.pk, alerte_envoyee=False).update(alerte_envoyee=True)
+            logger.warning("[DEBUG-J3] update conditionnel (CAS) a affecté %s ligne(s)", maj)
             if maj:
                 proprietaire = Profil.objects.filter(
                     boutique=boutique, est_proprietaire=True
