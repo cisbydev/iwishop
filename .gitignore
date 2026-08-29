@@ -75,3 +75,7 @@ desktop.ini
 # Fichiers temporaires
 *.tmp
 *.bak
+
+# Dumps et exports de base de données (jamais versionnés, contiennent des données réelles)
+*.dump
+*.sql
