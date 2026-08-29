@@ -10,6 +10,7 @@ export default function Purchases() {
   const devise = parametres?.devise || 'FCFA';
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
+  const [unitesParProduit, setUnitesParProduit] = useState({}); // produitId -> [{ unite_id, unite_nom, facteur_conversion }]
   const [fournisseurs, setFournisseurs] = useState([]);
   const [achats, setAchats] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -19,11 +20,14 @@ export default function Purchases() {
   const [panier, setPanier] = useState([]);
 
   const [selectedProduit, setSelectedProduit] = useState('');
+  const [selectedUniteId, setSelectedUniteId] = useState('');
   const [quantite, setQuantite] = useState(1);
   const [prixUnitaire, setPrixUnitaire] = useState('');
 
   const [successMessage, setSuccessMessage] = useState('');
 
+  // Recharge uniquement les produits (stock à jour après un achat) sans
+  // retoucher aux unités, qui ne changent pas en cours de session.
   const fetchProduits = async () => {
     try {
       const response = await api.get('produits/');
@@ -31,6 +35,50 @@ export default function Purchases() {
       if (response.data.length > 0) setSelectedProduit(response.data[0].id);
     } catch (err) {
       console.error("Erreur chargement produits", err);
+    }
+  };
+
+  const fetchCatalogue = async () => {
+    try {
+      const [produitsRes, prixRes, unitesRes] = await Promise.all([
+        api.get('produits/'),
+        api.get('produits/prix/'),
+        api.get('produits/unites-vente/'),
+      ]);
+
+      const facteurParUnite = {};
+      unitesRes.data.forEach((u) => {
+        facteurParUnite[u.id] = parseFloat(u.facteur_conversion);
+      });
+
+      // Les unités disponibles à l'achat pour un produit sont les mêmes
+      // que celles configurées pour sa vente (ProduitPrix) : c'est la
+      // liste des unités pertinentes pour ce produit, indépendamment du
+      // prix de vente qui y est attaché (non utilisé ici, l'achat a son
+      // propre prix négocié).
+      const rangUnite = (nom) => (nom === 'Unité' ? 0 : nom === 'Douzaine' ? 1 : 2);
+      const map = {};
+      prixRes.data.forEach((p) => {
+        const facteur = facteurParUnite[p.unite];
+        if (facteur === undefined) return; // unité inconnue : on ignore par sécurité
+        if (!map[p.produit]) map[p.produit] = [];
+        map[p.produit].push({
+          unite_id: p.unite,
+          unite_nom: p.unite_nom,
+          facteur_conversion: facteur,
+        });
+      });
+      Object.values(map).forEach((options) => {
+        options.sort((a, b) => rangUnite(a.unite_nom) - rangUnite(b.unite_nom) || a.unite_nom.localeCompare(b.unite_nom));
+      });
+
+      setProduits(produitsRes.data);
+      setUnitesParProduit(map);
+      if (produitsRes.data.length > 0) setSelectedProduit(produitsRes.data[0].id);
+    } catch (err) {
+      console.error("Erreur chargement catalogue", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -48,24 +96,36 @@ export default function Purchases() {
     try {
       const response = await api.get('achats/');
       setAchats(response.data);
-      setLoading(false);
     } catch (err) {
       console.error("Erreur chargement achats", err);
-      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchProduits();
+    fetchCatalogue();
     fetchFournisseurs();
     fetchAchats();
   }, [modeSupport, boutiqueId]);
+
+  const uniteOptions = unitesParProduit[parseInt(selectedProduit)] || [];
+  // Même logique de repli qu'en Vente : si l'unité choisie ne s'applique
+  // plus au produit sélectionné, on retombe sur la première disponible.
+  const uniteIdEffectif = uniteOptions.some(u => u.unite_id === parseInt(selectedUniteId))
+    ? parseInt(selectedUniteId)
+    : (uniteOptions[0]?.unite_id ?? '');
+  const uniteChoisieCourante = uniteOptions.find(u => u.unite_id === uniteIdEffectif);
 
   const handleAddLigne = (e) => {
     e.preventDefault();
     if (modeSupport) return;
     const prod = produits.find(p => p.id === parseInt(selectedProduit));
     if (!prod) return;
+
+    const uniteChoisie = uniteOptions.find(u => u.unite_id === uniteIdEffectif);
+    if (!uniteChoisie) {
+      alert("Aucune unité configurée pour ce produit.");
+      return;
+    }
 
     const qte = parseInt(quantite);
     const prix = parseFloat(prixUnitaire);
@@ -79,9 +139,20 @@ export default function Purchases() {
       return;
     }
 
+    // Nombre réel d'unités de stock à ajouter, via le facteur de
+    // conversion de l'unité choisie (même règle que purchases/serializers.py).
+    const unitesReellesRaw = qte * uniteChoisie.facteur_conversion;
+    const unitesAAjouter = Math.round(unitesReellesRaw);
+    if (Math.abs(unitesReellesRaw - unitesAAjouter) > 1e-6) {
+      alert(`'${prod.nom}' ne peut pas être acheté en quantité fractionnaire avec l'unité '${uniteChoisie.unite_nom}'. Utilisez une quantité entière compatible.`);
+      return;
+    }
+
     const nouvelleLigne = {
       produit_id: prod.id,
       nom: prod.nom,
+      unite_id: uniteChoisie.unite_id,
+      unite_nom: uniteChoisie.unite_nom,
       quantite: qte,
       prix_unitaire_achat: prix,
       sous_total: qte * prix,
@@ -115,6 +186,7 @@ export default function Purchases() {
         notes: notes || null,
         lignes: panier.map(item => ({
           produit: item.produit_id,
+          unite: item.unite_id,
           quantite: item.quantite,
           prix_unitaire_achat: item.prix_unitaire_achat,
         })),
@@ -183,6 +255,22 @@ export default function Purchases() {
                   </select>
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700">Unité</label>
+                  {uniteOptions.length > 0 ? (
+                    <select
+                      value={uniteIdEffectif}
+                      onChange={(e) => setSelectedUniteId(e.target.value)}
+                      className="mt-1 w-full p-2 border rounded-md"
+                    >
+                      {uniteOptions.map((u) => (
+                        <option key={u.unite_id} value={u.unite_id}>{u.unite_nom}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="mt-1 text-sm text-red-600">Aucune unité configurée pour ce produit.</p>
+                  )}
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700">Quantité</label>
                   <input
                     type="number"
@@ -194,7 +282,9 @@ export default function Purchases() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Prix d'achat unitaire</label>
+                  <label className="block text-sm font-medium text-gray-700">
+                    Prix d'achat par {uniteChoisieCourante?.unite_nom || 'unité'}
+                  </label>
                   <input
                     type="number"
                     step="0.01"
@@ -208,10 +298,16 @@ export default function Purchases() {
                 </div>
                 <button
                   type="submit"
-                  disabled={modeSupport}
-                  title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
+                  disabled={modeSupport || uniteOptions.length === 0}
+                  title={
+                    modeSupport
+                      ? "Action désactivée en Vue Support (lecture seule)"
+                      : uniteOptions.length === 0
+                        ? "Aucune unité configurée pour ce produit"
+                        : undefined
+                  }
                   className={`w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
-                    modeSupport ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
+                    modeSupport || uniteOptions.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
                   }`}
                 >
                   <Plus className="w-5 h-5" /> Ajouter à l'achat
@@ -234,6 +330,7 @@ export default function Purchases() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Produit</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Unité</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Qté</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Prix Achat U.</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sous-total</th>
@@ -244,6 +341,7 @@ export default function Purchases() {
                     {panier.map((item, index) => (
                       <tr key={index}>
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.nom}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{item.unite_nom}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.quantite}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.prix_unitaire_achat} {devise}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-gray-800">{item.sous_total} {devise}</td>
@@ -329,7 +427,7 @@ export default function Purchases() {
                         {a.lignes && a.lignes.map((ligne, idx) => (
                           <li key={idx} className="text-xs bg-gray-50 p-1.5 rounded border border-gray-100">
                             <span className="font-medium text-gray-800">{ligne.produit_nom}</span>
-                            {' '}- {ligne.quantite} x {ligne.prix_unitaire_achat} {devise}
+                            {' '}- {ligne.quantite} ({ligne.unite_nom}) x {ligne.prix_unitaire_achat} {devise}
                           </li>
                         ))}
                       </ul>
