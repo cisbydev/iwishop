@@ -6,8 +6,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from products.models import UniteVente, UNITES_PAR_DEFAUT
-from .models import DemandeAcces, Boutique, Profil, AccesSupport, Abonnement
-from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer
+from .models import DemandeAcces, Boutique, Profil, AccesSupport, Abonnement, FormuleAbonnement
+from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer, FormuleAbonnementSerializer
 from .permissions import IsPlatformOwner
 from .emails import envoyer_identifiants_email, notifier_nouvelle_demande, envoyer_alerte_expiration_email
 
@@ -161,6 +161,12 @@ class MesAccesSupportView(generics.ListAPIView):
     def get_queryset(self):
         boutique = self.request.user.profil.boutique
         return AccesSupport.objects.filter(boutique=boutique).order_by('-date_acces')
+
+class FormuleAbonnementListView(generics.ListAPIView):
+    """Liste des formules d'abonnement actives, ouverte à tout utilisateur connecté."""
+    queryset = FormuleAbonnement.objects.filter(actif=True)
+    serializer_class = FormuleAbonnementSerializer
+    permission_classes = [IsAuthenticated]
 
 class MonAbonnementView(APIView):
     """Statut de l'abonnement de la boutique connectée.

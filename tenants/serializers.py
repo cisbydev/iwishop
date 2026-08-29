@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import DemandeAcces, Boutique, AccesSupport
+from .models import DemandeAcces, Boutique, AccesSupport, FormuleAbonnement
 
 class DemandeAccesSerializer(serializers.ModelSerializer):
     class Meta:
@@ -35,6 +35,11 @@ class BoutiqueSerializer(serializers.ModelSerializer):
 
     def get_date_fin(self, obj):
         return obj.info_abonnement()['date_fin']
+
+class FormuleAbonnementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FormuleAbonnement
+        fields = ['id', 'nom', 'duree_jours', 'prix']
 
 class AccesSupportSerializer(serializers.ModelSerializer):
     admin_username = serializers.ReadOnlyField(source='admin.username')

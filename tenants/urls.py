@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     DemandeAccesCreateView, DemandeAccesListView, ApprouverDemandeView, RejeterDemandeView,
     BoutiqueListView, ToggleBoutiqueActifView, DemarrerVueSupportView, MesAccesSupportView,
-    MonAbonnementView,
+    MonAbonnementView, FormuleAbonnementListView,
 )
 
 urlpatterns = [
@@ -15,4 +15,5 @@ urlpatterns = [
     path('boutiques/<int:boutique_id>/vue-support/', DemarrerVueSupportView.as_view(), name='vue-support'),
     path('mes-acces-support/', MesAccesSupportView.as_view(), name='mes-acces-support'),
     path('mon-abonnement/', MonAbonnementView.as_view(), name='mon-abonnement'),
+    path('formules-abonnement/', FormuleAbonnementListView.as_view(), name='formules-abonnement'),
 ]

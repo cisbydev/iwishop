@@ -6,7 +6,8 @@ import Account from './Account';
 import Employees from './Employees';
 import AccesSupportHistorique from './AccesSupportHistorique';
 import UnitesVente from './UnitesVente';
-import { Store, Save, Upload, KeyRound, Users, ShieldCheck, Ruler } from 'lucide-react';
+import MonAbonnement from './MonAbonnement';
+import { Store, Save, Upload, KeyRound, Users, ShieldCheck, Ruler, CreditCard } from 'lucide-react';
 import logoParDefaut from '../assets/iwishop-logo-removebg-preview.png';
 
 // Déduit l'URL de base du serveur (sans le "/api/") pour construire l'URL complète du logo
@@ -227,6 +228,9 @@ export default function Settings() {
         <button className={boutonClasse('acces-support')} onClick={() => setSousOnglet('acces-support')}>
           <ShieldCheck className="w-4 h-4" /> Accès Support
         </button>
+        <button className={boutonClasse('abonnement')} onClick={() => setSousOnglet('abonnement')}>
+          <CreditCard className="w-4 h-4" /> Mon Abonnement
+        </button>
       </div>
 
       {sousOnglet === 'boutique' && <BoutiqueSettings />}
@@ -234,6 +238,7 @@ export default function Settings() {
       {sousOnglet === 'employes' && estProprietaire && <Employees />}
       {sousOnglet === 'unites-vente' && <UnitesVente />}
       {sousOnglet === 'acces-support' && <AccesSupportHistorique />}
+      {sousOnglet === 'abonnement' && <MonAbonnement />}
     </div>
   );
 }
