@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Boutique, Profil, DemandeAcces, AccesSupport, FormuleAbonnement, Abonnement
+from .models import Boutique, Profil, DemandeAcces, AccesSupport, FormuleAbonnement, Abonnement, PaiementAbonnement
 
 admin.site.register(Boutique)
 admin.site.register(Profil)
@@ -19,3 +19,9 @@ class AbonnementAdmin(admin.ModelAdmin):
     list_display = ['boutique', 'formule', 'date_debut', 'date_fin', 'statut', 'alerte_envoyee']
     list_filter = ['statut']
     search_fields = ['boutique__nom']
+
+@admin.register(PaiementAbonnement)
+class PaiementAbonnementAdmin(admin.ModelAdmin):
+    list_display = ['boutique', 'formule', 'statut', 'invoice_token', 'date_creation']
+    list_filter = ['statut']
+    search_fields = ['boutique__nom', 'invoice_token']

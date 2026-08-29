@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import Login from './components/Login';
 import DemandeAccesPage from './components/DemandeAccesPage';
 import AdminPlateformePage from './components/AdminPlateformePage';
+import RetourPaiement from './components/RetourPaiement';
 import Dashboard from './components/Dashboard';
 import Products from './components/Products';
 import Categories from './components/Categories';
@@ -220,6 +221,7 @@ export default function App() {
         <Route path="/" element={<AccueilApp />} />
         <Route path="/demande-acces" element={<DemandeAccesPage />} />
         <Route path="/admin-plateforme" element={<AdminPlateformePage />} />
+        <Route path="/abonnement/retour" element={<RetourPaiement />} />
       </Routes>
     </SupportViewProvider>
   );

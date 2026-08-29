@@ -1,3 +1,4 @@
+import logging
 import secrets
 from django.utils.text import slugify
 from django.contrib.auth.models import User
@@ -6,10 +7,14 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from products.models import UniteVente, UNITES_PAR_DEFAUT
-from .models import DemandeAcces, Boutique, Profil, AccesSupport, Abonnement, FormuleAbonnement
+from .models import DemandeAcces, Boutique, Profil, AccesSupport, Abonnement, FormuleAbonnement, PaiementAbonnement
 from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer, FormuleAbonnementSerializer
 from .permissions import IsPlatformOwner
 from .emails import envoyer_identifiants_email, notifier_nouvelle_demande, envoyer_alerte_expiration_email
+from . import paydunya
+from .services import confirmer_paiement
+
+logger = logging.getLogger(__name__)
 
 class DemandeAccesCreateView(generics.CreateAPIView):
     """Formulaire public : n'importe qui peut soumettre une demande."""
@@ -221,3 +226,70 @@ class MonAbonnementView(APIView):
             "abonnement_valide": boutique.abonnement_valide(),
             "jours_restants": jours_restants,
         })
+
+class CreerPaiementView(APIView):
+    """Crée une facture PayDunya pour la formule choisie et renvoie l'URL de
+    paiement vers laquelle rediriger le frontend."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        formule_id = request.data.get('formule_id')
+        try:
+            formule = FormuleAbonnement.objects.get(pk=formule_id, actif=True)
+        except (FormuleAbonnement.DoesNotExist, ValueError, TypeError):
+            return Response({"detail": "Formule introuvable."}, status=status.HTTP_404_NOT_FOUND)
+
+        boutique = request.user.profil.boutique
+        paiement = PaiementAbonnement.objects.create(boutique=boutique, formule=formule)
+
+        ok, resultat = paydunya.creer_facture(paiement)
+        if not ok:
+            paiement.statut = 'ECHEC'
+            paiement.save(update_fields=['statut'])
+            return Response(
+                {"detail": "Impossible de créer le paiement pour le moment."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        paiement.invoice_token = resultat['token']
+        paiement.save(update_fields=['invoice_token'])
+
+        return Response({"url_paiement": resultat['url']})
+
+class PaydunyaWebhookView(APIView):
+    """Réception de l'IPN PayDunya. PUBLIC (PayDunya ne peut pas s'authentifier
+    avec un JWT utilisateur) - la sécurité repose sur : 1) le hash reçu, un
+    premier filtre rapide, et surtout 2) un rappel serveur-à-serveur vers
+    PayDunya (confirmer_facture) qui seul fait foi pour créditer un abonnement.
+    Le contenu du POST entrant n'est JAMAIS utilisé pour la décision métier."""
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request, *args, **kwargs):
+        hash_recu = request.POST.get('data[hash]', '')
+        if not paydunya.hash_valide(hash_recu):
+            logger.warning("Webhook PayDunya rejeté : hash invalide.")
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        token = request.POST.get('data[invoice][token]', '')
+        paiement_id = request.POST.get('data[custom_data][paiement_id]', '')
+
+        if not token or not paiement_id:
+            logger.warning("Webhook PayDunya rejeté : token ou paiement_id manquant.")
+            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+        statut_reel = paydunya.confirmer_facture(token)
+        if statut_reel != 'completed':
+            # Accusé de réception : PENDING/CANCELLED ne sont pas des erreurs,
+            # juste rien à créditer pour l'instant.
+            return Response(status=status.HTTP_200_OK)
+
+        try:
+            paiement = PaiementAbonnement.objects.get(pk=paiement_id, invoice_token=token)
+        except (PaiementAbonnement.DoesNotExist, ValueError):
+            logger.error("Webhook PayDunya : paiement introuvable pour id=%s token=%s", paiement_id, token)
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        confirmer_paiement(paiement.id)
+
+        return Response(status=status.HTTP_200_OK)

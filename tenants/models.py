@@ -105,3 +105,20 @@ class Abonnement(models.Model):
             if ancienne_date_fin and self.date_fin > ancienne_date_fin:
                 self.alerte_envoyee = False
         super().save(*args, **kwargs)
+
+class PaiementAbonnement(models.Model):
+    """Référence temporaire créée avant l'appel à PayDunya, pour relier le
+    webhook de confirmation à la bonne boutique/formule une fois reçu."""
+    STATUTS = (
+        ('EN_ATTENTE', 'En attente'),
+        ('CONFIRME', 'Confirmé'),
+        ('ECHEC', 'Échec'),
+    )
+    boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name='paiements_abonnement')
+    formule = models.ForeignKey(FormuleAbonnement, on_delete=models.PROTECT)
+    invoice_token = models.CharField(max_length=100, blank=True, default='')
+    statut = models.CharField(max_length=20, choices=STATUTS, default='EN_ATTENTE')
+    date_creation = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.boutique.nom} - {self.formule.nom} ({self.statut})"

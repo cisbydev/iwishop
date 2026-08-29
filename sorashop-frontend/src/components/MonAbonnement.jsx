@@ -36,6 +36,8 @@ export default function MonAbonnement() {
   const [info, setInfo] = useState(null);
   const [formules, setFormules] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [formuleEnCours, setFormuleEnCours] = useState(null);
+  const [erreur, setErreur] = useState('');
 
   useEffect(() => {
     Promise.all([
@@ -50,8 +52,17 @@ export default function MonAbonnement() {
       .finally(() => setLoading(false));
   }, []);
 
-  const choisirFormule = () => {
-    alert('Le paiement en ligne arrive bientôt !');
+  const choisirFormule = (formule) => {
+    setErreur('');
+    setFormuleEnCours(formule.id);
+    api.post('tenants/creer-paiement/', { formule_id: formule.id })
+      .then((res) => {
+        window.location.href = res.data.url_paiement;
+      })
+      .catch(() => {
+        setErreur("Impossible de démarrer le paiement pour le moment. Réessaie dans un instant.");
+        setFormuleEnCours(null);
+      });
   };
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement...</div>;
@@ -59,6 +70,10 @@ export default function MonAbonnement() {
   return (
     <div className="max-w-2xl space-y-6">
       <StatutAbonnement info={info} />
+
+      {erreur && (
+        <div className="p-3 bg-red-100 text-red-800 rounded-lg text-sm">{erreur}</div>
+      )}
 
       <div>
         <h3 className="text-lg font-semibold text-gray-800 mb-3">Formules disponibles</h3>
@@ -78,10 +93,12 @@ export default function MonAbonnement() {
                   </p>
                 </div>
                 <button
-                  onClick={choisirFormule}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm"
+                  onClick={() => choisirFormule(formule)}
+                  disabled={formuleEnCours !== null}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <CreditCard className="w-4 h-4" /> Choisir cette formule
+                  <CreditCard className="w-4 h-4" />
+                  {formuleEnCours === formule.id ? 'Redirection...' : 'Choisir cette formule'}
                 </button>
               </div>
             ))}
