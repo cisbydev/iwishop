@@ -1,5 +1,4 @@
 import secrets
-from django.utils import timezone
 from django.utils.text import slugify
 from django.contrib.auth.models import User
 from rest_framework import generics, status
@@ -7,10 +6,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from products.models import UniteVente, UNITES_PAR_DEFAUT
-from .models import DemandeAcces, Boutique, Profil, AccesSupport
+from .models import DemandeAcces, Boutique, Profil, AccesSupport, Abonnement
 from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer
 from .permissions import IsPlatformOwner
-from .emails import envoyer_identifiants_email, notifier_nouvelle_demande
+from .emails import envoyer_identifiants_email, notifier_nouvelle_demande, envoyer_alerte_expiration_email
 
 class DemandeAccesCreateView(generics.CreateAPIView):
     """Formulaire public : n'importe qui peut soumettre une demande."""
@@ -164,13 +163,21 @@ class MesAccesSupportView(generics.ListAPIView):
         return AccesSupport.objects.filter(boutique=boutique).order_by('-date_acces')
 
 class MonAbonnementView(APIView):
-    """Statut de l'abonnement de la boutique connectée."""
+    """Statut de l'abonnement de la boutique connectée.
+
+    Sert aussi de déclencheur pour l'alerte email J-3 (pas de job planifié
+    dans cette architecture) : chaque appel vérifie si l'échéance approche
+    et envoie l'email une seule fois, grâce à un update conditionnel
+    (compare-and-set) sur alerte_envoyee qui protège contre un double appel
+    concurrent (StrictMode, deux onglets, etc.).
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
         boutique = request.user.profil.boutique
+        info = boutique.info_abonnement()
 
-        if not hasattr(boutique, 'abonnement'):
+        if not info["a_abonnement"]:
             return Response({
                 "a_abonnement": False,
                 "formule": None,
@@ -182,14 +189,29 @@ class MonAbonnementView(APIView):
             })
 
         abonnement = boutique.abonnement
-        jours_restants = (abonnement.date_fin - timezone.localdate()).days
+        jours_restants = info["jours_restants"]
+
+        if jours_restants <= 3 and not abonnement.alerte_envoyee:
+            maj = Abonnement.objects.filter(pk=abonnement.pk, alerte_envoyee=False).update(alerte_envoyee=True)
+            if maj:
+                proprietaire = Profil.objects.filter(
+                    boutique=boutique, est_proprietaire=True
+                ).select_related('user').first()
+                if proprietaire and proprietaire.user.email:
+                    envoyer_alerte_expiration_email(
+                        destinataire_email=proprietaire.user.email,
+                        destinataire_nom=proprietaire.user.username,
+                        boutique_nom=boutique.nom,
+                        jours_restants=jours_restants,
+                        date_fin=abonnement.date_fin,
+                    )
 
         return Response({
             "a_abonnement": True,
             "formule": abonnement.formule.nom,
             "date_debut": abonnement.date_debut,
-            "date_fin": abonnement.date_fin,
-            "statut": abonnement.statut,
+            "date_fin": info["date_fin"],
+            "statut": info["statut"],
             "abonnement_valide": boutique.abonnement_valide(),
             "jours_restants": jours_restants,
         })

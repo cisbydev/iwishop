@@ -9,13 +9,32 @@ class DemandeAccesSerializer(serializers.ModelSerializer):
 
 class BoutiqueSerializer(serializers.ModelSerializer):
     nombre_membres = serializers.SerializerMethodField()
+    a_abonnement = serializers.SerializerMethodField()
+    statut = serializers.SerializerMethodField()
+    jours_restants = serializers.SerializerMethodField()
+    date_fin = serializers.SerializerMethodField()
 
     class Meta:
         model = Boutique
-        fields = ['id', 'nom', 'slug', 'actif', 'date_creation', 'nombre_membres']
+        fields = [
+            'id', 'nom', 'slug', 'actif', 'date_creation', 'nombre_membres',
+            'a_abonnement', 'statut', 'jours_restants', 'date_fin',
+        ]
 
     def get_nombre_membres(self, obj):
         return obj.membres.count()
+
+    def get_a_abonnement(self, obj):
+        return obj.info_abonnement()['a_abonnement']
+
+    def get_statut(self, obj):
+        return obj.info_abonnement()['statut']
+
+    def get_jours_restants(self, obj):
+        return obj.info_abonnement()['jours_restants']
+
+    def get_date_fin(self, obj):
+        return obj.info_abonnement()['date_fin']
 
 class AccesSupportSerializer(serializers.ModelSerializer):
     admin_username = serializers.ReadOnlyField(source='admin.username')

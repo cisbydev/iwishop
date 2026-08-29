@@ -76,6 +76,21 @@ const STATUT_LABELS = {
   REJETEE: 'Rejetée',
 };
 
+function getAbonnementBadge(b) {
+  if (!b.a_abonnement) {
+    return { className: 'bg-gray-100 text-gray-600', label: 'Sans abonnement' };
+  }
+  if (b.statut === 'EXPIRE' || b.jours_restants < 0) {
+    return { className: 'bg-red-100 text-red-800', label: 'Expiré' };
+  }
+  if (b.jours_restants <= 3) {
+    const texte = b.jours_restants === 0 ? "Expire aujourd'hui" : `Expire dans ${b.jours_restants}j`;
+    return { className: 'bg-orange-100 text-orange-800', label: texte };
+  }
+  const [annee, mois, jour] = b.date_fin.split('-');
+  return { className: 'bg-green-100 text-green-800', label: `Actif jusqu'au ${jour}/${mois}/${annee}` };
+}
+
 function BoutiquesPanel() {
   const [boutiques, setBoutiques] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -153,7 +168,8 @@ function BoutiquesPanel() {
               <tr className="border-b bg-gray-50 text-left text-gray-500">
                 <th className="p-3">Nom</th>
                 <th className="p-3">Membres</th>
-                <th className="p-3">Statut</th>
+                <th className="p-3">Compte</th>
+                <th className="p-3">Abonnement</th>
                 <th className="p-3">Créée le</th>
                 <th className="p-3">Actions</th>
               </tr>
@@ -169,6 +185,16 @@ function BoutiquesPanel() {
                     }`}>
                       {b.actif ? 'Active' : 'Désactivée'}
                     </span>
+                  </td>
+                  <td className="p-3">
+                    {(() => {
+                      const badge = getAbonnementBadge(b);
+                      return (
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${badge.className}`}>
+                          {badge.label}
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td className="p-3 text-gray-500">{new Date(b.date_creation).toLocaleDateString('fr-FR')}</td>
                   <td className="p-3">

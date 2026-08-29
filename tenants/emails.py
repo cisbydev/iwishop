@@ -42,6 +42,43 @@ def envoyer_identifiants_email(destinataire_email, destinataire_nom, username, m
     except requests.RequestException as e:
         return False, str(e)
 
+def envoyer_alerte_expiration_email(destinataire_email, destinataire_nom, boutique_nom, jours_restants, date_fin):
+    api_key = config('BREVO_API_KEY', default=None)
+    if not api_key:
+        return False, "BREVO_API_KEY non configurée"
+
+    url = "https://api.brevo.com/v3/smtp/email"
+    headers = {
+        "accept": "application/json",
+        "api-key": api_key,
+        "content-type": "application/json",
+    }
+    jours_texte = "aujourd'hui" if jours_restants <= 0 else f"dans {jours_restants} jour{'s' if jours_restants > 1 else ''}"
+    html_content = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; color: #333;">
+        <h2 style="color: #ea580c;">Ton abonnement iwiShop expire bientôt</h2>
+        <p>Bonjour {destinataire_nom},</p>
+        <p>L'abonnement de <strong>{boutique_nom}</strong> expire <strong>{jours_texte}</strong> (le {date_fin.strftime('%d/%m/%Y')}).</p>
+        <p>Pense à le renouveler pour éviter toute interruption d'accès à ton espace iwiShop.</p>
+        <p>À bientôt sur iwiShop !</p>
+    </body>
+    </html>
+    """
+    payload = {
+        "sender": {"name": config('BREVO_SENDER_NAME', default='iwiShop'), "email": config('BREVO_SENDER_EMAIL')},
+        "to": [{"email": destinataire_email, "name": destinataire_nom}],
+        "subject": f"Ton abonnement iwiShop expire {jours_texte}",
+        "htmlContent": html_content,
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        if response.status_code in (200, 201):
+            return True, None
+        return False, f"Brevo a répondu {response.status_code}: {response.text}"
+    except requests.RequestException as e:
+        return False, str(e)
+
 def notifier_nouvelle_demande(nom_contact, email_contact, nom_boutique_souhaite, telephone):
     api_key = config('BREVO_API_KEY', default=None)
     owner_email = config('PLATFORM_OWNER_EMAIL', default=None)

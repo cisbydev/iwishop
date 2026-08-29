@@ -17,6 +17,23 @@ class Boutique(models.Model):
             return True
         return self.abonnement.date_fin >= timezone.localdate()
 
+    def info_abonnement(self):
+        """Statut d'abonnement condensé, utilisé par mon-abonnement/ et par la liste des boutiques (admin plateforme)."""
+        if not hasattr(self, 'abonnement'):
+            return {
+                "a_abonnement": False,
+                "statut": None,
+                "date_fin": None,
+                "jours_restants": None,
+            }
+        abonnement = self.abonnement
+        return {
+            "a_abonnement": True,
+            "statut": abonnement.statut,
+            "date_fin": abonnement.date_fin,
+            "jours_restants": (abonnement.date_fin - timezone.localdate()).days,
+        }
+
     def est_accessible(self):
         return self.actif and self.abonnement_valide()
 
@@ -81,3 +98,10 @@ class Abonnement(models.Model):
 
     def __str__(self):
         return f"{self.boutique.nom} - {self.formule.nom} (jusqu'au {self.date_fin.strftime('%d/%m/%Y')})"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            ancienne_date_fin = Abonnement.objects.filter(pk=self.pk).values_list('date_fin', flat=True).first()
+            if ancienne_date_fin and self.date_fin > ancienne_date_fin:
+                self.alerte_envoyee = False
+        super().save(*args, **kwargs)
