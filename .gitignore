@@ -79,3 +79,9 @@ desktop.ini
 # Dumps et exports de base de données (jamais versionnés, contiennent des données réelles)
 *.dump
 *.sql
+
+# Convention pour tout fichier de test/scratch pouvant contenir des
+# identifiants en clair (commande pg_dump collée, DATABASE_URL de prod,
+# etc.) : préfixe-le par "scratch_" pour qu'il ne soit jamais versionné,
+# même via un `git add -A` (voir incidents "test"/"tes" du 29 août 2026).
+scratch_*
