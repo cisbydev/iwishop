@@ -25,6 +25,8 @@ class LigneAchat(models.Model):
     achat = models.ForeignKey(Achat, on_delete=models.CASCADE, related_name='lignes')
     produit = models.ForeignKey(Produit, on_delete=models.CASCADE, related_name='lignes_achat')
     quantite = models.IntegerField()
+    unite = models.ForeignKey('products.UniteVente', on_delete=models.PROTECT, related_name='lignes_achat')
+    facteur_conversion_applique = models.DecimalField(max_digits=10, decimal_places=3)
     prix_unitaire_achat = models.DecimalField(max_digits=12, decimal_places=2)
     sous_total = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
 
@@ -34,4 +36,4 @@ class LigneAchat(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.quantite} x {self.produit.nom} pour Achat #{self.achat.id}"
+        return f"{self.quantite} {self.unite.nom} de {self.produit.nom} pour Achat #{self.achat.id}"
