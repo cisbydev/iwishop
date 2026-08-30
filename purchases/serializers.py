@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from rest_framework import serializers
 from .models import Achat, LigneAchat
 from inventory.models import MouvementStock
-from products.models import UniteVente
+from products.models import Produit, UniteVente
 from rest_framework.exceptions import ValidationError
 from django.db import transaction
 
@@ -52,20 +52,27 @@ class AchatSerializer(serializers.ModelSerializer):
 
         montant_total = 0
         # Un même achat peut contenir plusieurs lignes pour le même
-        # produit (ex: 1 Sac 25kg + 3 Kg du même article). DRF désérialise
-        # chaque ligne indépendamment, donc ligne_data['produit'] est une
-        # instance Python différente par ligne, chacune chargée avec le
-        # stock d'avant-transaction. Sans ce cache, chaque `produit.save()`
-        # écraserait le précédent au lieu de cumuler les ajouts (même
+        # produit (ex: 1 Sac 25kg + 3 Kg du même article) : on réutilise la
+        # même instance pour un produit donné afin que les ajouts
+        # s'accumulent correctement en mémoire avant chaque save() (même
         # bug que celui corrigé côté ventes en Phase 4A/4B).
-        produits_par_id = {}
+        #
+        # Ces instances sont verrouillées via select_for_update(), triées
+        # par pk croissant, AVANT toute lecture de quantite_en_stock -
+        # sinon deux ventes/achats concurrents sur le même produit
+        # liraient tous les deux le stock d'avant-transaction et
+        # pourraient survendre (race condition, P1 point 7). L'ordre
+        # croissant est la même convention appliquée à tous les points de
+        # mutation du stock (Vente/Achat create+annuler, MouvementStock),
+        # pour ne jamais provoquer de deadlock entre verrous croisés.
+        produit_ids = sorted({ligne_data['produit'].pk for ligne_data in lignes_data})
+        produits_par_id = {
+            produit.pk: produit
+            for produit in Produit.objects.select_for_update().filter(pk__in=produit_ids).order_by('pk')
+        }
 
         for ligne_data in lignes_data:
-            produit = ligne_data['produit']
-            if produit.pk in produits_par_id:
-                produit = produits_par_id[produit.pk]
-            else:
-                produits_par_id[produit.pk] = produit
+            produit = produits_par_id[ligne_data['produit'].pk]
             quantite = ligne_data['quantite']
             prix = ligne_data['prix_unitaire_achat']
             unite_soumise = ligne_data.pop('unite', None)

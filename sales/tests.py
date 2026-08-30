@@ -1,9 +1,11 @@
+import threading
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.db import connection
 from rest_framework import status
 from rest_framework.reverse import reverse
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APITransactionTestCase, APIClient
 
 from tenants.models import Boutique, Profil
 from products.models import Produit, UniteVente, ProduitPrix
@@ -198,3 +200,78 @@ class VenteAnnulationPermissionTests(APITestCase):
         self.assertEqual(self.vente.statut, 'ANNULEE')
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 20)  # restauré
+
+
+class VenteConcurrenceStockTests(APITransactionTestCase):
+    """P1 point 7 : deux ventes simultanées sur le même produit ne
+    doivent jamais pouvoir survendre le stock réellement disponible
+    (race condition sur Produit.quantite_en_stock).
+
+    APITransactionTestCase (et non APITestCase) est indispensable ici :
+    APITestCase enveloppe chaque test dans UNE transaction non committée,
+    donc un deuxième thread avec sa propre connexion ne verrait même pas
+    les données créées dans setUp(). APITransactionTestCase committe
+    réellement les données et vide les tables entre les tests, ce qui
+    permet à deux threads d'ouvrir deux vraies transactions concurrentes
+    - condition nécessaire pour que select_for_update() ait un sens à
+    tester."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-concurrence-vente")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Sac Riw",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=5,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+        self.url = reverse('ventes-list')
+
+    def _vendre(self, quantite, resultats, cle):
+        # Chaque thread a besoin de sa propre connexion DB (thread-locale
+        # dans Django) et de son propre client - self.client ne doit pas
+        # être partagé entre threads.
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        payload = {
+            "montant_paye": str(Decimal(quantite) * Decimal("100.00")),
+            "lignes": [{
+                "produit": self.produit.id, "quantite": quantite,
+                "type_vente": "UNITE", "prix_applique": "100.00",
+            }],
+        }
+        try:
+            resultats[cle] = client.post(self.url, payload, format='json')
+        finally:
+            connection.close()
+
+    def test_deux_ventes_simultanees_ne_survendent_pas(self):
+        # Stock = 5. Deux ventes de 4 et 3 unités en simultané : 4+3=7 > 5,
+        # une seule doit passer.
+        resultats = {}
+        t1 = threading.Thread(target=self._vendre, args=(4, resultats, 'a'))
+        t2 = threading.Thread(target=self._vendre, args=(3, resultats, 'b'))
+
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        codes = {resultats['a'].status_code, resultats['b'].status_code}
+        self.assertEqual(
+            codes, {status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST},
+            f"Attendu une vente acceptée et une refusée, obtenu : "
+            f"a={resultats['a'].status_code} ({resultats['a'].data}), "
+            f"b={resultats['b'].status_code} ({resultats['b'].data})"
+        )
+
+        quantite_gagnante = 4 if resultats['a'].status_code == status.HTTP_201_CREATED else 3
+        self.produit.refresh_from_db()
+        # Le stock final doit refléter EXACTEMENT la vente qui est passée,
+        # jamais une valeur "perdue" (lost update) ni un stock négatif.
+        self.assertEqual(self.produit.quantite_en_stock, 5 - quantite_gagnante)

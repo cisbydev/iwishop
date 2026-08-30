@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from django.db import transaction
 from tenants.mixins import BoutiqueScopedMixin
 from inventory.models import MouvementStock
+from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
 from .models import Achat
 from .serializers import AchatSerializer
@@ -51,7 +52,18 @@ class AchatViewSet(
             if achat.statut == 'ANNULE':
                 raise ValidationError("Cet achat est déjà annulé.")
 
-            lignes = list(achat.lignes.select_related('produit').all())
+            lignes = list(achat.lignes.all())
+
+            # Verrouille tous les produits distincts de l'achat d'un coup,
+            # triés par pk croissant - même protection et même convention
+            # d'ordre que AchatSerializer.create() (P1 point 7 : sans ça,
+            # une vente/un mouvement de stock concurrent sur le même
+            # produit pourrait lire le stock d'avant cette annulation).
+            produit_ids = sorted({ligne.produit_id for ligne in lignes})
+            produits_par_id = {
+                produit.pk: produit
+                for produit in Produit.objects.select_for_update().filter(pk__in=produit_ids).order_by('pk')
+            }
 
             # Refuser l'annulation si retirer le stock ferait passer un
             # produit sous zéro (ex. une partie de la marchandise a déjà
@@ -59,16 +71,17 @@ class AchatViewSet(
             # MouvementStock.
             for ligne in lignes:
                 unites_a_retirer = int(ligne.quantite * ligne.facteur_conversion_applique)
-                if ligne.produit.quantite_en_stock < unites_a_retirer:
+                produit = produits_par_id[ligne.produit_id]
+                if produit.quantite_en_stock < unites_a_retirer:
                     raise ValidationError(
-                        f"Impossible d'annuler cet achat : le stock de '{ligne.produit.nom}' "
-                        f"({ligne.produit.quantite_en_stock}) est inférieur à la quantité à retirer "
+                        f"Impossible d'annuler cet achat : le stock de '{produit.nom}' "
+                        f"({produit.quantite_en_stock}) est inférieur à la quantité à retirer "
                         f"({unites_a_retirer}). Une partie a probablement déjà été revendue."
                     )
 
             for ligne in lignes:
                 unites_a_retirer = int(ligne.quantite * ligne.facteur_conversion_applique)
-                produit = ligne.produit
+                produit = produits_par_id[ligne.produit_id]
                 produit.quantite_en_stock -= unites_a_retirer
                 produit.save()
                 MouvementStock.objects.create(

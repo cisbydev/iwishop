@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from tenants.mixins import BoutiqueScopedMixin
+from products.models import Produit
 from .models import MouvementStock
 from .serializers import MouvementStockSerializer
 
@@ -31,7 +32,13 @@ class MouvementStockViewSet(
     @transaction.atomic
     def perform_create(self, serializer):
         mouvement = serializer.save(boutique=self.request.user.profil.boutique)
-        produit = mouvement.produit
+        # Reverrouille le produit dans la transaction (P1 point 7) :
+        # mouvement.produit vient de la validation DRF, faite hors de ce
+        # bloc atomique et donc potentiellement périmé si une autre
+        # vente/achat/mouvement concurrent modifie le même produit entre
+        # temps - sans ce verrou, deux écritures concurrentes pourraient
+        # lire le même stock de départ et se marcher dessus.
+        produit = Produit.objects.select_for_update().get(pk=mouvement.produit_id)
 
         if mouvement.type_mouvement == 'ENTREE':
             produit.quantite_en_stock += mouvement.quantite

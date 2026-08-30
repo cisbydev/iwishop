@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.db import transaction
 from .models import Vente, LigneVente
 from inventory.models import MouvementStock
-from products.models import UniteVente, ProduitPrix
+from products.models import Produit, UniteVente, ProduitPrix
 from rest_framework.exceptions import ValidationError
 
 NOM_UNITE_PAR_TYPE = {'UNITE': 'Unité', 'DOUZAINE': 'Douzaine'}
@@ -50,22 +50,27 @@ class VenteSerializer(serializers.ModelSerializer):
 
         montant_total = 0
         # Une même vente peut contenir plusieurs lignes pour le même
-        # produit (ex: 2 Kg + 1 Sac 25kg du même article). DRF désérialise
-        # chaque ligne indépendamment, donc ligne_data['produit'] est une
-        # instance Python différente par ligne, chacune chargée avec le
-        # stock d'avant-transaction. Sans ce cache, chaque `produit.save()`
-        # écraserait le précédent au lieu de cumuler les déductions (seule
-        # la dernière ligne du panier "survivrait" en base). En réutilisant
-        # la même instance pour un produit donné, les mutations
-        # s'accumulent correctement en mémoire avant chaque save().
-        produits_par_id = {}
+        # produit (ex: 2 Kg + 1 Sac 25kg du même article) : on réutilise la
+        # même instance pour un produit donné afin que les déductions
+        # s'accumulent correctement en mémoire avant chaque save() (sinon
+        # seule la dernière ligne du panier "survivrait" en base).
+        #
+        # Ces instances sont verrouillées via select_for_update(), triées
+        # par pk croissant, AVANT toute lecture de quantite_en_stock -
+        # sinon deux ventes/achats concurrents sur le même produit
+        # liraient tous les deux le stock d'avant-transaction et
+        # pourraient survendre (race condition, P1 point 7). L'ordre
+        # croissant est la même convention appliquée à tous les points de
+        # mutation du stock (Vente/Achat create+annuler, MouvementStock),
+        # pour ne jamais provoquer de deadlock entre verrous croisés.
+        produit_ids = sorted({ligne_data['produit'].pk for ligne_data in lignes_data})
+        produits_par_id = {
+            produit.pk: produit
+            for produit in Produit.objects.select_for_update().filter(pk__in=produit_ids).order_by('pk')
+        }
 
         for ligne_data in lignes_data:
-            produit = ligne_data['produit']
-            if produit.pk in produits_par_id:
-                produit = produits_par_id[produit.pk]
-            else:
-                produits_par_id[produit.pk] = produit
+            produit = produits_par_id[ligne_data['produit'].pk]
             quantite = ligne_data['quantite']
             unite_soumise = ligne_data.pop('unite', None)
 

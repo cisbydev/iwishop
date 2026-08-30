@@ -1,12 +1,14 @@
+import threading
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.db import connection
 from rest_framework import status
 from rest_framework.reverse import reverse
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APITransactionTestCase, APIClient
 
 from tenants.models import Boutique, Profil
-from products.models import Produit
+from products.models import Produit, UniteVente, ProduitPrix
 from .models import MouvementStock
 
 
@@ -133,3 +135,77 @@ class MouvementStockImmutabilityTests(APITestCase):
 
         response = self.client.get(reverse('mouvements-stock-list'))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class ConcurrenceVenteEtMouvementStockTests(APITransactionTestCase):
+    """P1 point 7 : une vente et une sortie de stock manuelle simultanées
+    sur le même produit ne doivent jamais survendre le stock disponible -
+    preuve que le verrou (select_for_update) porte bien sur le Produit
+    lui-même, et protège donc entre deux chemins de code différents, pas
+    seulement entre deux appels du même endpoint.
+
+    APITransactionTestCase (et non APITestCase) est nécessaire : il faut
+    de vraies transactions committées pour que deux threads avec des
+    connexions séparées se voient réellement en concurrence."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-concurrence-mixte")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=5,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+
+    def _vendre(self, quantite, resultats, cle):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        payload = {
+            "montant_paye": str(Decimal(quantite) * Decimal("100.00")),
+            "lignes": [{
+                "produit": self.produit.id, "quantite": quantite,
+                "type_vente": "UNITE", "prix_applique": "100.00",
+            }],
+        }
+        try:
+            resultats[cle] = client.post(reverse('ventes-list'), payload, format='json')
+        finally:
+            connection.close()
+
+    def _sortie_stock(self, quantite, resultats, cle):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        payload = {"produit": self.produit.id, "type_mouvement": "SORTIE", "quantite": quantite}
+        try:
+            resultats[cle] = client.post(reverse('mouvements-stock-list'), payload, format='json')
+        finally:
+            connection.close()
+
+    def test_vente_et_sortie_stock_simultanees_ne_survendent_pas(self):
+        # Stock = 5. Une vente de 4 et une sortie manuelle de 3 en
+        # simultané : 4+3=7 > 5, une seule des deux doit passer.
+        resultats = {}
+        t1 = threading.Thread(target=self._vendre, args=(4, resultats, 'vente'))
+        t2 = threading.Thread(target=self._sortie_stock, args=(3, resultats, 'sortie'))
+
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        codes = {resultats['vente'].status_code, resultats['sortie'].status_code}
+        self.assertEqual(
+            codes, {status.HTTP_201_CREATED, status.HTTP_400_BAD_REQUEST},
+            f"vente={resultats['vente'].status_code} ({resultats['vente'].data}), "
+            f"sortie={resultats['sortie'].status_code} ({resultats['sortie'].data})"
+        )
+
+        quantite_gagnante = 4 if resultats['vente'].status_code == status.HTTP_201_CREATED else 3
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 5 - quantite_gagnante)

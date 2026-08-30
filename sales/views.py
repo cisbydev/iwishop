@@ -7,6 +7,7 @@ from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
 from tenants.mixins import BoutiqueScopedMixin
 from inventory.models import MouvementStock
+from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
 from .models import Vente
 from .serializers import VenteSerializer
@@ -54,9 +55,22 @@ class VenteViewSet(
             if vente.statut == 'ANNULEE':
                 raise ValidationError("Cette vente est déjà annulée.")
 
-            for ligne in vente.lignes.select_related('produit').all():
+            lignes = list(vente.lignes.all())
+
+            # Verrouille tous les produits distincts de la vente d'un coup,
+            # triés par pk croissant - même protection et même convention
+            # d'ordre que VenteSerializer.create() (P1 point 7 : sans ça,
+            # une vente/un mouvement de stock concurrent sur le même
+            # produit pourrait lire le stock d'avant cette annulation).
+            produit_ids = sorted({ligne.produit_id for ligne in lignes})
+            produits_par_id = {
+                produit.pk: produit
+                for produit in Produit.objects.select_for_update().filter(pk__in=produit_ids).order_by('pk')
+            }
+
+            for ligne in lignes:
                 unites_a_restaurer = int(ligne.quantite * ligne.facteur_conversion_applique)
-                produit = ligne.produit
+                produit = produits_par_id[ligne.produit_id]
                 produit.quantite_en_stock += unites_a_restaurer
                 produit.save()
                 MouvementStock.objects.create(
