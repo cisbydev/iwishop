@@ -27,11 +27,11 @@ class VenteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vente
         fields = [
-            'id', 'numero', 'date_vente', 'client', 'montant_total', 
-            'remise', 'montant_net', 'montant_paye', 'monnaie_rendue', 
-            'mode_paiement', 'utilisateur', 'utilisateur_nom', 'lignes'
+            'id', 'numero', 'date_vente', 'client', 'montant_total',
+            'remise', 'montant_net', 'montant_paye', 'monnaie_rendue',
+            'mode_paiement', 'utilisateur', 'utilisateur_nom', 'statut', 'lignes'
         ]
-        read_only_fields = ['numero', 'date_vente', 'montant_total', 'montant_net', 'monnaie_rendue']
+        read_only_fields = ['numero', 'date_vente', 'montant_total', 'montant_net', 'monnaie_rendue', 'statut']
 
     @transaction.atomic
     def create(self, validated_data):

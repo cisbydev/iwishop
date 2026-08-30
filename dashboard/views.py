@@ -24,9 +24,11 @@ class TableauDeBordView(APIView):
         mois_courant = maintenant.month
         annee_courante = maintenant.year
 
-        ca_jour = Vente.objects.filter(boutique=boutique, date_vente__date=aujourd_hui).aggregate(total=Sum('montant_net'))['total'] or 0
-        ca_mois = Vente.objects.filter(boutique=boutique, date_vente__year=annee_courante, date_vente__month=mois_courant).aggregate(total=Sum('montant_net'))['total'] or 0
-        nombre_ventes_jour = Vente.objects.filter(boutique=boutique, date_vente__date=aujourd_hui).count()
+        # Les ventes annulées ne doivent plus compter dans le CA ni le nombre
+        # de ventes (cf. VenteViewSet.annuler).
+        ca_jour = Vente.objects.filter(boutique=boutique, statut='VALIDEE', date_vente__date=aujourd_hui).aggregate(total=Sum('montant_net'))['total'] or 0
+        ca_mois = Vente.objects.filter(boutique=boutique, statut='VALIDEE', date_vente__year=annee_courante, date_vente__month=mois_courant).aggregate(total=Sum('montant_net'))['total'] or 0
+        nombre_ventes_jour = Vente.objects.filter(boutique=boutique, statut='VALIDEE', date_vente__date=aujourd_hui).count()
 
         produits_rupture = Produit.objects.filter(boutique=boutique, quantite_en_stock__lte=0).count()
         produits_stock_faible = Produit.objects.filter(boutique=boutique, quantite_en_stock__gt=0, quantite_en_stock__lte=F('stock_minimum')).count()
@@ -53,19 +55,21 @@ class TableauDeBordView(APIView):
 
         benefice_jour = LigneVente.objects.filter(
             boutique=boutique,
+            vente__statut='VALIDEE',
             vente__date_vente__date=aujourd_hui
         ).aggregate(total=Sum(benefice_ligne_expr))['total'] or 0
 
         benefice_mois = LigneVente.objects.filter(
             boutique=boutique,
+            vente__statut='VALIDEE',
             vente__date_vente__year=annee_courante,
             vente__date_vente__month=mois_courant
         ).aggregate(total=Sum(benefice_ligne_expr))['total'] or 0
 
-        # --- Meilleurs produits (top 5, toutes ventes confondues) ---
+        # --- Meilleurs produits (top 5, toutes ventes validées confondues) ---
         meilleurs_produits_qs = (
             LigneVente.objects
-            .filter(boutique=boutique)
+            .filter(boutique=boutique, vente__statut='VALIDEE')
             .values('produit__id', 'produit__nom')
             .annotate(
                 unites_vendues=Sum(unites_reelles),

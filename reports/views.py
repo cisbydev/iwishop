@@ -22,8 +22,13 @@ class ResumeFinancierView(APIView):
         date_debut = request.GET.get('date_debut')
         date_fin = request.GET.get('date_fin')
 
-        ventes_qs = Vente.objects.filter(boutique=boutique)
-        achats_qs = Achat.objects.filter(boutique=boutique)
+        # Les ventes annulées ne doivent plus compter dans le CA ni le
+        # bénéfice (cf. VenteViewSet.annuler) ; benefice_brut hérite de ce
+        # filtre via `vente__in=ventes_qs` plus bas.
+        ventes_qs = Vente.objects.filter(boutique=boutique, statut='VALIDEE')
+        # Les achats annulés ne doivent plus compter dans le total ni le
+        # nombre d'achats (cf. AchatViewSet.annuler).
+        achats_qs = Achat.objects.filter(boutique=boutique, statut='VALIDE')
         depenses_qs = Depense.objects.filter(boutique=boutique)
 
         if date_debut and date_fin:

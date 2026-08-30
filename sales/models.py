@@ -11,6 +11,10 @@ class Vente(models.Model):
         ('CARTE', 'Carte bancaire'),
         ('AUTRE', 'Autre'),
     )
+    STATUTS = (
+        ('VALIDEE', 'Validée'),
+        ('ANNULEE', 'Annulée'),
+    )
 
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     numero = models.CharField(max_length=50, unique=True, editable=False)
@@ -26,6 +30,10 @@ class Vente(models.Model):
 
     mode_paiement = models.CharField(max_length=30, choices=MODES_PAIEMENT, default='ESPECES')
     utilisateur = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    # Une vente validée ne se modifie ni ne se supprime (cf. VenteViewSet) :
+    # on l'annule via une écriture inverse qui restaure le stock et marque
+    # ce statut, sans jamais effacer l'historique.
+    statut = models.CharField(max_length=20, choices=STATUTS, default='VALIDEE')
 
     def save(self, *args, **kwargs):
         if not self.numero:
