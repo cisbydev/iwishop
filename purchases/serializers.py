@@ -26,8 +26,8 @@ class AchatSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Achat
-        fields = ['id', 'fournisseur', 'fournisseur_nom', 'date_achat', 'montant_total', 'notes', 'lignes']
-        read_only_fields = ['montant_total', 'date_achat']
+        fields = ['id', 'fournisseur', 'fournisseur_nom', 'date_achat', 'montant_total', 'notes', 'statut', 'lignes']
+        read_only_fields = ['montant_total', 'date_achat', 'statut']
 
     def validate_fournisseur(self, value):
         # Ne jamais supposer qu'un fournisseur soumis appartient à la

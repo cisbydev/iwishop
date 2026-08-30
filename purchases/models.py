@@ -5,11 +5,20 @@ from inventory.models import MouvementStock
 from django.db import transaction
 
 class Achat(models.Model):
+    STATUTS = (
+        ('VALIDE', 'Validé'),
+        ('ANNULE', 'Annulé'),
+    )
+
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     fournisseur = models.ForeignKey(Fournisseur, on_delete=models.SET_NULL, null=True, related_name='achats')
     date_achat = models.DateTimeField(auto_now_add=True)
     montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     notes = models.TextField(blank=True, null=True)
+    # Un achat validé ne se modifie ni ne se supprime (cf. AchatViewSet) :
+    # on l'annule via une écriture inverse qui retire le stock ajouté et
+    # marque ce statut, sans jamais effacer l'historique.
+    statut = models.CharField(max_length=20, choices=STATUTS, default='VALIDE')
 
     def __str__(self):
         fournisseur_nom = self.fournisseur.nom if self.fournisseur else "Inconnu"
