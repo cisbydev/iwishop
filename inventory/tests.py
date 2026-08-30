@@ -65,3 +65,71 @@ class MouvementStockIsolationTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.produit_b.refresh_from_db()
         self.assertEqual(self.produit_b.quantite_en_stock, 15)
+
+    def test_modification_mouvement_vers_produit_autre_boutique_refusee(self):
+        """B ne peut pas réassigner un de ses mouvements vers le produit de A
+        (de toute façon bloqué en amont : la modification est interdite,
+        cf. MouvementStockImmutabilityTests)."""
+        self.client.force_authenticate(user=self.user_b)
+        mouvement = MouvementStock.objects.create(
+            boutique=self.boutique_b, produit=self.produit_b,
+            type_mouvement='ENTREE', quantite=5,
+        )
+        url_detail = reverse('mouvements-stock-detail', args=[mouvement.id])
+        response = self.client.patch(url_detail, {"produit": self.produit_a.id}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        mouvement.refresh_from_db()
+        self.assertEqual(mouvement.produit_id, self.produit_b.id)
+
+
+class MouvementStockImmutabilityTests(APITestCase):
+    """Sécurité/intégrité : un mouvement de stock déjà créé ne doit jamais
+    pouvoir être modifié ou supprimé, car ni PUT/PATCH ni DELETE ne
+    recalculent Produit.quantite_en_stock - les autoriser désynchroniserait
+    silencieusement le stock réel de son historique."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("100"), prix_unitaire=Decimal("150"), prix_douzaine=Decimal("1500"),
+            quantite_en_stock=10,
+        )
+        self.mouvement = MouvementStock.objects.create(
+            boutique=self.boutique, produit=self.produit,
+            type_mouvement='ENTREE', quantite=5,
+        )
+        self.client.force_authenticate(user=self.user)
+        self.url_detail = reverse('mouvements-stock-detail', args=[self.mouvement.id])
+
+    def test_put_refuse(self):
+        response = self.client.put(self.url_detail, {
+            "produit": self.produit.id, "type_mouvement": "ENTREE", "quantite": 999,
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.mouvement.refresh_from_db()
+        self.assertEqual(self.mouvement.quantite, 5)
+
+    def test_patch_refuse(self):
+        response = self.client.patch(self.url_detail, {"quantite": 999}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.mouvement.refresh_from_db()
+        self.assertEqual(self.mouvement.quantite, 5)
+
+    def test_delete_refuse(self):
+        response = self.client.delete(self.url_detail)
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+        self.assertTrue(MouvementStock.objects.filter(pk=self.mouvement.id).exists())
+
+    def test_lecture_toujours_autorisee(self):
+        """list/retrieve doivent rester accessibles : seules l'écriture après
+        coup et la suppression sont interdites."""
+        response = self.client.get(self.url_detail)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get(reverse('mouvements-stock-list'))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

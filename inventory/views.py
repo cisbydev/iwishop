@@ -1,4 +1,4 @@
-from rest_framework import viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
@@ -8,7 +8,20 @@ from .models import MouvementStock
 from .serializers import MouvementStockSerializer
 
 
-class MouvementStockViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
+class MouvementStockViewSet(
+    BoutiqueScopedMixin,
+    mixins.CreateModelMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    # Un mouvement de stock est une écriture de journal : une fois créé, il
+    # ne doit plus être modifié ni supprimé (aucun des deux ne recalcule
+    # Produit.quantite_en_stock, ce qui désynchroniserait le stock réel de
+    # son historique - cas encore plus grave pour AJUSTEMENT, qui stocke une
+    # valeur absolue sans jamais garder l'état précédent). Pour corriger une
+    # erreur, on crée un nouveau mouvement inverse plutôt que d'éditer
+    # l'historique. Le frontend n'a jamais utilisé PUT/PATCH/DELETE ici.
     queryset = MouvementStock.objects.select_related('produit').all()
     serializer_class = MouvementStockSerializer
     permission_classes = [IsAuthenticated]
