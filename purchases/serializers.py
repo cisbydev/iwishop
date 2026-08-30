@@ -29,6 +29,18 @@ class AchatSerializer(serializers.ModelSerializer):
         fields = ['id', 'fournisseur', 'fournisseur_nom', 'date_achat', 'montant_total', 'notes', 'lignes']
         read_only_fields = ['montant_total', 'date_achat']
 
+    def validate_fournisseur(self, value):
+        # Ne jamais supposer qu'un fournisseur soumis appartient à la
+        # boutique de l'appelant (même faille que MouvementStock.produit -
+        # ici non couverte par les vérifications produit/unite de create(),
+        # et absente côté update() puisque non surchargé).
+        if value is None:
+            return value
+        boutique = self.context['request'].user.profil.boutique
+        if value.boutique_id != boutique.id:
+            raise ValidationError("Ce fournisseur n'appartient pas à votre boutique.")
+        return value
+
     @transaction.atomic
     def create(self, validated_data):
         boutique = self.context['request'].user.profil.boutique

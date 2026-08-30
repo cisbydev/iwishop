@@ -5,3 +5,4 @@ class ParametresBoutiqueSerializer(serializers.ModelSerializer):
     class Meta:
         model = ParametresBoutique
         fields = '__all__'
+        read_only_fields = ['boutique']

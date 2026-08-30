@@ -10,6 +10,16 @@ class ProduitSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['boutique']
 
+    def validate_categorie(self, value):
+        # Ne jamais supposer qu'une catégorie soumise appartient à la
+        # boutique de l'appelant (même faille que MouvementStock.produit).
+        if value is None:
+            return value
+        boutique = self.context['request'].user.profil.boutique
+        if value.boutique_id != boutique.id:
+            raise serializers.ValidationError("Cette catégorie n'appartient pas à votre boutique.")
+        return value
+
     def create(self, validated_data):
         produit = super().create(validated_data)
         self._sync_prix(produit)
