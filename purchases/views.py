@@ -6,11 +6,13 @@ from rest_framework.response import Response
 from django.db import transaction
 from tenants.mixins import BoutiqueScopedMixin
 from inventory.models import MouvementStock
+from accounts.permissions import RestrictedActionsForOwnerMixin
 from .models import Achat
 from .serializers import AchatSerializer
 
 class AchatViewSet(
     BoutiqueScopedMixin,
+    RestrictedActionsForOwnerMixin,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -24,6 +26,9 @@ class AchatViewSet(
     queryset = Achat.objects.all()
     serializer_class = AchatSerializer
     permission_classes = [IsAuthenticated]
+    # Annuler reverse une écriture comptable déjà entrée (stock + rapports) :
+    # réservé au propriétaire (P1 point 6 - RBAC).
+    actions_reservees_proprietaire = ('annuler',)
 
     def perform_create(self, serializer):
         # AchatSerializer.create() résout et assigne déjà `boutique` lui-même

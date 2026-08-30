@@ -138,3 +138,63 @@ class VenteAnnulationTests(APITestCase):
         self.assertEqual(self.vente.statut, 'VALIDEE')
         self.produit_a.refresh_from_db()
         self.assertEqual(self.produit_a.quantite_en_stock, 15)
+
+
+class VenteAnnulationPermissionTests(APITestCase):
+    """P1 point 6 (RBAC) : seul le propriétaire peut annuler une vente ; un
+    employé peut créer une vente (opération quotidienne) mais pas l'annuler."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-rbac-vente")
+
+        self.proprietaire = User.objects.create_user(username="proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+
+        self.employe = User.objects.create_user(username="employe", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=20,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+
+        # Non-régression : un employé peut créer une vente (opération quotidienne).
+        self.client.force_authenticate(user=self.employe)
+        payload = {
+            "montant_paye": "500.00",
+            "lignes": [{"produit": self.produit.id, "quantite": 5, "type_vente": "UNITE", "prix_applique": "100.00"}],
+        }
+        response = self.client.post(reverse('ventes-list'), payload, format='json')
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        self.vente_id = response.data['id']
+        self.vente = Vente.objects.get(pk=self.vente_id)
+
+        self.produit.refresh_from_db()
+        assert self.produit.quantite_en_stock == 15  # 20 - 5
+
+        self.url_annuler = reverse('ventes-annuler', args=[self.vente_id])
+
+    def test_employe_ne_peut_pas_annuler(self):
+        self.client.force_authenticate(user=self.employe)
+        response = self.client.post(self.url_annuler)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.statut, 'VALIDEE')
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 15)  # inchangé
+
+    def test_proprietaire_peut_annuler(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.post(self.url_annuler)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.statut, 'ANNULEE')
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 20)  # restauré

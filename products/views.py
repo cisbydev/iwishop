@@ -6,10 +6,11 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from tenants.mixins import BoutiqueScopedMixin
+from accounts.permissions import RestrictedActionsForOwnerMixin
 from .models import Produit, UniteVente, ProduitPrix
 from .serializers import ProduitSerializer, UniteVenteSerializer, ProduitPrixSerializer
 
-class ProduitViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
+class ProduitViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewsets.ModelViewSet):
     queryset = Produit.objects.all()
     serializer_class = ProduitSerializer
     permission_classes = [IsAuthenticated]
@@ -17,12 +18,16 @@ class ProduitViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
     filterset_fields = ['categorie']
     search_fields = ['nom', 'reference', 'description']
     ordering_fields = ['nom', 'prix_unitaire', 'quantite_en_stock', 'date_creation']
+    # Suppression réservée au propriétaire (P1 point 6 - RBAC) : casse
+    # potentiellement l'historique achats/ventes lié au produit.
+    actions_reservees_proprietaire = ('destroy',)
 
 
-class UniteVenteViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
+class UniteVenteViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewsets.ModelViewSet):
     queryset = UniteVente.objects.all()
     serializer_class = UniteVenteSerializer
     permission_classes = [IsAuthenticated]
+    actions_reservees_proprietaire = ('destroy',)
 
     MESSAGE_UNITE_SYSTEME = (
         "Cette unité est utilisée par le système, elle ne peut pas être "
@@ -65,11 +70,12 @@ class UniteVenteViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class ProduitPrixViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
+class ProduitPrixViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewsets.ModelViewSet):
     queryset = ProduitPrix.objects.all()
     serializer_class = ProduitPrixSerializer
     permission_classes = [IsAuthenticated]
     boutique_lookup = 'produit__boutique'
+    actions_reservees_proprietaire = ('destroy',)
 
     def _verifier_appartenance(self, serializer, boutique):
         produit = serializer.validated_data.get('produit', getattr(serializer.instance, 'produit', None))

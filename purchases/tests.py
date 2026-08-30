@@ -199,3 +199,66 @@ class AchatAnnulationTests(APITestCase):
         self.assertEqual(self.achat.statut, 'VALIDE')
         self.produit_a.refresh_from_db()
         self.assertEqual(self.produit_a.quantite_en_stock, 15)
+
+
+class AchatAnnulationPermissionTests(APITestCase):
+    """P1 point 6 (RBAC) : seul le propriétaire peut annuler un achat ; un
+    employé peut créer un achat (opération quotidienne) mais pas l'annuler."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-rbac-achat")
+
+        self.proprietaire = User.objects.create_user(username="proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+
+        self.employe = User.objects.create_user(username="employe", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+
+        # Non-régression : un employé peut créer un achat (opération quotidienne).
+        self.client.force_authenticate(user=self.employe)
+        payload = {
+            "fournisseur": self.fournisseur.id,
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 5,
+                "unite": self.unite.id, "prix_unitaire_achat": "60.00",
+            }],
+        }
+        response = self.client.post(reverse('achats-list'), payload, format='json')
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        self.achat_id = response.data['id']
+        self.achat = Achat.objects.get(pk=self.achat_id)
+
+        self.produit.refresh_from_db()
+        assert self.produit.quantite_en_stock == 15  # 10 + 5
+
+        self.url_annuler = reverse('achats-annuler', args=[self.achat_id])
+
+    def test_employe_ne_peut_pas_annuler(self):
+        self.client.force_authenticate(user=self.employe)
+        response = self.client.post(self.url_annuler)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.achat.refresh_from_db()
+        self.assertEqual(self.achat.statut, 'VALIDE')
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 15)  # inchangé
+
+    def test_proprietaire_peut_annuler(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.post(self.url_annuler)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.achat.refresh_from_db()
+        self.assertEqual(self.achat.statut, 'ANNULE')
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)  # retiré

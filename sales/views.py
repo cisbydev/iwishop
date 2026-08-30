@@ -7,11 +7,13 @@ from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
 from tenants.mixins import BoutiqueScopedMixin
 from inventory.models import MouvementStock
+from accounts.permissions import RestrictedActionsForOwnerMixin
 from .models import Vente
 from .serializers import VenteSerializer
 
 class VenteViewSet(
     BoutiqueScopedMixin,
+    RestrictedActionsForOwnerMixin,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
@@ -27,6 +29,9 @@ class VenteViewSet(
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['mode_paiement', 'client', 'date_vente', 'statut']
+    # Annuler reverse une écriture comptable déjà entrée (stock + rapports) :
+    # réservé au propriétaire (P1 point 6 - RBAC).
+    actions_reservees_proprietaire = ('annuler',)
 
     def perform_create(self, serializer):
         # VenteSerializer.create() résout et assigne déjà `boutique` lui-même
