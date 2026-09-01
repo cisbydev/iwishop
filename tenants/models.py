@@ -117,6 +117,7 @@ class PaiementAbonnement(models.Model):
     boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name='paiements_abonnement')
     formule = models.ForeignKey(FormuleAbonnement, on_delete=models.PROTECT)
     invoice_token = models.CharField(max_length=100, blank=True, default='')
+    url_paiement = models.CharField(max_length=500, blank=True, default='')
     statut = models.CharField(max_length=20, choices=STATUTS, default='EN_ATTENTE')
     date_creation = models.DateTimeField(auto_now_add=True)
 

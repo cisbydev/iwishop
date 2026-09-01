@@ -243,9 +243,16 @@ class MonAbonnementView(APIView):
             "jours_restants": jours_restants,
         })
 
+FENETRE_REUTILISATION_PAIEMENT = timezone.timedelta(minutes=15)
+
+
 class CreerPaiementView(APIView):
     """Crée une facture PayDunya pour la formule choisie et renvoie l'URL de
-    paiement vers laquelle rediriger le frontend."""
+    paiement vers laquelle rediriger le frontend.
+
+    Réutilise un paiement EN_ATTENTE récent pour la même boutique/formule
+    plutôt que d'en recréer un (double-clic, rechargement de page, deux
+    onglets) - évite de multiplier les factures PayDunya pour le même achat."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
@@ -256,6 +263,17 @@ class CreerPaiementView(APIView):
             return Response({"detail": "Formule introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
         boutique = request.user.profil.boutique
+
+        paiement_recent = PaiementAbonnement.objects.filter(
+            boutique=boutique,
+            formule=formule,
+            statut='EN_ATTENTE',
+            date_creation__gte=timezone.now() - FENETRE_REUTILISATION_PAIEMENT,
+        ).exclude(url_paiement='').order_by('-date_creation').first()
+
+        if paiement_recent:
+            return Response({"url_paiement": paiement_recent.url_paiement})
+
         paiement = PaiementAbonnement.objects.create(boutique=boutique, formule=formule)
 
         ok, resultat = paydunya.creer_facture(paiement)
@@ -268,7 +286,8 @@ class CreerPaiementView(APIView):
             )
 
         paiement.invoice_token = resultat['token']
-        paiement.save(update_fields=['invoice_token'])
+        paiement.url_paiement = resultat['url']
+        paiement.save(update_fields=['invoice_token', 'url_paiement'])
 
         return Response({"url_paiement": resultat['url']})
 
@@ -294,7 +313,12 @@ class PaydunyaWebhookView(APIView):
             logger.warning("Webhook PayDunya rejeté : token ou paiement_id manquant.")
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
-        statut_reel = paydunya.confirmer_facture(token)
+        try:
+            statut_reel = paydunya.confirmer_facture(token)
+        except paydunya.PaydunyaVerificationError as e:
+            logger.error("Webhook PayDunya : vérification impossible pour le token %s : %s", token, e)
+            return Response(status=status.HTTP_502_BAD_GATEWAY)
+
         if statut_reel != 'completed':
             # Accusé de réception : PENDING/CANCELLED ne sont pas des erreurs,
             # juste rien à créditer pour l'instant.

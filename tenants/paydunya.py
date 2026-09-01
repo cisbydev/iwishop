@@ -6,6 +6,14 @@ from decouple import config
 
 logger = logging.getLogger(__name__)
 
+
+class PaydunyaVerificationError(Exception):
+    """Levée quand la vérification serveur-à-serveur d'une facture échoue
+    techniquement (réseau, réponse non conforme, JSON invalide) - à
+    distinguer d'un statut légitimement 'pending'/'cancelled'. Le webhook
+    doit alors éviter de répondre 200 à PayDunya, pour qu'il réessaie."""
+
+
 BASE_URL = (
     'https://app.paydunya.com/api/v1'
     if config('PAYDUNYA_MODE', default='test') == 'live'
@@ -62,7 +70,12 @@ def creer_facture(paiement):
         logger.error("PayDunya create-invoice a échoué (réseau) : %s", e)
         return False, str(e)
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as e:
+        logger.error("PayDunya create-invoice a renvoyé une réponse non-JSON : %s", e)
+        return False, "Réponse PayDunya invalide"
+
     if data.get('response_code') != '00':
         logger.error("PayDunya create-invoice a refusé : %s", data)
         return False, data.get('response_text', 'Erreur PayDunya inconnue')
@@ -75,8 +88,11 @@ def confirmer_facture(token):
     d'une facture. C'est ce résultat, jamais le contenu du webhook POST, qui
     fait foi pour créditer un abonnement.
 
-    Retourne le statut ('completed', 'pending', 'cancelled', ...) ou None en
-    cas d'échec de la vérification.
+    Retourne le statut ('completed', 'pending', 'cancelled', ...) si la
+    vérification a réellement pu se faire. Lève PaydunyaVerificationError
+    si la vérification elle-même a échoué (réseau, JSON invalide, réponse
+    non conforme) - dans ce cas on ne sait pas si le paiement est complété
+    ou non, il ne faut donc jamais le traiter comme "non complété".
     """
     try:
         response = requests.get(
@@ -86,12 +102,17 @@ def confirmer_facture(token):
         )
     except requests.RequestException as e:
         logger.error("PayDunya confirm a échoué (réseau) : %s", e)
-        return None
+        raise PaydunyaVerificationError(str(e)) from e
 
-    data = response.json()
+    try:
+        data = response.json()
+    except ValueError as e:
+        logger.error("PayDunya confirm a renvoyé une réponse non-JSON pour le token %s : %s", token, e)
+        raise PaydunyaVerificationError(str(e)) from e
+
     if data.get('response_code') != '00':
-        logger.warning("PayDunya confirm : réponse non-00 pour le token %s : %s", token, data)
-        return None
+        logger.error("PayDunya confirm : réponse non-00 pour le token %s : %s", token, data)
+        raise PaydunyaVerificationError(data.get('response_text', 'Réponse PayDunya non conforme'))
 
     return data.get('status')
 
