@@ -1,5 +1,6 @@
 import logging
 import secrets
+from django.utils import timezone
 from django.utils.text import slugify
 from django.contrib.auth.models import User
 from rest_framework import generics, status
@@ -66,6 +67,21 @@ class ApprouverDemandeView(APIView):
                 boutique=boutique, nom=nom,
                 defaults={'facteur_conversion': facteur, 'est_systeme': True}
             )
+
+        # Essai gratuit de 14 jours pour toute nouvelle boutique créée via ce
+        # flux client. Les boutiques créées manuellement depuis l'admin
+        # Django (tests, cas particuliers) restent volontairement exemptées
+        # (pas d'Abonnement créé => fallback abonnement_valide()=True).
+        formule_essai = FormuleAbonnement.objects.get(nom='Essai gratuit')
+        aujourdhui = timezone.localdate()
+        Abonnement.objects.create(
+            boutique=boutique,
+            formule=formule_essai,
+            date_debut=aujourdhui,
+            date_fin=aujourdhui + timezone.timedelta(days=formule_essai.duree_jours),
+            statut='ACTIF',
+            reference_paiement='ESSAI_GRATUIT',
+        )
 
         username_base = demande.email.split('@')[0]
         username = username_base
