@@ -15,6 +15,7 @@ from .permissions import IsPlatformOwner
 from .emails import envoyer_identifiants_email, notifier_nouvelle_demande, envoyer_alerte_expiration_email
 from . import paydunya
 from .services import confirmer_paiement
+from .profil import boutique_de
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ class MesAccesSupportView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        boutique = self.request.user.profil.boutique
+        boutique = boutique_de(self.request)
         return AccesSupport.objects.filter(boutique=boutique).order_by('-date_acces')
 
 class FormuleAbonnementListView(generics.ListAPIView):
@@ -202,7 +203,7 @@ class MonAbonnementView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        boutique = request.user.profil.boutique
+        boutique = boutique_de(request)
         info = boutique.info_abonnement()
 
         if not info["a_abonnement"]:
@@ -263,7 +264,7 @@ class CreerPaiementView(APIView):
         except (FormuleAbonnement.DoesNotExist, ValueError, TypeError):
             return Response({"detail": "Formule introuvable."}, status=status.HTTP_404_NOT_FOUND)
 
-        boutique = request.user.profil.boutique
+        boutique = boutique_de(request)
 
         paiement_recent = PaiementAbonnement.objects.filter(
             boutique=boutique,

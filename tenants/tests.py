@@ -479,3 +479,74 @@ class CreerPaiementMontantAttenduTests(TestCase):
 
         paiement.refresh_from_db()
         self.assertEqual(paiement.montant_attendu, Decimal('5000.00'))
+
+
+class ProfilManquantTests(TestCase):
+    """Audit point 11 : un compte authentifié sans Profil (le
+    superuser/administrateur de la plateforme, qui n'est jamais rattaché
+    à une boutique) faisait planter en 500 chacun des 11 accès directs à
+    request.user.profil dispersés dans les ViewSets et serializers, dès
+    qu'il touchait un endpoint normal (scopé boutique) sans passer par la
+    Vue Support. Centralisé dans tenants.profil.boutique_de() qui lève
+    une 403 propre à la place."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username='admin_sans_profil', email='admin_sp@example.com', password='x'
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+
+    def test_liste_produits_sans_profil_403_pas_500(self):
+        """Chemin ViewSet (BoutiqueScopedMixin.get_queryset -> _boutique_effective)."""
+        response = self.client.get('/api/produits/')
+        self.assertEqual(response.status_code, 403)
+
+    def test_creation_produit_sans_profil_403_pas_500(self):
+        """Chemin serializer (ProduitSerializer.boutique = HiddenField(CurrentBoutiqueDefault()),
+        exécuté pendant is_valid(), avant même perform_create()."""
+        response = self.client.post('/api/produits/', {
+            "nom": "Produit test", "prix_achat": "100.00",
+            "prix_unitaire": "150.00", "prix_douzaine": "1500.00",
+        }, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_creation_categorie_sans_profil_403_pas_500(self):
+        response = self.client.post('/api/categories/', {"nom": "Test"}, format='json')
+        self.assertEqual(response.status_code, 403)
+
+    def test_mon_abonnement_sans_profil_403_pas_500(self):
+        response = self.client.get('/api/tenants/mon-abonnement/')
+        self.assertEqual(response.status_code, 403)
+
+    def test_mes_acces_support_sans_profil_403_pas_500(self):
+        response = self.client.get('/api/tenants/mes-acces-support/')
+        self.assertEqual(response.status_code, 403)
+
+    def test_creer_paiement_sans_profil_403_pas_500(self):
+        formule = FormuleAbonnement.objects.create(nom='Mensuel', duree_jours=30, prix=5000, actif=True)
+        response = self.client.post('/api/tenants/creer-paiement/', {'formule_id': formule.id})
+        self.assertEqual(response.status_code, 403)
+
+    def test_vue_support_reste_fonctionnelle_pour_le_meme_superuser(self):
+        """Non-régression : ce même superuser sans Profil doit toujours
+        pouvoir consulter une boutique via la Vue Support (en-tête
+        explicite) - seul le fallback request.user.profil est concerné."""
+        boutique = Boutique.objects.create(nom='Boutique Vue Support', slug='boutique-vue-support-profil')
+
+        response = self.client.get('/api/produits/', HTTP_X_SUPPORT_BOUTIQUE=str(boutique.id))
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_utilisateur_avec_profil_non_affecte(self):
+        """Non-régression : un utilisateur normal (avec Profil) continue
+        d'accéder à ses propres endpoints sans changement de comportement."""
+        boutique = Boutique.objects.create(nom='Boutique Normale', slug='boutique-normale-profil')
+        user = User.objects.create_user(username='user_normal_profil', password='pass1234')
+        Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get('/api/produits/')
+
+        self.assertEqual(response.status_code, 200)

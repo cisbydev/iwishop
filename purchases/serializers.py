@@ -5,6 +5,7 @@ from inventory.models import MouvementStock
 from products.models import Produit, UniteVente
 from rest_framework.exceptions import ValidationError
 from django.db import transaction
+from tenants.profil import boutique_de
 
 class LigneAchatSerializer(serializers.ModelSerializer):
     produit_nom = serializers.ReadOnlyField(source='produit.nom')
@@ -49,14 +50,14 @@ class AchatSerializer(serializers.ModelSerializer):
         # et absente côté update() puisque non surchargé).
         if value is None:
             return value
-        boutique = self.context['request'].user.profil.boutique
+        boutique = boutique_de(self.context['request'])
         if value.boutique_id != boutique.id:
             raise ValidationError("Ce fournisseur n'appartient pas à votre boutique.")
         return value
 
     @transaction.atomic
     def create(self, validated_data):
-        boutique = self.context['request'].user.profil.boutique
+        boutique = boutique_de(self.context['request'])
         if not boutique.actif:
             raise serializers.ValidationError("Cette boutique a été désactivée.")
 

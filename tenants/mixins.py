@@ -1,5 +1,6 @@
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
+from .profil import boutique_de
 
 class BoutiqueScopedMixin:
     # Chemin ORM vers la boutique, pour les modèles sans champ `boutique`
@@ -23,7 +24,7 @@ class BoutiqueScopedMixin:
             except Boutique.DoesNotExist:
                 raise PermissionDenied("Boutique de support introuvable.")
 
-        return request.user.profil.boutique
+        return boutique_de(request)
 
     def _verifier_acces(self, boutique):
         if not boutique.actif:

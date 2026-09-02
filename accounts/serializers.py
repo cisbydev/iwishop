@@ -40,6 +40,7 @@ class EmployeCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         from tenants.models import Profil
+        from tenants.profil import boutique_de
         password = validated_data.pop('password')
         user = User(**validated_data)
         user.is_staff = False
@@ -47,7 +48,7 @@ class EmployeCreateSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
 
-        boutique = self.context['request'].user.profil.boutique
+        boutique = boutique_de(self.context['request'])
         Profil.objects.create(user=user, boutique=boutique, est_proprietaire=False)
         return user
 

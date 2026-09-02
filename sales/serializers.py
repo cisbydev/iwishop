@@ -4,6 +4,7 @@ from .models import Vente, LigneVente
 from inventory.models import MouvementStock
 from products.models import Produit, UniteVente, ProduitPrix
 from rest_framework.exceptions import ValidationError
+from tenants.profil import boutique_de
 
 NOM_UNITE_PAR_TYPE = {'UNITE': 'Unité', 'DOUZAINE': 'Douzaine'}
 
@@ -44,7 +45,7 @@ class VenteSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        boutique = self.context['request'].user.profil.boutique
+        boutique = boutique_de(self.context['request'])
         if not boutique.actif:
             raise serializers.ValidationError("Cette boutique a été désactivée.")
 

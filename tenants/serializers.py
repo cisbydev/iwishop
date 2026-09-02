@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import DemandeAcces, Boutique, AccesSupport, FormuleAbonnement
+from .profil import boutique_de
 
 
 class CurrentBoutiqueDefault:
@@ -13,7 +14,7 @@ class CurrentBoutiqueDefault:
     requires_context = True
 
     def __call__(self, serializer_field):
-        return serializer_field.context['request'].user.profil.boutique
+        return boutique_de(serializer_field.context['request'])
 
     def __repr__(self):
         return '%s()' % self.__class__.__name__

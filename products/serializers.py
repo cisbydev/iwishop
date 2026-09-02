@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Produit, UniteVente, ProduitPrix, UNITES_PAR_DEFAUT
 from categories.serializers import CategorieSerializer
 from tenants.serializers import CurrentBoutiqueDefault
+from tenants.profil import boutique_de
 
 class ProduitSerializer(serializers.ModelSerializer):
     boutique = serializers.HiddenField(default=CurrentBoutiqueDefault())
@@ -26,7 +27,7 @@ class ProduitSerializer(serializers.ModelSerializer):
         # boutique de l'appelant (même faille que MouvementStock.produit).
         if value is None:
             return value
-        boutique = self.context['request'].user.profil.boutique
+        boutique = boutique_de(self.context['request'])
         if value.boutique_id != boutique.id:
             raise serializers.ValidationError("Cette catégorie n'appartient pas à votre boutique.")
         return value

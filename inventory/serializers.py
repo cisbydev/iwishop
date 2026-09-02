@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from tenants.profil import boutique_de
 from .models import MouvementStock
 
 class MouvementStockSerializer(serializers.ModelSerializer):
@@ -15,7 +16,7 @@ class MouvementStockSerializer(serializers.ModelSerializer):
         # Ne jamais supposer qu'un produit soumis appartient à la boutique
         # de l'appelant (faille identifiée : un mouvement de stock pouvait
         # être créé/modifié sur le produit d'une autre boutique).
-        boutique = self.context['request'].user.profil.boutique
+        boutique = boutique_de(self.context['request'])
         if value.boutique_id != boutique.id:
             raise serializers.ValidationError("Ce produit n'appartient pas à votre boutique.")
         return value
