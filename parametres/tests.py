@@ -1,4 +1,8 @@
+from io import BytesIO
+
+from PIL import Image
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -6,6 +10,20 @@ from rest_framework.test import APITestCase
 
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from .models import ParametresBoutique
+
+
+def image_valide(nom='logo.png', taille=(10, 10)):
+    buffer = BytesIO()
+    Image.new('RGB', taille, color='blue').save(buffer, format='PNG')
+    buffer.seek(0)
+    return SimpleUploadedFile(nom, buffer.read(), content_type='image/png')
+
+
+def image_trop_lourde(nom='logo.png'):
+    buffer = BytesIO()
+    Image.new('RGB', (2000, 2000), color='red').save(buffer, format='PNG', compress_level=0)
+    buffer.seek(0)
+    return SimpleUploadedFile(nom, buffer.read(), content_type='image/png')
 
 
 class ParametresBoutiqueIsolationTests(APITestCase):
@@ -128,4 +146,46 @@ class ParametresBoutiqueAbonnementExpireTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.patch(self.url, {"nom_boutique": "Nouveau nom"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class ParametresBoutiqueLogoUploadTests(APITestCase):
+    """Audit point 10 : ParametresBoutique.logo n'avait ni limite de
+    taille ni de format - seul le contenu réellement décodable comme
+    image (Pillow, via ImageField) était vérifié."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-logo-upload")
+        self.proprietaire = User.objects.create_user(username="proprio_logo", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        ParametresBoutique.objects.create(boutique=self.boutique, nom_boutique="Boutique")
+        self.client.force_authenticate(user=self.proprietaire)
+        self.url = reverse('parametres-boutique')
+
+    def test_upload_extension_non_autorisee_refuse(self):
+        buffer = BytesIO()
+        Image.new('RGB', (10, 10)).save(buffer, format='GIF')
+        buffer.seek(0)
+        fichier = SimpleUploadedFile('logo.gif', buffer.read(), content_type='image/gif')
+
+        response = self.client.patch(self.url, {"logo": fichier}, format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_upload_fichier_non_image_refuse(self):
+        fichier = SimpleUploadedFile('logo.jpg', b"pas une image", content_type='image/jpeg')
+
+        response = self.client.patch(self.url, {"logo": fichier}, format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_upload_trop_lourd_refuse(self):
+        response = self.client.patch(self.url, {"logo": image_trop_lourde()}, format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_upload_logo_valide_toujours_autorise(self):
+        """Non-régression : un logo normal reste accepté."""
+        response = self.client.patch(self.url, {"logo": image_valide()}, format='multipart')
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)

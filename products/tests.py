@@ -1,6 +1,9 @@
 from decimal import Decimal
+from io import BytesIO
 
+from PIL import Image
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -12,6 +15,29 @@ from inventory.models import MouvementStock
 from purchases.models import Achat, LigneAchat
 from sales.models import Vente, LigneVente
 from .models import Produit, UniteVente, ProduitPrix
+
+
+def image_valide(nom='photo.png', taille=(10, 10)):
+    """Petite image PNG valide et légère, pour les tests d'upload."""
+    buffer = BytesIO()
+    Image.new('RGB', taille, color='blue').save(buffer, format='PNG')
+    buffer.seek(0)
+    return SimpleUploadedFile(nom, buffer.read(), content_type='image/png')
+
+
+def image_trop_lourde(nom='photo.png'):
+    """Image PNG valide mais dépassant 5 Mo (compress_level=0 : pas de
+    compression zlib, la taille du fichier reste proche des pixels bruts)."""
+    buffer = BytesIO()
+    Image.new('RGB', (2000, 2000), color='red').save(buffer, format='PNG', compress_level=0)
+    buffer.seek(0)
+    return SimpleUploadedFile(nom, buffer.read(), content_type='image/png')
+
+
+def fichier_non_image(nom='photo.jpg'):
+    """Fichier texte renommé avec une extension d'image - jamais une
+    vraie image, quel que soit son nom."""
+    return SimpleUploadedFile(nom, b"pas une image, juste du texte", content_type='image/jpeg')
 
 
 class ProduitCategorieIsolationTests(APITestCase):
@@ -563,3 +589,67 @@ class ProduitReferenceUniciteParBoutiqueTests(APITestCase):
         self.assertEqual(reponse_1.status_code, status.HTTP_201_CREATED)
         self.assertEqual(reponse_2.status_code, status.HTTP_201_CREATED)
         self.assertNotEqual(reponse_1.data['reference'], reponse_2.data['reference'])
+
+
+class ProduitPhotoUploadTests(APITestCase):
+    """Audit point 10 : Produit.photo n'avait ni limite de taille ni de
+    format - seul le contenu réellement décodable comme image (Pillow,
+    via ImageField) était vérifié."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-photo-upload")
+        self.user = User.objects.create_user(username="user_photo", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('produit-list')
+
+    def _payload(self, **overrides):
+        payload = {
+            "nom": "Produit test", "prix_achat": "100.00",
+            "prix_unitaire": "150.00", "prix_douzaine": "1500.00",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_upload_extension_non_autorisee_refuse(self):
+        """Une vraie image, mais dans un format hors liste blanche (GIF)."""
+        buffer = BytesIO()
+        Image.new('RGB', (10, 10)).save(buffer, format='GIF')
+        buffer.seek(0)
+        fichier = SimpleUploadedFile('photo.gif', buffer.read(), content_type='image/gif')
+
+        response = self.client.post(self.url_list, self._payload(photo=fichier), format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_upload_fichier_non_image_refuse(self):
+        """Non-régression : un fichier renommé en .jpg mais qui n'est pas
+        une vraie image reste rejeté (vérification de contenu, pas juste
+        de nom - déjà assurée par Pillow via ImageField avant ce correctif)."""
+        response = self.client.post(
+            self.url_list, self._payload(photo=fichier_non_image()), format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_upload_trop_lourd_refuse(self):
+        response = self.client.post(
+            self.url_list, self._payload(photo=image_trop_lourde()), format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_upload_image_valide_toujours_autorise(self):
+        """Non-régression : une image normale (bon format, taille
+        raisonnable) reste acceptée."""
+        response = self.client.post(
+            self.url_list, self._payload(photo=image_valide()), format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_creation_sans_photo_toujours_autorisee(self):
+        """Non-régression : la photo reste optionnelle."""
+        response = self.client.post(self.url_list, self._payload(), format='multipart')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

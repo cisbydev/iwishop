@@ -2,6 +2,7 @@ from decimal import Decimal
 from django.core.validators import MinValueValidator
 from django.db import models
 from categories.models import Categorie
+from tenants.validators import extensions_image_autorisees, valider_taille_image
 import uuid
 
 # Unités de vente créées par défaut pour toute boutique (nouvelle ou
@@ -41,7 +42,13 @@ class Produit(models.Model):
     stock_minimum = models.IntegerField(default=5, validators=[MinValueValidator(0)])
 
     # Média et dates
-    photo = models.ImageField(upload_to='produits/', blank=True, null=True)
+    # Extensions + taille bornées (audit point 10) - le contenu réel est
+    # déjà vérifié comme étant une image décodable par Pillow (ImageField),
+    # mais rien ne limitait jusqu'ici le format ou le poids du fichier.
+    photo = models.ImageField(
+        upload_to='produits/', blank=True, null=True,
+        validators=[extensions_image_autorisees, valider_taille_image],
+    )
     date_creation = models.DateTimeField(auto_now_add=True)
 
 
