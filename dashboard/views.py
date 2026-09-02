@@ -15,12 +15,13 @@ class TableauDeBordView(BoutiqueScopedMixin, APIView):
 
     def get(self, request, *args, **kwargs):
         # Réutilise la même résolution de boutique effective (Vue Support
-        # comprise) et le même contrôle d'accès (boutique désactivée/
-        # abonnement expiré) que les ViewSets scopés, au lieu de dupliquer
-        # cette logique ici sans le contrôle d'accès et sans gestion propre
-        # de Boutique.DoesNotExist (P2 point 14 - Vue Support ad-hoc).
+        # comprise) que les ViewSets scopés, au lieu de dupliquer cette
+        # logique ici sans gestion propre de Boutique.DoesNotExist (P2
+        # point 14 - Vue Support ad-hoc). Vue en lecture seule : pas
+        # d'appel à _verifier_acces() ici - consulter son tableau de bord
+        # doit rester possible boutique désactivée/abonnement expiré,
+        # seules les écritures sont bloquées (cf. tenants.mixins.BoutiqueScopedMixin).
         boutique = self._boutique_effective()
-        self._verifier_acces(boutique)
         maintenant = timezone.now()
         aujourd_hui = maintenant.date()
         mois_courant = maintenant.month

@@ -22,11 +22,14 @@ class ParametresBoutiqueView(BoutiqueScopedMixin, generics.RetrieveUpdateAPIView
     def get_object(self):
         # get_object() est surchargé (pas de pk dans l'URL, une seule
         # ressource par boutique) : le passage par get_queryset() du mixin
-        # est donc court-circuité, d'où l'appel explicite aux mêmes
-        # vérifications (faille identifiée - audit complémentaire point 1,
-        # cette vue n'était protégée ni par `actif` ni par
-        # `abonnement_valide()`).
+        # est donc court-circuité. _verifier_acces() (boutique désactivée/
+        # abonnement expiré) n'est appelée que pour les écritures (PUT/
+        # PATCH, même distinction que get_permissions() ci-dessus) : la
+        # lecture des paramètres doit rester possible boutique désactivée/
+        # abonnement expiré, comme les autres vues en lecture seule
+        # (cf. tenants.mixins.BoutiqueScopedMixin.get_queryset()).
         boutique = self._boutique_effective()
-        self._verifier_acces(boutique)
+        if self.request.method in ('PUT', 'PATCH'):
+            self._verifier_acces(boutique)
         obj, created = ParametresBoutique.objects.get_or_create(boutique=boutique)
         return obj

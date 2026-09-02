@@ -72,7 +72,10 @@ class LigneVente(models.Model):
     # principe que UniteVente ci-dessous, jusqu'ici appliqué au produit
     # lui-même mais pas répliqué ici (P2 point 15, faille trouvée).
     produit = models.ForeignKey(Produit, on_delete=models.PROTECT, related_name='lignes_vente')
-    quantite = models.IntegerField()
+    # >= 0 - déjà validé côté serializer (audit complémentaire point 2) ;
+    # validateur de modèle en plus, défense en profondeur contre une
+    # écriture directe (ex. admin Django).
+    quantite = models.IntegerField(validators=[MinValueValidator(0)])
     type_vente = models.CharField(max_length=20, choices=TYPES_VENTE, default='UNITE')
     unite = models.ForeignKey('products.UniteVente', on_delete=models.PROTECT, related_name='lignes_vente')
     facteur_conversion_applique = models.DecimalField(max_digits=10, decimal_places=3)

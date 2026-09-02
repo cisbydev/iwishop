@@ -234,7 +234,8 @@ class EmployeReactivationTests(APITestCase):
 
 class EmployeAbonnementExpireTests(APITestCase):
     """Audit complémentaire point 1 : une boutique dont l'abonnement a
-    expiré ne doit plus pouvoir créer ou lister ses employés.
+    expiré ne doit plus pouvoir créer, désactiver ou réactiver un employé
+    (la liste reste lisible - contrôle scindé lecture/écriture).
     EmployeViewSet n'utilisait pas BoutiqueScopedMixin du tout ;
     get_queryset() était fait à la main, sans `_verifier_acces()`."""
 
@@ -264,13 +265,14 @@ class EmployeAbonnementExpireTests(APITestCase):
         self.assertIn("Abonnement expiré", str(response.data))
         self.assertFalse(User.objects.filter(username="nouvel_employe").exists())
 
-    def test_liste_refusee_si_abonnement_expire(self):
+    def test_liste_autorisee_si_abonnement_expire(self):
+        """Lecture toujours permise, même abonnement expiré (contrôle
+        scindé lecture/écriture)."""
         self._expirer_abonnement()
 
         response = self.client.get(self.url_list)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("Abonnement expiré", str(response.data))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_creation_autorisee_sans_abonnement_configure(self):
         """Non-régression : une boutique sans Abonnement du tout doit
@@ -281,3 +283,33 @@ class EmployeAbonnementExpireTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(User.objects.filter(username="nouvel_employe").exists())
+
+    def test_desactivation_refusee_si_abonnement_expire(self):
+        """destroy() (désactivation) n'est plus protégé implicitement par
+        get_queryset() (lecture toujours permise) : vérifie l'appel
+        explicite ajouté, sans quoi la faille serait réintroduite."""
+        employe = User.objects.create_user(username="employe_abo", password="pass1234")
+        Profil.objects.create(user=employe, boutique=self.boutique, est_proprietaire=False)
+        self._expirer_abonnement()
+
+        response = self.client.delete(reverse('employes-detail', args=[employe.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        employe.refresh_from_db()
+        self.assertTrue(employe.is_active)
+
+    def test_reactivation_refusee_si_abonnement_expire(self):
+        """reactiver() n'est plus protégé implicitement par get_queryset()
+        (lecture toujours permise) : vérifie l'appel explicite ajouté,
+        sans quoi la faille serait réintroduite."""
+        employe = User.objects.create_user(username="employe_abo2", password="pass1234", is_active=False)
+        Profil.objects.create(user=employe, boutique=self.boutique, est_proprietaire=False)
+        self._expirer_abonnement()
+
+        response = self.client.post(reverse('employes-reactiver', args=[employe.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        employe.refresh_from_db()
+        self.assertFalse(employe.is_active)

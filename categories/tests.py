@@ -1,9 +1,10 @@
 from django.contrib.auth.models import User
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
 
-from tenants.models import Boutique, Profil
+from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from .models import Categorie
 
 
@@ -46,6 +47,49 @@ class CategorieDestroyPermissionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Categorie.objects.filter(pk=self.categorie.id).exists())
+
+
+class CategorieEcritureAbonnementExpireTests(APITestCase):
+    """Audit complémentaire point 1 bis : PATCH/DELETE sur Categorie
+    n'étaient protégés qu'implicitement par get_queryset() (via
+    get_object()) ; ils doivent maintenant appeler _verifier_acces()
+    eux-mêmes (perform_update/perform_destroy du mixin) - sans quoi le
+    contrôle scindé lecture/écriture réintroduirait la faille déjà fermée
+    (audit complémentaire point 1). La lecture (GET), elle, reste permise."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-abo-expire-ecriture-categorie")
+        self.proprietaire = User.objects.create_user(username="proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.proprietaire)
+
+        self.categorie = Categorie.objects.create(boutique=self.boutique, nom="Boissons")
+
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+    def test_lecture_autorisee_si_abonnement_expire(self):
+        response = self.client.get(reverse('categories-detail', args=[self.categorie.id]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_patch_refuse_si_abonnement_expire(self):
+        response = self.client.patch(
+            reverse('categories-detail', args=[self.categorie.id]), {"nom": "Tentative"}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        self.categorie.refresh_from_db()
+        self.assertEqual(self.categorie.nom, "Boissons")
+
+    def test_delete_refuse_si_abonnement_expire(self):
+        response = self.client.delete(reverse('categories-detail', args=[self.categorie.id]))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Categorie.objects.filter(pk=self.categorie.id).exists())
 
 
 class CategorieUniciteParBoutiqueTests(APITestCase):

@@ -147,6 +147,68 @@ class ProduitDestroyPermissionTests(APITestCase):
         self.assertFalse(Produit.objects.filter(pk=self.produit.id).exists())
 
 
+class ProduitEcritureAbonnementExpireTests(APITestCase):
+    """Audit complémentaire point 1 bis : PATCH/DELETE sur Produit et
+    UniteVente n'étaient protégés qu'implicitement par get_queryset()
+    (via get_object()) ; ils doivent maintenant appeler _verifier_acces()
+    eux-mêmes (perform_update/perform_destroy du mixin) - sans quoi le
+    contrôle scindé lecture/écriture réintroduirait la faille déjà fermée
+    (audit complémentaire point 1). La lecture (GET), elle, reste permise."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-abo-expire-ecriture-produit")
+        self.proprietaire = User.objects.create_user(username="proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.proprietaire)
+
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("100"), prix_unitaire=Decimal("150"), prix_douzaine=Decimal("1500"),
+        )
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Kg", facteur_conversion=Decimal("1.000")
+        )
+
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+    def test_lecture_produit_autorisee_si_abonnement_expire(self):
+        response = self.client.get(reverse('produit-detail', args=[self.produit.id]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_patch_produit_refuse_si_abonnement_expire(self):
+        response = self.client.patch(
+            reverse('produit-detail', args=[self.produit.id]), {"nom": "Tentative"}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.nom, "Produit")
+
+    def test_delete_produit_refuse_si_abonnement_expire(self):
+        response = self.client.delete(reverse('produit-detail', args=[self.produit.id]))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Produit.objects.filter(pk=self.produit.id).exists())
+
+    def test_lecture_unite_vente_autorisee_si_abonnement_expire(self):
+        response = self.client.get(reverse('unites-vente-detail', args=[self.unite.id]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_patch_unite_vente_refuse_si_abonnement_expire(self):
+        response = self.client.patch(
+            reverse('unites-vente-detail', args=[self.unite.id]), {"nom": "Kilogramme"}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        self.unite.refresh_from_db()
+        self.assertEqual(self.unite.nom, "Kg")
+
+
 class ProduitDestroyProtegeParHistoriqueTests(APITestCase):
     """P2 point 15 : supprimer un produit ne doit jamais effacer
     silencieusement l'historique (ventes, achats, mouvements de stock) qui

@@ -22,14 +22,20 @@ class TableauDeBordAccesTests(APITestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_boutique_desactivee_refusee(self):
+    def test_boutique_desactivee_autorisee(self):
+        """Vue en lecture seule : consulter son tableau de bord reste
+        possible boutique désactivée - seules les écritures sont bloquées
+        (scinde le contrôle lecture/écriture, audit complémentaire point 1)."""
         self.boutique.actif = False
         self.boutique.save()
         self.client.force_authenticate(user=self.user)
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_abonnement_expire_refuse(self):
+    def test_abonnement_expire_autorise(self):
+        """Vue en lecture seule : consulter son tableau de bord reste
+        possible abonnement expiré - seules les écritures sont bloquées
+        (scinde le contrôle lecture/écriture, audit complémentaire point 1)."""
         formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
         Abonnement.objects.create(
             boutique=self.boutique, formule=formule,
@@ -39,7 +45,7 @@ class TableauDeBordAccesTests(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
         response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_vue_support_superuser_autorisee(self):
         admin = User.objects.create_superuser(username="admin", email="admin@example.com", password="x")

@@ -54,6 +54,12 @@ class AchatViewSet(
 
     @action(detail=True, methods=['post'])
     def annuler(self, request, pk=None):
+        # get_queryset() ne bloque plus l'accès boutique désactivée/
+        # abonnement expiré (lecture toujours permise) : annuler est une
+        # écriture comptable, elle doit donc rester protégée explicitement,
+        # pour ne pas réintroduire la faille déjà fermée (audit
+        # complémentaire point 1).
+        self._verifier_acces(self._boutique_effective())
         # get_object() applique le scoping boutique (BoutiqueScopedMixin) :
         # impossible d'annuler l'achat d'une autre boutique.
         achat_verifie = self.get_object()

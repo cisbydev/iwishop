@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.core.validators import MinValueValidator
 from django.db import models
 from products.models import Produit
 
@@ -17,7 +18,10 @@ class MouvementStock(models.Model):
     # Employé ayant effectué le mouvement - traçabilité (P2 point 16).
     utilisateur = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     type_mouvement = models.CharField(max_length=20, choices=TYPES_MOUVEMENT)
-    quantite = models.IntegerField()
+    # >= 0 - déjà validé côté vue selon le type de mouvement (audit
+    # complémentaire point 2) ; validateur de modèle en plus, défense en
+    # profondeur contre une écriture directe (ex. admin Django).
+    quantite = models.IntegerField(validators=[MinValueValidator(0)])
     motif = models.CharField(max_length=255, blank=True, null=True)
     date_mouvement = models.DateTimeField(auto_now_add=True)
 

@@ -33,11 +33,31 @@ class BoutiqueScopedMixin:
             raise PermissionDenied("Abonnement expiré. Merci de renouveler votre abonnement.")
 
     def get_queryset(self):
+        # _verifier_acces() (boutique désactivée/abonnement expiré) n'est
+        # PAS appelé ici : une boutique désactivée ou dont l'abonnement a
+        # expiré doit rester lisible (consulter son historique, ses
+        # rapports) - seules les écritures sont bloquées. Comme get_object()
+        # (retrieve/update/partial_update/destroy) passe par get_queryset(),
+        # tout chemin d'écriture qui ne va pas explicitement par
+        # perform_create/perform_update/perform_destroy ci-dessous (une
+        # action @action personnalisée, par ex.) doit appeler
+        # _verifier_acces() lui-même - sans quoi elle resterait accessible
+        # boutique désactivée/abonnement expiré (voir Achat/Vente/Depense
+        # .annuler(), Employe.reactiver()/destroy()).
         boutique = self._boutique_effective()
-        self._verifier_acces(boutique)
         return super().get_queryset().filter(**{self.boutique_lookup: boutique})
 
     def perform_create(self, serializer):
         boutique = self._boutique_effective()
         self._verifier_acces(boutique)
         serializer.save(boutique=boutique)
+
+    def perform_update(self, serializer):
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
+        instance.delete()

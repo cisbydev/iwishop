@@ -98,10 +98,10 @@ class ParametresBoutiqueModificationPermissionTests(APITestCase):
 
 class ParametresBoutiqueAbonnementExpireTests(APITestCase):
     """Audit complémentaire point 1 : une boutique dont l'abonnement a
-    expiré ne doit plus pouvoir lire ni modifier ses paramètres.
-    ParametresBoutiqueView n'utilisait pas BoutiqueScopedMixin du tout ;
-    get_object() était une méthode maison qui ne vérifiait ni `actif` ni
-    `abonnement_valide()`."""
+    expiré ne doit plus pouvoir modifier ses paramètres (la lecture reste
+    permise - contrôle scindé lecture/écriture). ParametresBoutiqueView
+    n'utilisait pas BoutiqueScopedMixin du tout ; get_object() était une
+    méthode maison qui ne vérifiait ni `actif` ni `abonnement_valide()`."""
 
     def setUp(self):
         self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-abo-expire-parametres")
@@ -119,14 +119,15 @@ class ParametresBoutiqueAbonnementExpireTests(APITestCase):
             statut='EXPIRE',
         )
 
-    def test_lecture_refusee_si_abonnement_expire(self):
+    def test_lecture_autorisee_si_abonnement_expire(self):
+        """Lecture toujours permise, même abonnement expiré (contrôle
+        scindé lecture/écriture)."""
         self._expirer_abonnement()
         self.client.force_authenticate(user=self.proprietaire)
 
         response = self.client.get(self.url)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn("Abonnement expiré", str(response.data))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_modification_refusee_si_abonnement_expire(self):
         self._expirer_abonnement()

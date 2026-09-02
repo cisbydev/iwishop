@@ -62,12 +62,13 @@ class EmployeViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
         # get_queryset() est surchargé (le modèle est User, scopé via
         # profil__boutique, et filtré en plus sur est_proprietaire=False) :
         # le filtrage générique du mixin ne s'applique donc pas telle
-        # quelle, d'où l'appel explicite aux mêmes vérifications (faille
-        # identifiée - audit complémentaire point 1, la gestion des
-        # employés n'était protégée ni par `actif` ni par
-        # `abonnement_valide()`).
+        # quelle. _verifier_acces() (boutique désactivée/abonnement expiré)
+        # n'est PAS appelée ici : lister ses employés reste une lecture,
+        # qui doit rester possible boutique désactivée/abonnement expiré -
+        # seules les écritures (create/destroy/reactiver) sont bloquées,
+        # via un appel explicite à chacune (cf.
+        # tenants.mixins.BoutiqueScopedMixin.get_queryset()).
         boutique = self._boutique_effective()
-        self._verifier_acces(boutique)
         return User.objects.filter(
             profil__boutique=boutique,
             profil__est_proprietaire=False
@@ -89,6 +90,12 @@ class EmployeViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
         return EmployeSerializer
 
     def destroy(self, request, *args, **kwargs):
+        # get_queryset() ne bloque plus l'accès boutique désactivée/
+        # abonnement expiré (lecture toujours permise) : la désactivation
+        # d'un compte est une écriture, elle doit donc rester protégée
+        # explicitement, pour ne pas réintroduire la faille déjà fermée
+        # (audit complémentaire point 1).
+        self._verifier_acces(self._boutique_effective())
         instance = self.get_object()
         if instance.id == request.user.id:
             return Response(
@@ -107,6 +114,12 @@ class EmployeViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def reactiver(self, request, pk=None):
+        # get_queryset() ne bloque plus l'accès boutique désactivée/
+        # abonnement expiré (lecture toujours permise) : la réactivation
+        # est une écriture, elle doit donc rester protégée explicitement,
+        # pour ne pas réintroduire la faille déjà fermée (audit
+        # complémentaire point 1).
+        self._verifier_acces(self._boutique_effective())
         # get_object() applique déjà le scoping boutique + est_proprietaire=False
         # (get_queryset() ci-dessus) : impossible de réactiver l'employé
         # d'une autre boutique (404) ou un compte propriétaire.

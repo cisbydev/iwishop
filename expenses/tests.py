@@ -8,7 +8,9 @@ from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
 
-from tenants.models import Boutique, Profil
+from django.utils import timezone
+
+from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from .models import Depense
 
 
@@ -133,6 +135,27 @@ class DepenseAnnulationTests(APITestCase):
         response = self.client.post(self.url_annuler)
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.depense.refresh_from_db()
+        self.assertEqual(self.depense.statut, 'VALIDEE')
+
+    def test_annulation_refusee_si_abonnement_expire(self):
+        """annuler() n'est plus protégé implicitement par get_queryset()
+        (lecture toujours permise, audit complémentaire point 1 bis) :
+        vérifie l'appel explicite ajouté, sans quoi la faille serait
+        réintroduite."""
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique_a, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+        self.client.force_authenticate(user=self.proprietaire_a)
+
+        response = self.client.post(self.url_annuler)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
         self.depense.refresh_from_db()
         self.assertEqual(self.depense.statut, 'VALIDEE')
 

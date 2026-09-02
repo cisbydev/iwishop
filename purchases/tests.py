@@ -376,6 +376,37 @@ class AchatAbonnementExpireTests(APITestCase):
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 3)
 
+    def test_annulation_refusee_si_abonnement_expire(self):
+        """annuler() n'est plus protégé implicitement par get_queryset()
+        (lecture toujours permise, audit complémentaire point 1 bis) :
+        vérifie l'appel explicite ajouté, sans quoi la faille serait
+        réintroduite."""
+        achat = Achat.objects.create(boutique=self.boutique, fournisseur=self.fournisseur)
+        LigneAchat.objects.create(
+            boutique=self.boutique, achat=achat, produit=self.produit, quantite=3,
+            unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_unitaire_achat=Decimal("60.00"),
+        )
+        self.produit.quantite_en_stock = 3
+        self.produit.save()
+
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+        response = self.client.post(reverse('achats-annuler', args=[achat.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        achat.refresh_from_db()
+        self.assertEqual(achat.statut, 'VALIDE')
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 3)
+
 
 class AchatQuantiteInvalideTests(APITestCase):
     """Audit complémentaire point 2 : une quantité négative sur une ligne
