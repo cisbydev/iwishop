@@ -20,6 +20,15 @@ class LigneAchatSerializer(serializers.ModelSerializer):
         fields = ['id', 'produit', 'produit_nom', 'quantite', 'unite', 'unite_nom', 'prix_unitaire_achat', 'sous_total']
         read_only_fields = ['sous_total']
 
+    def validate_quantite(self, value):
+        # Une quantité négative inverserait le sens de l'opération : au
+        # lieu d'ajouter du stock, l'achat en retirerait (faille identifiée
+        # - audit complémentaire point 2). Zéro n'a pas de sens non plus
+        # pour une ligne d'achat.
+        if value <= 0:
+            raise serializers.ValidationError("La quantité doit être strictement positive.")
+        return value
+
 class AchatSerializer(serializers.ModelSerializer):
     lignes = LigneAchatSerializer(many=True)
     fournisseur_nom = serializers.ReadOnlyField(source='fournisseur.nom')

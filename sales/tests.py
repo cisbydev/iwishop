@@ -334,3 +334,60 @@ class VenteAbonnementExpireTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 15)
+
+
+class VenteQuantiteInvalideTests(APITestCase):
+    """Audit complémentaire point 2 : une quantité négative sur une ligne de
+    vente inversait le sens de l'opération - au lieu de retirer du stock,
+    la vente en ajoutait (démontré : quantite=-5 sur un stock de 10 le
+    faisait passer à 15). Une quantité nulle n'a pas de sens non plus."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-quantite-invalide-vente")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('ventes-list')
+
+    def _tenter_vente(self, quantite):
+        return self.client.post(self.url_list, {
+            "montant_paye": "500.00",
+            "lignes": [{"produit": self.produit.id, "quantite": quantite, "type_vente": "UNITE", "prix_applique": "100.00"}],
+        }, format='json')
+
+    def test_quantite_negative_refusee_stock_inchange(self):
+        """Reproduit exactement la faille démontrée : quantite=-5 ne doit
+        plus augmenter le stock au lieu de le diminuer."""
+        response = self._tenter_vente(-5)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_quantite_nulle_refusee(self):
+        response = self._tenter_vente(0)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_quantite_positive_toujours_autorisee(self):
+        """Non-régression : une vente normale reste possible."""
+        response = self._tenter_vente(5)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 5)

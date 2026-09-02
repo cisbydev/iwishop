@@ -19,3 +19,18 @@ class MouvementStockSerializer(serializers.ModelSerializer):
         if value.boutique_id != boutique.id:
             raise serializers.ValidationError("Ce produit n'appartient pas à votre boutique.")
         return value
+
+    def validate(self, attrs):
+        # Une quantité négative inverserait le sens de l'opération : une
+        # ENTREE retirerait du stock, une SORTIE en ajouterait (faille
+        # identifiée - audit complémentaire point 2). AJUSTEMENT n'est pas
+        # concerné ici : il fixe une valeur absolue et zéro y est légitime
+        # (stock réel constaté nul) - son propre contrôle (pas de valeur
+        # négative) reste dans MouvementStockViewSet.perform_create().
+        type_mouvement = attrs.get('type_mouvement')
+        quantite = attrs.get('quantite')
+        if type_mouvement in ('ENTREE', 'SORTIE') and quantite is not None and quantite <= 0:
+            raise serializers.ValidationError({
+                'quantite': "La quantité doit être strictement positive pour une entrée ou une sortie de stock."
+            })
+        return attrs
