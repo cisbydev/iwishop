@@ -3,22 +3,24 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField
+from tenants.mixins import BoutiqueScopedMixin
 from sales.models import Vente, LigneVente
 from sales.utils import unites_reelles_expr
 from products.models import Produit
 from inventory.models import MouvementStock
 
 
-class TableauDeBordView(APIView):
+class TableauDeBordView(BoutiqueScopedMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        support_boutique_id = request.headers.get('X-Support-Boutique')
-        if support_boutique_id and request.user.is_superuser:
-            from tenants.models import Boutique
-            boutique = Boutique.objects.get(pk=support_boutique_id)
-        else:
-            boutique = request.user.profil.boutique
+        # Réutilise la même résolution de boutique effective (Vue Support
+        # comprise) et le même contrôle d'accès (boutique désactivée/
+        # abonnement expiré) que les ViewSets scopés, au lieu de dupliquer
+        # cette logique ici sans le contrôle d'accès et sans gestion propre
+        # de Boutique.DoesNotExist (P2 point 14 - Vue Support ad-hoc).
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
         maintenant = timezone.now()
         aujourd_hui = maintenant.date()
         mois_courant = maintenant.month

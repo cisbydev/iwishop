@@ -2,22 +2,24 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField
+from tenants.mixins import BoutiqueScopedMixin
 from sales.models import LigneVente, Vente
 from sales.utils import unites_reelles_expr
 from purchases.models import Achat
 from expenses.models import Depense
 
 
-class ResumeFinancierView(APIView):
+class ResumeFinancierView(BoutiqueScopedMixin, APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        support_boutique_id = request.headers.get('X-Support-Boutique')
-        if support_boutique_id and request.user.is_superuser:
-            from tenants.models import Boutique
-            boutique = Boutique.objects.get(pk=support_boutique_id)
-        else:
-            boutique = request.user.profil.boutique
+        # Réutilise la même résolution de boutique effective (Vue Support
+        # comprise) et le même contrôle d'accès (boutique désactivée/
+        # abonnement expiré) que les ViewSets scopés, au lieu de dupliquer
+        # cette logique ici sans le contrôle d'accès et sans gestion propre
+        # de Boutique.DoesNotExist (P2 point 14 - Vue Support ad-hoc).
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
         # Récupérer les filtres de date optionnels (?date_debut=YYYY-MM-DD&date_fin=YYYY-MM-DD)
         date_debut = request.GET.get('date_debut')
         date_fin = request.GET.get('date_fin')
