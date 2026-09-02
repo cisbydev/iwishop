@@ -46,3 +46,75 @@ class CategorieDestroyPermissionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Categorie.objects.filter(pk=self.categorie.id).exists())
+
+
+class CategorieUniciteParBoutiqueTests(APITestCase):
+    """Audit point 9 : Categorie.nom était unique GLOBALEMENT plutôt que
+    par boutique - deux boutiques différentes ne pouvaient pas chacune
+    avoir une catégorie "Alimentation". Passé en unique_together
+    (boutique, nom). Vérifie aussi que l'ajout de CurrentBoutiqueDefault()
+    (nécessaire pour que DRF valide côté serializer) ne fait pas d'un
+    doublon dans la MÊME boutique une IntegrityError non gérée (500) au
+    lieu d'un 400 propre."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique A", slug="boutique-a-unicite-categorie")
+        self.boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-b-unicite-categorie")
+
+        self.user_a = User.objects.create_user(username="user_a_categorie", password="pass1234")
+        Profil.objects.create(user=self.user_a, boutique=self.boutique_a, est_proprietaire=True)
+
+        self.user_b = User.objects.create_user(username="user_b_categorie", password="pass1234")
+        Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
+
+        self.url_list = reverse('categories-list')
+
+    def test_deux_boutiques_peuvent_avoir_la_meme_categorie(self):
+        """Reproduit exactement le scénario bloqué avant la correction."""
+        Categorie.objects.create(boutique=self.boutique_a, nom="Alimentation")
+
+        self.client.force_authenticate(user=self.user_b)
+        response = self.client.post(self.url_list, {"nom": "Alimentation"}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            Categorie.objects.filter(nom="Alimentation").count(), 2
+        )
+
+    def test_meme_boutique_deux_categories_meme_nom_refusee_400_pas_500(self):
+        """La contrainte doit rester active DANS une même boutique - et
+        remonter une 400 propre (validateur DRF), pas une IntegrityError
+        non gérée."""
+        Categorie.objects.create(boutique=self.boutique_a, nom="Boissons")
+
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.post(self.url_list, {"nom": "Boissons"}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Categorie.objects.filter(boutique=self.boutique_a, nom="Boissons").count(), 1)
+
+    def test_patch_vers_nom_utilise_par_une_autre_boutique_autorise(self):
+        """Non-régression sur la modification : renommer vers un nom déjà
+        pris par une AUTRE boutique doit rester possible."""
+        Categorie.objects.create(boutique=self.boutique_b, nom="Épicerie")
+        categorie_a = Categorie.objects.create(boutique=self.boutique_a, nom="Autre")
+
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.patch(
+            reverse('categories-detail', args=[categorie_a.id]), {"nom": "Épicerie"}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_patch_vers_nom_deja_utilise_dans_la_meme_boutique_refuse(self):
+        """Non-régression : renommer vers un nom déjà pris dans SA PROPRE
+        boutique reste refusé (400 propre)."""
+        Categorie.objects.create(boutique=self.boutique_a, nom="Boissons")
+        categorie_a = Categorie.objects.create(boutique=self.boutique_a, nom="Autre")
+
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.patch(
+            reverse('categories-detail', args=[categorie_a.id]), {"nom": "Boissons"}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

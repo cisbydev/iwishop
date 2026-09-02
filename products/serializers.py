@@ -1,14 +1,25 @@
 from rest_framework import serializers
 from .models import Produit, UniteVente, ProduitPrix, UNITES_PAR_DEFAUT
 from categories.serializers import CategorieSerializer
+from tenants.serializers import CurrentBoutiqueDefault
 
 class ProduitSerializer(serializers.ModelSerializer):
+    boutique = serializers.HiddenField(default=CurrentBoutiqueDefault())
     categorie_nom = serializers.ReadOnlyField(source='categorie.nom')
 
     class Meta:
         model = Produit
         fields = '__all__'
-        read_only_fields = ['boutique']
+        # `reference` est blank=True (auto-générée si omise, voir
+        # Produit.save()) : le UniqueTogetherValidator que DRF générerait
+        # automatiquement pour (boutique, reference) - audit point 9 -
+        # forcerait `reference` en `required=True` malgré blank=True (DRF
+        # rend requis tout champ non-lecture-seule participant à un
+        # unique_together sans default), cassant le chemin historique où
+        # elle est omise. On désactive cette génération automatique et on
+        # valide l'unicité nous-mêmes, seulement quand une référence est
+        # explicitement fournie (voir validate() ci-dessous).
+        validators = []
 
     def validate_categorie(self, value):
         # Ne jamais supposer qu'une catégorie soumise appartient à la
@@ -19,6 +30,19 @@ class ProduitSerializer(serializers.ModelSerializer):
         if value.boutique_id != boutique.id:
             raise serializers.ValidationError("Cette catégorie n'appartient pas à votre boutique.")
         return value
+
+    def validate(self, attrs):
+        reference = attrs.get('reference', getattr(self.instance, 'reference', ''))
+        if reference:
+            boutique = attrs.get('boutique') or getattr(self.instance, 'boutique', None)
+            queryset = Produit.objects.filter(boutique=boutique, reference=reference)
+            if self.instance:
+                queryset = queryset.exclude(pk=self.instance.pk)
+            if queryset.exists():
+                raise serializers.ValidationError(
+                    {'reference': "Cette référence est déjà utilisée dans votre boutique."}
+                )
+        return attrs
 
     def create(self, validated_data):
         produit = super().create(validated_data)
@@ -38,21 +62,6 @@ class ProduitSerializer(serializers.ModelSerializer):
                 ProduitPrix.objects.update_or_create(
                     produit=produit, unite=unite, defaults={'prix': prix_par_nom[nom]}
                 )
-
-
-class CurrentBoutiqueDefault:
-    """Injecte la boutique de l'utilisateur courant, invisible côté client.
-    Nécessaire (pas juste read_only) pour que DRF génère le
-    UniqueTogetherValidator sur (boutique, nom) : un champ read_only sans
-    default n'est jamais inclus dans validated_data ni dans le calcul du
-    validateur (voir ModelSerializer.get_unique_together_validators)."""
-    requires_context = True
-
-    def __call__(self, serializer_field):
-        return serializer_field.context['request'].user.profil.boutique
-
-    def __repr__(self):
-        return '%s()' % self.__class__.__name__
 
 
 class UniteVenteSerializer(serializers.ModelSerializer):

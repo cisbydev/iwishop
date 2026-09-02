@@ -491,3 +491,75 @@ class ProduitStockNegatifTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 25)
+
+
+class ProduitReferenceUniciteParBoutiqueTests(APITestCase):
+    """Audit point 9 : Produit.reference était unique GLOBALEMENT plutôt
+    que par boutique - deux boutiques différentes ne pouvaient pas
+    utiliser le même schéma de référence (ex: "SKU-001"). Passé en
+    unique_together (boutique, reference). Vérifie aussi que
+    CurrentBoutiqueDefault() (nécessaire pour la validation DRF) ne
+    transforme pas un doublon dans la MÊME boutique en IntegrityError non
+    gérée (500) au lieu d'un 400 propre."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique A", slug="boutique-a-unicite-reference")
+        self.boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-b-unicite-reference")
+
+        self.user_a = User.objects.create_user(username="user_a_reference", password="pass1234")
+        Profil.objects.create(user=self.user_a, boutique=self.boutique_a, est_proprietaire=True)
+
+        self.user_b = User.objects.create_user(username="user_b_reference", password="pass1234")
+        Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
+
+        self.url_list = reverse('produit-list')
+        self.payload_base = {
+            "nom": "Produit test", "prix_achat": "100.00",
+            "prix_unitaire": "150.00", "prix_douzaine": "1500.00",
+        }
+
+    def test_deux_boutiques_peuvent_utiliser_la_meme_reference(self):
+        """Reproduit exactement le scénario bloqué avant la correction."""
+        Produit.objects.create(
+            boutique=self.boutique_a, reference="SKU-001", nom="Produit A",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+        )
+
+        self.client.force_authenticate(user=self.user_b)
+        response = self.client.post(
+            self.url_list, {**self.payload_base, "reference": "SKU-001"}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(Produit.objects.filter(reference="SKU-001").count(), 2)
+
+    def test_meme_boutique_deux_produits_meme_reference_refusee_400_pas_500(self):
+        """La contrainte doit rester active DANS une même boutique - et
+        remonter une 400 propre (validateur DRF), pas une IntegrityError
+        non gérée."""
+        Produit.objects.create(
+            boutique=self.boutique_a, reference="SKU-001", nom="Produit A",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+        )
+
+        self.client.force_authenticate(user=self.user_a)
+        response = self.client.post(
+            self.url_list, {**self.payload_base, "reference": "SKU-001"}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Produit.objects.filter(boutique=self.boutique_a, reference="SKU-001").count(), 1)
+
+    def test_reference_omise_toujours_auto_generee_sans_collision(self):
+        """Non-régression : le chemin historique (référence non fournie,
+        auto-générée en UUID) continue de fonctionner pour plusieurs
+        produits de la même boutique, sans jamais déclencher le
+        validateur d'unicité (comme avant cette correction)."""
+        self.client.force_authenticate(user=self.user_a)
+
+        reponse_1 = self.client.post(self.url_list, self.payload_base, format='json')
+        reponse_2 = self.client.post(self.url_list, self.payload_base, format='json')
+
+        self.assertEqual(reponse_1.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(reponse_2.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(reponse_1.data['reference'], reponse_2.data['reference'])

@@ -15,7 +15,12 @@ UNITES_PAR_DEFAUT = [('Unité', Decimal('1.000')), ('Douzaine', Decimal('12.000'
 class Produit(models.Model):
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     nom = models.CharField(max_length=150)
-    reference = models.CharField(max_length=50, unique=True, blank=True)
+    # Unique PAR BOUTIQUE (voir Meta.constraints), pas globalement : deux
+    # boutiques différentes doivent pouvoir utiliser le même schéma de
+    # référence (ex: "SKU-001") sans se bloquer mutuellement (audit point
+    # 9, faille identifiée de longue date). Auto-générée si absente (voir
+    # save() ci-dessous), donc jamais vide en base malgré blank=True.
+    reference = models.CharField(max_length=50, blank=True)
     categorie = models.ForeignKey(Categorie, on_delete=models.SET_NULL, null=True, blank=True, related_name='produits')
     description = models.TextField(blank=True, null=True)
 
@@ -52,6 +57,9 @@ class Produit(models.Model):
         verbose_name = "Produit"
         verbose_name_plural = "Produits"
         ordering = ['-date_creation']
+        constraints = [
+            models.UniqueConstraint(fields=['boutique', 'reference'], name='unique_produit_reference_par_boutique'),
+        ]
 
 
 class UniteVente(models.Model):

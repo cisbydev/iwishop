@@ -1,6 +1,24 @@
 from rest_framework import serializers
 from .models import DemandeAcces, Boutique, AccesSupport, FormuleAbonnement
 
+
+class CurrentBoutiqueDefault:
+    """Injecte la boutique de l'utilisateur courant, invisible côté client.
+    Nécessaire (pas juste read_only) pour que DRF génère le
+    UniqueTogetherValidator sur un couple (boutique, X) : un champ
+    read_only sans default n'est jamais inclus dans validated_data ni dans
+    le calcul du validateur (voir ModelSerializer.get_unique_together_validators).
+    Partagé entre apps (products, categories...) - centralisé ici plutôt
+    que dupliqué, puisque toutes dépendent déjà de tenants.Boutique."""
+    requires_context = True
+
+    def __call__(self, serializer_field):
+        return serializer_field.context['request'].user.profil.boutique
+
+    def __repr__(self):
+        return '%s()' % self.__class__.__name__
+
+
 class DemandeAccesSerializer(serializers.ModelSerializer):
     class Meta:
         model = DemandeAcces
