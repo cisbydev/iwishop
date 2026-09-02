@@ -1,11 +1,12 @@
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
 
-from tenants.models import Boutique, Profil
+from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from categories.models import Categorie
 from inventory.models import MouvementStock
 from purchases.models import Achat, LigneAchat
@@ -267,3 +268,65 @@ class ProduitPrixDestroyPermissionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(ProduitPrix.objects.filter(pk=self.produit_prix.id).exists())
+
+
+class ProduitPrixAbonnementExpireTests(APITestCase):
+    """Audit complémentaire point 1 : une boutique dont l'abonnement a
+    expiré ne doit plus pouvoir créer/modifier un prix produit.
+    ProduitPrixViewSet.perform_create()/perform_update() ne vérifiaient
+    que `boutique.actif`, codé en dur, jamais `abonnement_valide()`."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-abo-expire-prix")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Kg", facteur_conversion=Decimal("1.000")
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("100"), prix_unitaire=Decimal("150"), prix_douzaine=Decimal("1500"),
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def _expirer_abonnement(self):
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+    def test_creation_refusee_si_abonnement_expire(self):
+        self._expirer_abonnement()
+        payload = {"produit": self.produit.id, "unite": self.unite.id, "prix": "120.00"}
+
+        response = self.client.post(reverse('produit-prix-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        self.assertFalse(ProduitPrix.objects.filter(produit=self.produit, unite=self.unite).exists())
+
+    def test_modification_refusee_si_abonnement_expire(self):
+        produit_prix = ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+        self._expirer_abonnement()
+
+        response = self.client.patch(
+            reverse('produit-prix-detail', args=[produit_prix.id]), {"prix": "130.00"}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        produit_prix.refresh_from_db()
+        self.assertEqual(produit_prix.prix, Decimal("100"))
+
+    def test_creation_autorisee_sans_abonnement_configure(self):
+        """Non-régression : une boutique sans Abonnement du tout doit
+        continuer à créer des prix normalement."""
+        payload = {"produit": self.produit.id, "unite": self.unite.id, "prix": "120.00"}
+
+        response = self.client.post(reverse('produit-prix-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

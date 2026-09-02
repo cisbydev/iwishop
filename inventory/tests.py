@@ -3,11 +3,12 @@ from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.db import connection
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase, APITransactionTestCase, APIClient
 
-from tenants.models import Boutique, Profil
+from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from products.models import Produit, UniteVente, ProduitPrix
 from .models import MouvementStock
 
@@ -249,3 +250,51 @@ class MouvementStockTracabiliteTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mouvement = MouvementStock.objects.get(pk=response.data['id'])
         self.assertEqual(mouvement.utilisateur_id, self.user.id)
+
+
+class MouvementStockAbonnementExpireTests(APITestCase):
+    """Audit complémentaire point 1 : une boutique dont l'abonnement a
+    expiré ne doit plus pouvoir créer de mouvement de stock manuel.
+    MouvementStockViewSet.perform_create() est surchargé (verrouillage +
+    mise à jour du stock) et ne passait par AUCUN contrôle d'accès - pas
+    même `boutique.actif`."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-abo-expire-mouvement")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("100"), prix_unitaire=Decimal("150"), prix_douzaine=Decimal("1500"),
+            quantite_en_stock=10,
+        )
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('mouvements-stock-list')
+        self.payload = {"produit": self.produit.id, "type_mouvement": "ENTREE", "quantite": 5}
+
+    def test_creation_refusee_si_abonnement_expire(self):
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+        response = self.client.post(self.url_list, self.payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        self.assertEqual(MouvementStock.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_creation_autorisee_sans_abonnement_configure(self):
+        """Non-régression : une boutique sans Abonnement du tout doit
+        continuer à créer des mouvements de stock normalement."""
+        response = self.client.post(self.url_list, self.payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 15)

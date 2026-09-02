@@ -39,6 +39,13 @@ class VenteViewSet(
         # (via self.context['request']) : ne pas le repasser ici, sinon
         # Vente.objects.create(boutique=..., **validated_data) reçoit deux fois
         # le même kwarg (BoutiqueScopedMixin.perform_create l'injecterait aussi).
+        # En revanche perform_create() étant surchargé, le contrôle d'accès
+        # du mixin (boutique désactivée/abonnement expiré) ne s'exécute plus
+        # automatiquement : il faut l'appeler nous-mêmes (faille identifiée -
+        # audit complémentaire point 1, une boutique à l'abonnement expiré
+        # pouvait continuer à vendre indéfiniment).
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
         serializer.save()
 
     @action(detail=True, methods=['post'])

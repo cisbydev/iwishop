@@ -31,9 +31,15 @@ class MouvementStockViewSet(
 
     @transaction.atomic
     def perform_create(self, serializer):
-        mouvement = serializer.save(
-            boutique=self.request.user.profil.boutique, utilisateur=self.request.user
-        )
+        # perform_create() est surchargé (pour verrouiller le produit et
+        # mettre à jour le stock juste après) : le contrôle d'accès du
+        # mixin (boutique désactivée/abonnement expiré) ne s'exécute donc
+        # plus automatiquement, d'où l'appel explicite ici (faille
+        # identifiée - audit complémentaire point 1, ce point n'était
+        # protégé par AUCUN contrôle, pas même `actif`).
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
+        mouvement = serializer.save(boutique=boutique, utilisateur=self.request.user)
         # Reverrouille le produit dans la transaction (P1 point 7) :
         # mouvement.produit vient de la validation DRF, faite hors de ce
         # bloc atomique et donc potentiellement périmé si une autre

@@ -1,10 +1,11 @@
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsOwner
+from tenants.mixins import BoutiqueScopedMixin
 from .models import ParametresBoutique
 from .serializers import ParametresBoutiqueSerializer
 
-class ParametresBoutiqueView(generics.RetrieveUpdateAPIView):
+class ParametresBoutiqueView(BoutiqueScopedMixin, generics.RetrieveUpdateAPIView):
     queryset = ParametresBoutique.objects.all()
     serializer_class = ParametresBoutiqueSerializer
     permission_classes = [IsAuthenticated]
@@ -19,6 +20,13 @@ class ParametresBoutiqueView(generics.RetrieveUpdateAPIView):
         return super().get_permissions()
 
     def get_object(self):
-        boutique = self.request.user.profil.boutique
+        # get_object() est surchargé (pas de pk dans l'URL, une seule
+        # ressource par boutique) : le passage par get_queryset() du mixin
+        # est donc court-circuité, d'où l'appel explicite aux mêmes
+        # vérifications (faille identifiée - audit complémentaire point 1,
+        # cette vue n'était protégée ni par `actif` ni par
+        # `abonnement_valide()`).
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
         obj, created = ParametresBoutique.objects.get_or_create(boutique=boutique)
         return obj

@@ -8,7 +8,7 @@ from rest_framework.reverse import reverse
 from rest_framework.test import APIClient, APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from tenants.models import Boutique, Profil
+from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 
 
 class JWTAccessTokenLifetimeTests(TestCase):
@@ -161,3 +161,54 @@ class EmployeDesactivationTests(APITestCase):
         vente.refresh_from_db()
         self.assertEqual(vente.utilisateur_id, self.employe.id)
         self.assertEqual(vente.utilisateur.username, 'employe')
+
+
+class EmployeAbonnementExpireTests(APITestCase):
+    """Audit complémentaire point 1 : une boutique dont l'abonnement a
+    expiré ne doit plus pouvoir créer ou lister ses employés.
+    EmployeViewSet n'utilisait pas BoutiqueScopedMixin du tout ;
+    get_queryset() était fait à la main, sans `_verifier_acces()`."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-abo-expire-employe")
+        self.proprietaire = User.objects.create_user(username="proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.proprietaire)
+        self.url_list = reverse('employes-list')
+
+    def _expirer_abonnement(self):
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+    def test_creation_refusee_si_abonnement_expire(self):
+        self._expirer_abonnement()
+        payload = {"username": "nouvel_employe", "password": "Xk9$mQ2vLp7z"}
+
+        response = self.client.post(self.url_list, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        self.assertFalse(User.objects.filter(username="nouvel_employe").exists())
+
+    def test_liste_refusee_si_abonnement_expire(self):
+        self._expirer_abonnement()
+
+        response = self.client.get(self.url_list)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+
+    def test_creation_autorisee_sans_abonnement_configure(self):
+        """Non-régression : une boutique sans Abonnement du tout doit
+        continuer à créer des employés normalement."""
+        payload = {"username": "nouvel_employe", "password": "Xk9$mQ2vLp7z"}
+
+        response = self.client.post(self.url_list, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(User.objects.filter(username="nouvel_employe").exists())

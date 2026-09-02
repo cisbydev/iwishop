@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth.models import User
 
+from tenants.mixins import BoutiqueScopedMixin
 from .serializers import (
     ChangePasswordSerializer,
     EmployeSerializer,
@@ -40,7 +41,7 @@ class ChangePasswordView(APIView):
         return Response({"detail": "Mot de passe modifié avec succès."}, status=status.HTTP_200_OK)
 
 
-class EmployeViewSet(viewsets.ModelViewSet):
+class EmployeViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
     """
     CRUD des comptes employés, réservé exclusivement au propriétaire de la boutique.
     Le propriétaire lui-même n'apparaît pas dans cette liste.
@@ -57,11 +58,29 @@ class EmployeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsOwner]
 
     def get_queryset(self):
-        boutique = self.request.user.profil.boutique
+        # get_queryset() est surchargé (le modèle est User, scopé via
+        # profil__boutique, et filtré en plus sur est_proprietaire=False) :
+        # le filtrage générique du mixin ne s'applique donc pas telle
+        # quelle, d'où l'appel explicite aux mêmes vérifications (faille
+        # identifiée - audit complémentaire point 1, la gestion des
+        # employés n'était protégée ni par `actif` ni par
+        # `abonnement_valide()`).
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
         return User.objects.filter(
             profil__boutique=boutique,
             profil__est_proprietaire=False
         ).order_by('username')
+
+    def perform_create(self, serializer):
+        # EmployeCreateSerializer.create() résout et assigne déjà la
+        # boutique lui-même (via self.context['request']) en créant le
+        # Profil associé : ne pas la repasser ici, le modèle User n'a de
+        # toute façon pas de champ `boutique` (le perform_create() par
+        # défaut du mixin échouerait avec serializer.save(boutique=...)).
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
+        serializer.save()
 
     def get_serializer_class(self):
         if self.action == 'create':

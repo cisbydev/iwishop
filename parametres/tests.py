@@ -1,9 +1,10 @@
 from django.contrib.auth.models import User
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
 
-from tenants.models import Boutique, Profil
+from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from .models import ParametresBoutique
 
 
@@ -75,3 +76,56 @@ class ParametresBoutiqueModificationPermissionTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.parametres.refresh_from_db()
         self.assertEqual(self.parametres.nom_boutique, "Nouveau nom")
+
+
+class ParametresBoutiqueAbonnementExpireTests(APITestCase):
+    """Audit complémentaire point 1 : une boutique dont l'abonnement a
+    expiré ne doit plus pouvoir lire ni modifier ses paramètres.
+    ParametresBoutiqueView n'utilisait pas BoutiqueScopedMixin du tout ;
+    get_object() était une méthode maison qui ne vérifiait ni `actif` ni
+    `abonnement_valide()`."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-abo-expire-parametres")
+        self.proprietaire = User.objects.create_user(username="proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        ParametresBoutique.objects.create(boutique=self.boutique, nom_boutique="Boutique")
+        self.url = reverse('parametres-boutique')
+
+    def _expirer_abonnement(self):
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+    def test_lecture_refusee_si_abonnement_expire(self):
+        self._expirer_abonnement()
+        self.client.force_authenticate(user=self.proprietaire)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+
+    def test_modification_refusee_si_abonnement_expire(self):
+        self._expirer_abonnement()
+        self.client.force_authenticate(user=self.proprietaire)
+
+        response = self.client.patch(self.url, {"nom_boutique": "Tentative"}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+
+    def test_lecture_et_modification_autorisees_sans_abonnement_configure(self):
+        """Non-régression : une boutique sans Abonnement du tout doit
+        continuer à lire/modifier ses paramètres normalement."""
+        self.client.force_authenticate(user=self.proprietaire)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.patch(self.url, {"nom_boutique": "Nouveau nom"}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

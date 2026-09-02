@@ -103,14 +103,16 @@ class ProduitPrixViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, vi
 
     def perform_create(self, serializer):
         boutique = self._boutique_effective()
-        if not boutique.actif:
-            raise PermissionDenied("Cette boutique a été désactivée.")
+        # Remplace l'ancien check `actif` codé en dur par l'appel au mixin :
+        # ça manquait la vérification abonnement_valide() (faille identifiée
+        # - audit complémentaire point 1, un abonnement expiré ne bloquait
+        # pas la création/modification de prix produit).
+        self._verifier_acces(boutique)
         self._verifier_appartenance(serializer, boutique)
         serializer.save()
 
     def perform_update(self, serializer):
         boutique = self._boutique_effective()
-        if not boutique.actif:
-            raise PermissionDenied("Cette boutique a été désactivée.")
+        self._verifier_acces(boutique)
         self._verifier_appartenance(serializer, boutique)
         serializer.save()

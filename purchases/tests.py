@@ -1,11 +1,12 @@
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
 
-from tenants.models import Boutique, Profil
+from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from suppliers.models import Fournisseur
 from products.models import Produit, UniteVente
 from inventory.models import MouvementStock
@@ -314,3 +315,61 @@ class AchatTracabiliteTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         achat = Achat.objects.get(pk=response.data['id'])
         self.assertEqual(achat.utilisateur_id, self.user.id)
+
+
+class AchatAbonnementExpireTests(APITestCase):
+    """Audit complémentaire point 1 : une boutique dont l'abonnement a
+    expiré ne doit plus pouvoir créer d'achat. AchatViewSet.perform_create()
+    est surchargé et ne passait donc jamais par le contrôle d'accès du
+    mixin - la vérification `boutique.actif` du serializer ne couvrait pas
+    l'abonnement expiré."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-abo-expire-achat")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=0,
+        )
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('achats-list')
+        self.payload = {
+            "fournisseur": self.fournisseur.id,
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 3,
+                "unite": self.unite.id, "prix_unitaire_achat": "60.00",
+            }],
+        }
+
+    def test_creation_refusee_si_abonnement_expire(self):
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+        response = self.client.post(self.url_list, self.payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Abonnement expiré", str(response.data))
+        self.assertEqual(Achat.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 0)
+
+    def test_creation_autorisee_sans_abonnement_configure(self):
+        """Non-régression : une boutique sans Abonnement du tout doit
+        continuer à acheter normalement."""
+        response = self.client.post(self.url_list, self.payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 3)
