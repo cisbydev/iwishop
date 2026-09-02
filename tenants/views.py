@@ -1,6 +1,7 @@
 import logging
 import secrets
 from decimal import Decimal
+from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 from django.contrib.auth.models import User
@@ -62,42 +63,50 @@ class ApprouverDemandeView(APIView):
             slug = f"{slug_base}-{compteur}"
             compteur += 1
 
-        boutique = Boutique.objects.create(nom=demande.nom_boutique_souhaite, slug=slug)
+        # Boutique -> Profil transactionnel : sans ça, un échec à mi-chemin
+        # (ex: FormuleAbonnement 'Essai gratuit' manquante, contrainte
+        # d'intégrité, coupure DB...) laissait une Boutique (et ses
+        # UniteVente) orpheline en base, sans propriétaire pour y accéder
+        # (faille identifiée - audit IwiShop point 9). L'envoi d'email reste
+        # hors transaction : déjà non bloquant (voir commentaire plus bas),
+        # il ne doit pas annuler une boutique déjà créée avec succès.
+        with transaction.atomic():
+            boutique = Boutique.objects.create(nom=demande.nom_boutique_souhaite, slug=slug)
 
-        for nom, facteur in UNITES_PAR_DEFAUT:
-            UniteVente.objects.get_or_create(
-                boutique=boutique, nom=nom,
-                defaults={'facteur_conversion': facteur, 'est_systeme': True}
+            for nom, facteur in UNITES_PAR_DEFAUT:
+                UniteVente.objects.get_or_create(
+                    boutique=boutique, nom=nom,
+                    defaults={'facteur_conversion': facteur, 'est_systeme': True}
+                )
+
+            # Essai gratuit de 14 jours pour toute nouvelle boutique créée via ce
+            # flux client. Les boutiques créées manuellement depuis l'admin
+            # Django (tests, cas particuliers) restent volontairement exemptées
+            # (pas d'Abonnement créé => fallback abonnement_valide()=True).
+            formule_essai = FormuleAbonnement.objects.get(nom='Essai gratuit')
+            aujourdhui = timezone.localdate()
+            Abonnement.objects.create(
+                boutique=boutique,
+                formule=formule_essai,
+                date_debut=aujourdhui,
+                date_fin=aujourdhui + timezone.timedelta(days=formule_essai.duree_jours),
+                statut='ACTIF',
+                reference_paiement='ESSAI_GRATUIT',
             )
 
-        # Essai gratuit de 14 jours pour toute nouvelle boutique créée via ce
-        # flux client. Les boutiques créées manuellement depuis l'admin
-        # Django (tests, cas particuliers) restent volontairement exemptées
-        # (pas d'Abonnement créé => fallback abonnement_valide()=True).
-        formule_essai = FormuleAbonnement.objects.get(nom='Essai gratuit')
-        aujourdhui = timezone.localdate()
-        Abonnement.objects.create(
-            boutique=boutique,
-            formule=formule_essai,
-            date_debut=aujourdhui,
-            date_fin=aujourdhui + timezone.timedelta(days=formule_essai.duree_jours),
-            statut='ACTIF',
-            reference_paiement='ESSAI_GRATUIT',
-        )
+            username_base = demande.email.split('@')[0]
+            username = username_base
+            compteur = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{username_base}{compteur}"
+                compteur += 1
 
-        username_base = demande.email.split('@')[0]
-        username = username_base
-        compteur = 1
-        while User.objects.filter(username=username).exists():
-            username = f"{username_base}{compteur}"
-            compteur += 1
+            mot_de_passe_temporaire = secrets.token_urlsafe(8)
+            user = User.objects.create(username=username, email=demande.email)
+            user.set_password(mot_de_passe_temporaire)
+            user.save()
 
-        mot_de_passe_temporaire = secrets.token_urlsafe(8)
-        user = User.objects.create(username=username, email=demande.email)
-        user.set_password(mot_de_passe_temporaire)
-        user.save()
-
-        Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
+            Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
 
         email_envoye, erreur_email = envoyer_identifiants_email(
             destinataire_email=demande.email,

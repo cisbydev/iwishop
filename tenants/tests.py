@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 from . import paydunya
 from .models import Abonnement, Boutique, DemandeAcces, FormuleAbonnement, PaiementAbonnement, Profil
 from .services import confirmer_paiement
+from products.models import UniteVente
 
 
 def hash_paydunya_valide():
@@ -78,6 +79,67 @@ class EssaiGratuitApprouverDemandeTests(TestCase):
 
         formule_essai = FormuleAbonnement.objects.get(nom='Essai gratuit')
         self.assertFalse(formule_essai.actif)
+
+
+class ApprouverDemandeTransactionTests(TestCase):
+    """Audit IwiShop point 9 : Boutique -> UniteVente -> Abonnement -> User
+    -> Profil doit être transactionnel - un échec à mi-chemin ne doit
+    laisser aucune donnée partielle (Boutique orpheline sans propriétaire)."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username='admin_plateforme_tx', email='admin_tx@example.com', password='x'
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+        self.demande = DemandeAcces.objects.create(
+            nom_contact='Awa Diop',
+            email='awa_tx@example.com',
+            nom_boutique_souhaite='Boutique Awa Tx',
+        )
+
+    def test_echec_a_mi_chemin_ne_laisse_aucune_donnee_partielle(self):
+        """Reproduit exactement le scénario constaté en pratique : la
+        formule interne 'Essai gratuit' (normalement garantie par la
+        migration 0006_seed_formule_essai) est absente au moment de
+        l'appel - Boutique et UniteVente, déjà créées avant ce point,
+        doivent être annulées avec le reste plutôt que laissées orphelines.
+
+        Comparaison en delta (avant/après), pas en compte absolu : les
+        migrations de données (0002_backfill_boutique_par_defaut,
+        0007_backfill_unites_prix) sèment déjà une Boutique "Ma Boutique"
+        et ses UniteVente par défaut, indépendamment de ce flux."""
+        nb_boutiques_avant = Boutique.objects.count()
+        nb_unites_avant = UniteVente.objects.count()
+        nb_abonnements_avant = Abonnement.objects.count()
+        nb_users_avant = User.objects.count()
+
+        FormuleAbonnement.objects.filter(nom='Essai gratuit').delete()
+
+        with self.assertRaises(FormuleAbonnement.DoesNotExist):
+            self.client.post(f'/api/tenants/demandes/{self.demande.id}/approuver/')
+
+        self.assertEqual(Boutique.objects.count(), nb_boutiques_avant)
+        self.assertFalse(Boutique.objects.filter(nom='Boutique Awa Tx').exists())
+        self.assertEqual(UniteVente.objects.count(), nb_unites_avant)
+        self.assertEqual(Abonnement.objects.count(), nb_abonnements_avant)
+        # Aucun compte propriétaire orphelin.
+        self.assertEqual(User.objects.count(), nb_users_avant)
+        self.demande.refresh_from_db()
+        self.assertEqual(self.demande.statut, 'EN_ATTENTE')
+
+    def test_creation_normale_toujours_fonctionnelle(self):
+        """Non-régression : la transaction ne casse pas le chemin nominal."""
+        response = self.client.post(f'/api/tenants/demandes/{self.demande.id}/approuver/')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Boutique.objects.filter(nom='Boutique Awa Tx').count(), 1)
+        boutique = Boutique.objects.get(nom='Boutique Awa Tx')
+        self.assertEqual(UniteVente.objects.filter(boutique=boutique).count(), 2)
+        self.assertTrue(Abonnement.objects.filter(boutique=boutique).exists())
+        self.assertTrue(Profil.objects.filter(boutique=boutique, est_proprietaire=True).exists())
+        self.demande.refresh_from_db()
+        self.assertEqual(self.demande.statut, 'APPROUVEE')
 
 
 class ExemptionCreationAdminTests(TestCase):

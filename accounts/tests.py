@@ -231,6 +231,22 @@ class EmployeReactivationTests(APITestCase):
         self.employe.refresh_from_db()
         self.assertFalse(self.employe.is_active)
 
+    def test_patch_is_active_ignore(self):
+        """Audit IwiShop point 10 : is_active est en lecture seule sur
+        EmployeSerializer - un PATCH générique ne doit plus pouvoir
+        réactiver (ni désactiver) un compte, seuls reactiver()/destroy()
+        le peuvent (règles métier dédiées : auto-désactivation interdite,
+        idempotence)."""
+        self.client.force_authenticate(user=self.proprietaire)
+        url_detail = reverse('employes-detail', args=[self.employe.id])
+
+        response = self.client.patch(url_detail, {"is_active": True}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data['is_active'])
+        self.employe.refresh_from_db()
+        self.assertFalse(self.employe.is_active)
+
 
 class EmployeAbonnementExpireTests(APITestCase):
     """Audit complémentaire point 1 : une boutique dont l'abonnement a

@@ -26,7 +26,12 @@ class EmployeSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'first_name', 'last_name', 'is_active', 'date_joined']
-        read_only_fields = ['id', 'date_joined']
+        # is_active en lecture seule (audit IwiShop point 10) : la
+        # désactivation/réactivation doit obligatoirement passer par
+        # EmployeViewSet.destroy()/reactiver() (règles métier dédiées -
+        # ne peut pas se désactiver soi-même, message d'idempotence -
+        # et non par un PATCH générique qui les contournerait silencieusement.
+        read_only_fields = ['id', 'date_joined', 'is_active']
 
 
 class EmployeCreateSerializer(serializers.ModelSerializer):
