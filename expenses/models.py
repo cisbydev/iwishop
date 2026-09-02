@@ -1,6 +1,11 @@
 from django.db import models
 
 class Depense(models.Model):
+    STATUTS = (
+        ('VALIDEE', 'Validée'),
+        ('ANNULEE', 'Annulée'),
+    )
+
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     CATEGORIES_DEPENSE = (
         ('LOYER', 'Loyer'),
@@ -17,6 +22,11 @@ class Depense(models.Model):
     date_depense = models.DateField()
     description = models.TextField(blank=True, null=True)
     date_enregistrement = models.DateTimeField(auto_now_add=True)
+    # Une dépense validée ne se modifie ni ne se supprime (cf.
+    # DepenseViewSet) : on l'annule via un changement de statut, sans
+    # jamais effacer l'historique - même principe que Vente/Achat (P0,
+    # P2 point 15).
+    statut = models.CharField(max_length=20, choices=STATUTS, default='VALIDEE')
 
     def __str__(self):
         return f"{self.titre} - {self.montant} ({self.date_depense.strftime('%d/%m/%Y')})"

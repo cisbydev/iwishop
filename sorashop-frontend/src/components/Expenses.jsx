@@ -3,7 +3,7 @@ import api from '../services/api';
 import { useSettings } from '../context/SettingsContext';
 import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
-import { Plus, Receipt, Trash2, Wallet } from 'lucide-react';
+import { Ban, Plus, Receipt, Wallet } from 'lucide-react';
 
 const CATEGORIES = [
   { value: 'LOYER', label: 'Loyer' },
@@ -76,19 +76,23 @@ export default function Expenses() {
     }
   };
 
-  const handleDelete = async (depense) => {
-    if (!window.confirm(`Supprimer la dépense "${depense.titre}" (${depense.montant} ${devise}) ?`)) {
+  const handleAnnuler = async (depense) => {
+    if (!window.confirm(`Annuler cette dépense "${depense.titre}" (${depense.montant} ${devise}) ?`)) {
       return;
     }
     try {
-      await api.delete(`depenses/${depense.id}/`);
+      await api.post(`depenses/${depense.id}/annuler/`);
       fetchDepenses(filtreCategorie);
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la suppression de la dépense."));
+      alert(getErrorMessage(err, "Erreur lors de l'annulation de la dépense."));
     }
   };
 
-  const totalAffiche = depenses.reduce((acc, d) => acc + parseFloat(d.montant), 0);
+  // Une dépense annulée reste visible (historique conservé, cf.
+  // DepenseViewSet.annuler) mais ne doit plus compter dans le total affiché.
+  const totalAffiche = depenses
+    .filter((d) => d.statut !== 'ANNULEE')
+    .reduce((acc, d) => acc + parseFloat(d.montant), 0);
 
   const labelCategorie = (val) => CATEGORIES.find(c => c.value === val)?.label || val;
 
@@ -154,7 +158,7 @@ export default function Expenses() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {depenses.map((d) => (
-                <tr key={d.id}>
+                <tr key={d.id} className={d.statut === 'ANNULEE' ? 'opacity-50' : ''}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 flex items-center gap-2">
                     <Receipt className="w-4 h-4 text-gray-400" /> {d.titre}
                   </td>
@@ -169,14 +173,18 @@ export default function Expenses() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{d.description || '—'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                    <button
-                      onClick={() => handleDelete(d)}
-                      disabled={modeSupport}
-                      title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
-                      className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {d.statut === 'ANNULEE' ? (
+                      <span className="text-xs font-medium text-gray-400 italic">Annulée</span>
+                    ) : (
+                      <button
+                        onClick={() => handleAnnuler(d)}
+                        disabled={modeSupport}
+                        title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Annuler"}
+                        className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
+                      >
+                        <Ban className="w-4 h-4" />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -31,7 +31,9 @@ class ResumeFinancierView(BoutiqueScopedMixin, APIView):
         # Les achats annulés ne doivent plus compter dans le total ni le
         # nombre d'achats (cf. AchatViewSet.annuler).
         achats_qs = Achat.objects.filter(boutique=boutique, statut='VALIDE')
-        depenses_qs = Depense.objects.filter(boutique=boutique)
+        # Les dépenses annulées ne doivent plus compter dans le total ni le
+        # bénéfice net (cf. DepenseViewSet.annuler, P2 point 15).
+        depenses_qs = Depense.objects.filter(boutique=boutique, statut='VALIDEE')
 
         if date_debut and date_fin:
             ventes_qs = ventes_qs.filter(date_vente__date__range=[date_debut, date_fin])
