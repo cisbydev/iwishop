@@ -32,7 +32,11 @@ class Achat(models.Model):
 class LigneAchat(models.Model):
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     achat = models.ForeignKey(Achat, on_delete=models.CASCADE, related_name='lignes')
-    produit = models.ForeignKey(Produit, on_delete=models.CASCADE, related_name='lignes_achat')
+    # PROTECT (pas CASCADE) : supprimer un Produit ne doit jamais effacer
+    # silencieusement l'historique des achats qui le référencent - même
+    # principe que UniteVente ci-dessous, jusqu'ici appliqué au produit
+    # lui-même mais pas répliqué ici (P2 point 15, faille trouvée).
+    produit = models.ForeignKey(Produit, on_delete=models.PROTECT, related_name='lignes_achat')
     quantite = models.IntegerField()
     unite = models.ForeignKey('products.UniteVente', on_delete=models.PROTECT, related_name='lignes_achat')
     facteur_conversion_applique = models.DecimalField(max_digits=10, decimal_places=3)

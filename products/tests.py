@@ -7,6 +7,9 @@ from rest_framework.test import APITestCase
 
 from tenants.models import Boutique, Profil
 from categories.models import Categorie
+from inventory.models import MouvementStock
+from purchases.models import Achat, LigneAchat
+from sales.models import Vente, LigneVente
 from .models import Produit, UniteVente, ProduitPrix
 
 
@@ -113,6 +116,88 @@ class ProduitDestroyPermissionTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Produit.objects.filter(pk=self.produit.id).exists())
+
+
+class ProduitDestroyProtegeParHistoriqueTests(APITestCase):
+    """P2 point 15 : supprimer un produit ne doit jamais effacer
+    silencieusement l'historique (ventes, achats, mouvements de stock) qui
+    le référence. `Produit` était référencé en CASCADE partout, ce qui
+    contournait complètement l'immutabilité/l'annulabilité déjà mises en
+    place pour Vente/Achat/MouvementStock (P0) : il suffisait de supprimer
+    le produit pour effacer leur historique sans jamais passer par leurs
+    propres garde-fous."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-protection-produit")
+        self.proprietaire = User.objects.create_user(username="proprio_hist", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+
+    def _creer_produit(self, nom):
+        return Produit.objects.create(
+            boutique=self.boutique, nom=nom,
+            prix_achat=Decimal("100"), prix_unitaire=Decimal("150"), prix_douzaine=Decimal("1500"),
+            quantite_en_stock=10,
+        )
+
+    def _supprimer(self, produit):
+        self.client.force_authenticate(user=self.proprietaire)
+        return self.client.delete(reverse('produit-detail', args=[produit.id]))
+
+    def test_suppression_refusee_si_lie_a_une_vente(self):
+        produit = self._creer_produit("Produit vendu")
+        vente = Vente.objects.create(boutique=self.boutique, montant_paye=Decimal("150"))
+        LigneVente.objects.create(
+            boutique=self.boutique, vente=vente, produit=produit, quantite=1,
+            unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("150"),
+        )
+
+        response = self._supprimer(produit)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Produit.objects.filter(pk=produit.id).exists())
+        self.assertTrue(LigneVente.objects.filter(produit=produit).exists())
+
+    def test_suppression_refusee_si_lie_a_un_achat(self):
+        produit = self._creer_produit("Produit acheté")
+        achat = Achat.objects.create(boutique=self.boutique)
+        LigneAchat.objects.create(
+            boutique=self.boutique, achat=achat, produit=produit, quantite=5,
+            unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_unitaire_achat=Decimal("100"),
+        )
+
+        response = self._supprimer(produit)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Produit.objects.filter(pk=produit.id).exists())
+        self.assertTrue(LigneAchat.objects.filter(produit=produit).exists())
+
+    def test_suppression_refusee_si_lie_a_un_mouvement_stock(self):
+        produit = self._creer_produit("Produit avec mouvement")
+        MouvementStock.objects.create(
+            boutique=self.boutique, produit=produit, type_mouvement='ENTREE', quantite=5,
+        )
+
+        response = self._supprimer(produit)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(Produit.objects.filter(pk=produit.id).exists())
+        self.assertTrue(MouvementStock.objects.filter(produit=produit).exists())
+
+    def test_suppression_toujours_possible_sans_historique(self):
+        """Non-régression : un produit sans historique lié reste supprimable
+        (déjà couvert par ProduitDestroyPermissionTests, reconfirmé ici dans
+        le même contexte que les cas bloqués ci-dessus)."""
+        produit = self._creer_produit("Produit sans historique")
+
+        response = self._supprimer(produit)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Produit.objects.filter(pk=produit.id).exists())
 
 
 class UniteVenteDestroyPermissionTests(APITestCase):

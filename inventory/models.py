@@ -9,7 +9,10 @@ class MouvementStock(models.Model):
     )
 
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
-    produit = models.ForeignKey(Produit, on_delete=models.CASCADE, related_name='mouvements')
+    # PROTECT (pas CASCADE) : supprimer un Produit ne doit jamais effacer
+    # silencieusement l'historique de ses mouvements de stock (P2 point 15,
+    # faille trouvée - même principe déjà appliqué à UniteVente ailleurs).
+    produit = models.ForeignKey(Produit, on_delete=models.PROTECT, related_name='mouvements')
     type_mouvement = models.CharField(max_length=20, choices=TYPES_MOUVEMENT)
     quantite = models.IntegerField()
     motif = models.CharField(max_length=255, blank=True, null=True)

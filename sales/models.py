@@ -58,7 +58,11 @@ class LigneVente(models.Model):
 
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     vente = models.ForeignKey(Vente, on_delete=models.CASCADE, related_name='lignes')
-    produit = models.ForeignKey(Produit, on_delete=models.CASCADE, related_name='lignes_vente')
+    # PROTECT (pas CASCADE) : supprimer un Produit ne doit jamais effacer
+    # silencieusement l'historique des ventes qui le référencent - même
+    # principe que UniteVente ci-dessous, jusqu'ici appliqué au produit
+    # lui-même mais pas répliqué ici (P2 point 15, faille trouvée).
+    produit = models.ForeignKey(Produit, on_delete=models.PROTECT, related_name='lignes_vente')
     quantite = models.IntegerField()
     type_vente = models.CharField(max_length=20, choices=TYPES_VENTE, default='UNITE')
     unite = models.ForeignKey('products.UniteVente', on_delete=models.PROTECT, related_name='lignes_vente')

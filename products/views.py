@@ -22,6 +22,22 @@ class ProduitViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewse
     # potentiellement l'historique achats/ventes lié au produit.
     actions_reservees_proprietaire = ('destroy',)
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            self.perform_destroy(instance)
+        except ProtectedError:
+            return Response(
+                {
+                    "detail": (
+                        "Ce produit est utilisé dans des ventes, achats ou mouvements "
+                        "de stock existants et ne peut pas être supprimé."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class UniteVenteViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewsets.ModelViewSet):
     queryset = UniteVente.objects.all()
