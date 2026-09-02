@@ -20,9 +20,13 @@ class Produit(models.Model):
     description = models.TextField(blank=True, null=True)
 
     # Prix (utilisant Decimal pour la précision financière)
-    prix_achat = models.DecimalField(max_digits=12, decimal_places=2)
-    prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2)
-    prix_douzaine = models.DecimalField(max_digits=12, decimal_places=2)
+    # MinValueValidator(0) : un prix négatif n'a pas de sens et fausserait
+    # le calcul du bénéfice (Rapports/Tableau de bord) - audit point 3.
+    # Un bénéfice CALCULÉ négatif reste légitime (prix_achat > prix de
+    # vente) ; seule la saisie d'un prix négatif est bloquée ici.
+    prix_achat = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0'))])
+    prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0'))])
+    prix_douzaine = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0'))])
 
     # Stock
     quantite_en_stock = models.IntegerField(default=0)
@@ -75,7 +79,8 @@ class UniteVente(models.Model):
 class ProduitPrix(models.Model):
     produit = models.ForeignKey(Produit, on_delete=models.CASCADE, related_name='prix_par_unite')
     unite = models.ForeignKey(UniteVente, on_delete=models.CASCADE)
-    prix = models.DecimalField(max_digits=12, decimal_places=2)
+    # >= 0 - audit point 3, même raison que Produit.prix_achat ci-dessus.
+    prix = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0'))])
 
     class Meta:
         unique_together = ['produit', 'unite']

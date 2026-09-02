@@ -1,4 +1,6 @@
+from decimal import Decimal
 from django.contrib.auth.models import User
+from django.core.validators import MinValueValidator
 from django.db import models
 from suppliers.models import Fournisseur
 from products.models import Produit
@@ -46,7 +48,9 @@ class LigneAchat(models.Model):
     quantite = models.IntegerField()
     unite = models.ForeignKey('products.UniteVente', on_delete=models.PROTECT, related_name='lignes_achat')
     facteur_conversion_applique = models.DecimalField(max_digits=10, decimal_places=3)
-    prix_unitaire_achat = models.DecimalField(max_digits=12, decimal_places=2)
+    # >= 0 - un prix d'achat négatif n'a pas de sens et fausserait le stock
+    # valorisé et le calcul du bénéfice (audit point 3).
+    prix_unitaire_achat = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0'))])
     sous_total = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
 
     def save(self, *args, **kwargs):

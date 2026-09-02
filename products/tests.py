@@ -330,3 +330,82 @@ class ProduitPrixAbonnementExpireTests(APITestCase):
         response = self.client.post(reverse('produit-prix-list'), payload, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class ProduitPrixNegatifTests(APITestCase):
+    """Audit point 3 : un prix négatif n'a pas de sens et fausserait le
+    calcul du bénéfice (Rapports/Tableau de bord). Un bénéfice CALCULÉ
+    négatif (prix_achat > prix de vente) reste, lui, parfaitement légitime -
+    seule la SAISIE d'un prix négatif est bloquée ici, pas le résultat d'un
+    calcul (voir reports.tests.ResumeFinancierBeneficeNegatifTests)."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-prix-negatif")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+        )
+
+    def _payload(self, **overrides):
+        payload = {
+            "nom": "Produit test", "prix_achat": "100.00",
+            "prix_unitaire": "150.00", "prix_douzaine": "1500.00",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_creation_prix_achat_negatif_refusee(self):
+        response = self.client.post(reverse('produit-list'), self._payload(prix_achat="-10.00"), format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_creation_prix_unitaire_negatif_refusee(self):
+        response = self.client.post(reverse('produit-list'), self._payload(prix_unitaire="-10.00"), format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_creation_prix_douzaine_negatif_refusee(self):
+        response = self.client.post(reverse('produit-list'), self._payload(prix_douzaine="-10.00"), format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_prix_achat_negatif_refuse(self):
+        response = self.client.patch(
+            reverse('produit-detail', args=[self.produit.id]), {"prix_achat": "-5.00"}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.prix_achat, Decimal("50"))
+
+    def test_creation_prix_zero_toujours_autorisee(self):
+        """Non-régression : un prix à zéro (produit offert...) reste permis,
+        seul le négatif est bloqué."""
+        response = self.client.post(reverse('produit-list'), self._payload(prix_achat="0.00"), format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_creation_prix_positif_toujours_autorisee(self):
+        """Non-régression : une création normale reste possible."""
+        response = self.client.post(reverse('produit-list'), self._payload(), format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_creation_produitprix_negatif_refusee(self):
+        response = self.client.post(
+            reverse('produit-prix-list'),
+            {"produit": self.produit.id, "unite": self.unite.id, "prix": "-1.00"},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(ProduitPrix.objects.filter(produit=self.produit, unite=self.unite).exists())
+
+    def test_creation_produitprix_positif_toujours_autorisee(self):
+        """Non-régression : une création normale reste possible."""
+        response = self.client.post(
+            reverse('produit-prix-list'),
+            {"produit": self.produit.id, "unite": self.unite.id, "prix": "120.00"},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

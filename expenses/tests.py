@@ -182,3 +182,40 @@ class DepenseTracabiliteTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         depense = Depense.objects.get(pk=response.data['id'])
         self.assertEqual(depense.utilisateur_id, self.user.id)
+
+
+class DepenseMontantInvalideTests(APITestCase):
+    """Audit point 3 : une dépense de montant nul ou négatif n'a pas de
+    sens et fausserait le bénéfice net des Rapports (benefice_net =
+    benefice_brut - total_depenses)."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-montant-invalide-depense")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('depenses-list')
+
+    def _tenter_depense(self, montant):
+        return self.client.post(self.url_list, {
+            "titre": "Transport", "categorie": "TRANSPORT",
+            "montant": montant, "date_depense": "2026-08-30",
+        }, format='json')
+
+    def test_montant_negatif_refuse(self):
+        response = self._tenter_depense("-2000.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Depense.objects.count(), 0)
+
+    def test_montant_nul_refuse(self):
+        response = self._tenter_depense("0.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Depense.objects.count(), 0)
+
+    def test_montant_positif_toujours_autorise(self):
+        """Non-régression : une dépense normale reste possible."""
+        response = self._tenter_depense("2000.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

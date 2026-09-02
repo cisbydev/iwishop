@@ -391,3 +391,100 @@ class VenteQuantiteInvalideTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 5)
+
+
+class VenteMontantInvalideTests(APITestCase):
+    """Audit point 3 : une remise négative, une remise dépassant le montant
+    total, ou un montant payé négatif faussaient les écritures financières
+    d'une vente. Contournement démontré : remise=200 sur un montant_total=100
+    combiné à un montant_paye négatif faisait ressortir une "monnaie rendue"
+    positive sur une vente au montant net négatif (le client repartait avec
+    de l'argent en ayant "payé" un montant négatif)."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-montant-invalide-vente")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('ventes-list')
+
+    def _tenter_vente(self, *, remise=None, montant_paye):
+        payload = {
+            "montant_paye": str(montant_paye),
+            "lignes": [{"produit": self.produit.id, "quantite": 1, "type_vente": "UNITE", "prix_applique": "100.00"}],
+        }
+        if remise is not None:
+            payload["remise"] = str(remise)
+        return self.client.post(self.url_list, payload, format='json')
+
+    def test_contournement_remise_excessive_et_montant_paye_negatif_refuse(self):
+        """Reproduit exactement le scénario de contournement démontré :
+        montant_total=100 (1 ligne à 100), remise=200, montant_paye=-50."""
+        response = self._tenter_vente(remise="200.00", montant_paye="-50.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_remise_superieure_au_montant_total_refusee_meme_avec_montant_paye_valide(self):
+        """Même avec un montant_paye valide (>= 0), une remise supérieure
+        au montant total (200 sur 100) doit être refusée : elle rendrait le
+        montant net négatif."""
+        response = self._tenter_vente(remise="200.00", montant_paye="0.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_remise_negative_refusee(self):
+        response = self._tenter_vente(remise="-10.00", montant_paye="100.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+
+    def test_montant_paye_negatif_refuse(self):
+        response = self._tenter_vente(montant_paye="-10.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_remise_normale_toujours_autorisee(self):
+        """Non-régression : une remise raisonnable (inférieure au total)
+        reste acceptée."""
+        response = self._tenter_vente(remise="10.00", montant_paye="90.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertEqual(vente.montant_total, Decimal("100.00"))
+        self.assertEqual(vente.remise, Decimal("10.00"))
+        self.assertEqual(vente.montant_net, Decimal("90.00"))
+
+    def test_remise_egale_au_montant_total_autorisee(self):
+        """Non-régression : une remise à 100% du total (montant net à zéro)
+        reste un cas légitime (article offert)."""
+        response = self._tenter_vente(remise="100.00", montant_paye="0.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertEqual(vente.montant_net, Decimal("0.00"))
+
+    def test_vente_sans_remise_toujours_autorisee(self):
+        """Non-régression : une vente normale sans remise reste possible."""
+        response = self._tenter_vente(montant_paye="100.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

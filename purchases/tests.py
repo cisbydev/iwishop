@@ -432,3 +432,57 @@ class AchatQuantiteInvalideTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 15)
+
+
+class AchatPrixInvalideTests(APITestCase):
+    """Audit point 3 : un prix d'achat négatif n'a pas de sens, fausserait
+    le stock valorisé (LigneAchat.sous_total, Achat.montant_total) et le
+    prix_achat recalculé sur le Produit (donc le bénéfice des Rapports)."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-prix-invalide-achat")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('achats-list')
+
+    def _tenter_achat(self, prix_unitaire_achat):
+        return self.client.post(self.url_list, {
+            "fournisseur": self.fournisseur.id,
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 5,
+                "unite": self.unite.id, "prix_unitaire_achat": prix_unitaire_achat,
+            }],
+        }, format='json')
+
+    def test_prix_negatif_refuse_stock_inchange(self):
+        response = self._tenter_achat("-60.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Achat.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+        self.assertEqual(self.produit.prix_achat, Decimal("50"))
+
+    def test_prix_zero_toujours_autorise(self):
+        """Non-régression : un achat à prix nul (don, échantillon fournisseur)
+        reste un cas légitime, seul le négatif est bloqué."""
+        response = self._tenter_achat("0.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_prix_positif_toujours_autorise(self):
+        """Non-régression : un achat normal reste possible."""
+        response = self._tenter_achat("60.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)

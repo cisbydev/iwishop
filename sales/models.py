@@ -1,5 +1,7 @@
+from decimal import Decimal
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.validators import MinValueValidator
 from products.models import Produit
 from inventory.models import MouvementStock
 import uuid
@@ -22,10 +24,17 @@ class Vente(models.Model):
     client = models.CharField(max_length=150, blank=True, null=True, default="Client comptoir")
 
     montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
-    remise = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    # >= 0 - une remise négative augmenterait le montant net au lieu de le
+    # réduire (audit point 3). Le plafond (remise <= montant_total) ne peut
+    # pas être exprimé par un validateur de champ puisqu'il dépend du total
+    # calculé à partir des lignes : voir VenteSerializer.create().
+    remise = models.DecimalField(max_digits=12, decimal_places=2, default=0.00, validators=[MinValueValidator(Decimal('0'))])
     montant_net = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
-    montant_paye = models.DecimalField(max_digits=12, decimal_places=2)
+    # >= 0 - un montant payé négatif combiné à une remise excessive
+    # permettait de faire ressortir une "monnaie rendue" positive sur une
+    # vente au montant net négatif (contournement démontré, audit point 3).
+    montant_paye = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0'))])
     monnaie_rendue = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
 
     mode_paiement = models.CharField(max_length=30, choices=MODES_PAIEMENT, default='ESPECES')

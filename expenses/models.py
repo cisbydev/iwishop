@@ -1,4 +1,6 @@
+from decimal import Decimal
 from django.contrib.auth.models import User
+from django.core.validators import MinValueValidator
 from django.db import models
 
 class Depense(models.Model):
@@ -19,7 +21,10 @@ class Depense(models.Model):
 
     titre = models.CharField(max_length=150)
     categorie = models.CharField(max_length=30, choices=CATEGORIES_DEPENSE, default='AUTRE')
-    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    # > 0 - une dépense de 0 ou négative n'a pas de sens (audit point 3).
+    # MinValueValidator(0.01) équivaut à "strictement positif" vu les 2
+    # décimales du champ.
+    montant = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))])
     date_depense = models.DateField()
     description = models.TextField(blank=True, null=True)
     date_enregistrement = models.DateTimeField(auto_now_add=True)

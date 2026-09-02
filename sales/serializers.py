@@ -165,6 +165,15 @@ class VenteSerializer(serializers.ModelSerializer):
 
         # Calculs financiers finaux
         remise = vente.remise or 0
+        # La remise ne peut pas dépasser le montant total réellement calculé
+        # à partir des lignes (montant_total soumis par le client est de
+        # toute façon en lecture seule) : sans ce garde-fou, une remise
+        # supérieure au total rendait montant_net négatif, ce qui combiné à
+        # un montant_paye négatif (avant la validation ajoutée sur ce champ)
+        # laissait ressortir une "monnaie rendue" positive - contournement
+        # démontré, audit point 3.
+        if remise > montant_total:
+            raise ValidationError("La remise ne peut pas dépasser le montant total de la vente.")
         montant_net = montant_total - remise
 
         if vente.montant_paye < montant_net:
