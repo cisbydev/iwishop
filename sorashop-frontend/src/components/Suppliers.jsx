@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSupportView } from '../context/SupportViewContext';
+import { useSettings } from '../context/SettingsContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, Truck, Pencil, Trash2, Phone, MapPin } from 'lucide-react';
 
@@ -8,6 +9,8 @@ const FORM_VIDE = { nom: '', telephone: '', adresse: '' };
 
 export default function Suppliers() {
   const { actif: modeSupport, boutiqueId } = useSupportView();
+  const { utilisateur } = useSettings();
+  const estProprietaire = utilisateur?.est_proprietaire;
   const [fournisseurs, setFournisseurs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -120,14 +123,16 @@ export default function Suppliers() {
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
-                  <button
-                    onClick={() => handleDelete(f)}
-                    disabled={modeSupport}
-                    title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
-                    className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {estProprietaire && (
+                    <button
+                      onClick={() => handleDelete(f)}
+                      disabled={modeSupport}
+                      title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
+                      className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="space-y-1 text-sm text-gray-500">

@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSupportView } from '../context/SupportViewContext';
+import { useSettings } from '../context/SettingsContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, Tag, Trash2 } from 'lucide-react';
 
 export default function Categories() {
   const { actif: modeSupport, boutiqueId } = useSupportView();
+  const { utilisateur } = useSettings();
+  const estProprietaire = utilisateur?.est_proprietaire;
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -90,14 +93,16 @@ export default function Categories() {
                   )}
                 </div>
               </div>
-              <button
-                onClick={() => handleDelete(cat.id, cat.nom)}
-                disabled={modeSupport}
-                title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
-                className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              {estProprietaire && (
+                <button
+                  onClick={() => handleDelete(cat.id, cat.nom)}
+                  disabled={modeSupport}
+                  title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
+                  className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           ))}
         </div>

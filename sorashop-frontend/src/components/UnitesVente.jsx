@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSupportView } from '../context/SupportViewContext';
+import { useSettings } from '../context/SettingsContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, Ruler, Lock, Pencil, Trash2 } from 'lucide-react';
 
@@ -8,6 +9,8 @@ const FORM_VIDE = { nom: '', facteur_conversion: '' };
 
 export default function UnitesVente() {
   const { actif: modeSupport, boutiqueId } = useSupportView();
+  const { utilisateur } = useSettings();
+  const estProprietaire = utilisateur?.est_proprietaire;
   const [unites, setUnites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -163,18 +166,20 @@ export default function UnitesVente() {
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(u)}
-                        disabled={modeSupport || u.est_systeme}
-                        title={
-                          u.est_systeme
-                            ? "Les unités système ne peuvent pas être supprimées."
-                            : (modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer")
-                        }
-                        className={(modeSupport || u.est_systeme) ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {estProprietaire && (
+                        <button
+                          onClick={() => handleDelete(u)}
+                          disabled={modeSupport || u.est_systeme}
+                          title={
+                            u.est_systeme
+                              ? "Les unités système ne peuvent pas être supprimées."
+                              : (modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer")
+                          }
+                          className={(modeSupport || u.est_systeme) ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

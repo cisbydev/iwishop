@@ -16,8 +16,9 @@ const FORM_VIDE = {
 };
 
 export default function Products() {
-  const { parametres } = useSettings();
+  const { parametres, utilisateur } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const estProprietaire = utilisateur?.est_proprietaire;
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -308,14 +309,16 @@ export default function Products() {
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={() => handleDelete(p)}
-                        disabled={modeSupport}
-                        title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
-                        className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      {estProprietaire && (
+                        <button
+                          onClick={() => handleDelete(p)}
+                          disabled={modeSupport}
+                          title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Supprimer"}
+                          className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

@@ -32,8 +32,9 @@ const FORM_VIDE = {
 };
 
 export default function Expenses() {
-  const { parametres } = useSettings();
+  const { parametres, utilisateur } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const estProprietaire = utilisateur?.est_proprietaire;
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [depenses, setDepenses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -175,7 +176,7 @@ export default function Expenses() {
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                     {d.statut === 'ANNULEE' ? (
                       <span className="text-xs font-medium text-gray-400 italic">Annulée</span>
-                    ) : (
+                    ) : estProprietaire ? (
                       <button
                         onClick={() => handleAnnuler(d)}
                         disabled={modeSupport}
@@ -184,7 +185,7 @@ export default function Expenses() {
                       >
                         <Ban className="w-4 h-4" />
                       </button>
-                    )}
+                    ) : null}
                   </td>
                 </tr>
               ))}
