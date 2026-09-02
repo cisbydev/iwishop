@@ -2,7 +2,9 @@ from rest_framework import serializers
 from .models import Depense
 
 class DepenseSerializer(serializers.ModelSerializer):
+    utilisateur_nom = serializers.ReadOnlyField(source='utilisateur.username')
+
     class Meta:
         model = Depense
         fields = '__all__'
-        read_only_fields = ['boutique', 'statut']
+        read_only_fields = ['boutique', 'statut', 'utilisateur']

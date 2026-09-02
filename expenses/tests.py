@@ -147,3 +147,38 @@ class DepenseAnnulationTests(APITestCase):
         apres = self.client.get(url_resume).data
         self.assertEqual(Decimal(str(apres['total_depenses'])), Decimal("0.00"))
         self.assertEqual(apres['nombre_depenses'], 0)
+
+
+class DepenseTracabiliteTests(APITestCase):
+    """P2 point 16 : une dépense doit enregistrer l'employé qui l'a
+    déclarée, comme Vente.utilisateur."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-tracabilite-depense")
+        self.user = User.objects.create_user(username="employe_depense", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=False)
+        self.client.force_authenticate(user=self.user)
+
+    def test_utilisateur_enregistre_a_la_creation(self):
+        payload = {
+            "titre": "Transport", "categorie": "TRANSPORT",
+            "montant": "2000.00", "date_depense": "2026-08-30",
+        }
+        response = self.client.post(reverse('depenses-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        depense = Depense.objects.get(pk=response.data['id'])
+        self.assertEqual(depense.utilisateur_id, self.user.id)
+        self.assertEqual(response.data['utilisateur_nom'], 'employe_depense')
+
+    def test_utilisateur_soumis_dans_le_payload_est_ignore(self):
+        autre = User.objects.create_user(username="autre_employe", password="pass1234")
+        payload = {
+            "titre": "Transport", "categorie": "TRANSPORT",
+            "montant": "2000.00", "date_depense": "2026-08-30", "utilisateur": autre.id,
+        }
+        response = self.client.post(reverse('depenses-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        depense = Depense.objects.get(pk=response.data['id'])
+        self.assertEqual(depense.utilisateur_id, self.user.id)

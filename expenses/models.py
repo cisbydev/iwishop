@@ -1,3 +1,4 @@
+from django.contrib.auth.models import User
 from django.db import models
 
 class Depense(models.Model):
@@ -27,6 +28,8 @@ class Depense(models.Model):
     # jamais effacer l'historique - même principe que Vente/Achat (P0,
     # P2 point 15).
     statut = models.CharField(max_length=20, choices=STATUTS, default='VALIDEE')
+    # Employé ayant déclaré la dépense - traçabilité (P2 point 16).
+    utilisateur = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
 
     def __str__(self):
         return f"{self.titre} - {self.montant} ({self.date_depense.strftime('%d/%m/%Y')})"

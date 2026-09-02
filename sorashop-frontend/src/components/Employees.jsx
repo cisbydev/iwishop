@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
-import { Plus, UserCircle, Trash2, ShieldCheck, ShieldOff } from 'lucide-react';
+import { Plus, UserCircle, UserX, ShieldCheck, ShieldOff } from 'lucide-react';
 
 const FORM_VIDE = { username: '', first_name: '', last_name: '', password: '' };
 
@@ -40,15 +40,15 @@ export default function Employees() {
     }
   };
 
-  const handleDelete = async (employe) => {
-    if (!window.confirm(`Supprimer définitivement le compte de "${employe.username}" ? Cette action est irréversible.`)) {
+  const handleDesactiver = async (employe) => {
+    if (!window.confirm(`Désactiver le compte de "${employe.username}" ? Il ne pourra plus se connecter à l'application.`)) {
       return;
     }
     try {
       await api.delete(`accounts/employes/${employe.id}/`);
       fetchEmployes();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la suppression du compte."));
+      alert(getErrorMessage(err, "Erreur lors de la désactivation du compte."));
     }
   };
 
@@ -101,13 +101,17 @@ export default function Employees() {
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
-                    <button
-                      onClick={() => handleDelete(emp)}
-                      className="text-red-600 hover:text-red-800"
-                      title="Supprimer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {emp.is_active ? (
+                      <button
+                        onClick={() => handleDesactiver(emp)}
+                        className="text-red-600 hover:text-red-800"
+                        title="Désactiver"
+                      >
+                        <UserX className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <span className="text-xs font-medium text-gray-400 italic">Désactivé</span>
+                    )}
                   </td>
                 </tr>
               ))}

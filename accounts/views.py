@@ -44,6 +44,15 @@ class EmployeViewSet(viewsets.ModelViewSet):
     """
     CRUD des comptes employés, réservé exclusivement au propriétaire de la boutique.
     Le propriétaire lui-même n'apparaît pas dans cette liste.
+
+    La suppression (DELETE) désactive le compte (is_active=False) au lieu
+    de le supprimer réellement (P2 point 16) : un compte employé réellement
+    supprimé casserait rétroactivement la traçabilité déjà en place
+    (Vente.utilisateur, Achat.utilisateur, MouvementStock.utilisateur,
+    Depense.utilisateur passeraient tous à NULL). Un compte désactivé ne
+    peut plus s'authentifier (SimpleJWT rejette is_active=False, y compris
+    sur un access token déjà émis), donc l'effet de sécurité est identique
+    à une suppression - seule la donnée historique est préservée.
     """
     permission_classes = [IsOwner]
 
@@ -63,7 +72,15 @@ class EmployeViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         if instance.id == request.user.id:
             return Response(
-                {"detail": "Vous ne pouvez pas supprimer votre propre compte ici."},
+                {"detail": "Vous ne pouvez pas désactiver votre propre compte ici."},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        return super().destroy(request, *args, **kwargs)
+        if not instance.is_active:
+            return Response(
+                {"detail": "Ce compte est déjà désactivé."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)

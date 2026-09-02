@@ -1,3 +1,4 @@
+from django.contrib.auth.models import User
 from django.db import models
 from products.models import Produit
 
@@ -13,6 +14,8 @@ class MouvementStock(models.Model):
     # silencieusement l'historique de ses mouvements de stock (P2 point 15,
     # faille trouvée - même principe déjà appliqué à UniteVente ailleurs).
     produit = models.ForeignKey(Produit, on_delete=models.PROTECT, related_name='mouvements')
+    # Employé ayant effectué le mouvement - traçabilité (P2 point 16).
+    utilisateur = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     type_mouvement = models.CharField(max_length=20, choices=TYPES_MOUVEMENT)
     quantite = models.IntegerField()
     motif = models.CharField(max_length=255, blank=True, null=True)

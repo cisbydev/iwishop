@@ -23,11 +23,15 @@ class LigneAchatSerializer(serializers.ModelSerializer):
 class AchatSerializer(serializers.ModelSerializer):
     lignes = LigneAchatSerializer(many=True)
     fournisseur_nom = serializers.ReadOnlyField(source='fournisseur.nom')
+    utilisateur_nom = serializers.ReadOnlyField(source='utilisateur.username')
 
     class Meta:
         model = Achat
-        fields = ['id', 'fournisseur', 'fournisseur_nom', 'date_achat', 'montant_total', 'notes', 'statut', 'lignes']
-        read_only_fields = ['montant_total', 'date_achat', 'statut']
+        fields = [
+            'id', 'fournisseur', 'fournisseur_nom', 'date_achat', 'montant_total', 'notes',
+            'statut', 'utilisateur', 'utilisateur_nom', 'lignes',
+        ]
+        read_only_fields = ['montant_total', 'date_achat', 'statut', 'utilisateur']
 
     def validate_fournisseur(self, value):
         # Ne jamais supposer qu'un fournisseur soumis appartient à la
@@ -48,7 +52,9 @@ class AchatSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Cette boutique a été désactivée.")
 
         lignes_data = validated_data.pop('lignes')
-        achat = Achat.objects.create(boutique=boutique, **validated_data)
+        achat = Achat.objects.create(
+            boutique=boutique, utilisateur=self.context['request'].user, **validated_data
+        )
 
         montant_total = 0
         # Un même achat peut contenir plusieurs lignes pour le même

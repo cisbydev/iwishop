@@ -4,11 +4,12 @@ from .models import MouvementStock
 class MouvementStockSerializer(serializers.ModelSerializer):
     produit_nom = serializers.ReadOnlyField(source='produit.nom')
     produit_reference = serializers.ReadOnlyField(source='produit.reference')
+    utilisateur_nom = serializers.ReadOnlyField(source='utilisateur.username')
 
     class Meta:
         model = MouvementStock
         fields = '__all__'
-        read_only_fields = ['boutique']
+        read_only_fields = ['boutique', 'utilisateur']
 
     def validate_produit(self, value):
         # Ne jamais supposer qu'un produit soumis appartient à la boutique

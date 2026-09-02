@@ -209,3 +209,43 @@ class ConcurrenceVenteEtMouvementStockTests(APITransactionTestCase):
         quantite_gagnante = 4 if resultats['vente'].status_code == status.HTTP_201_CREATED else 3
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 5 - quantite_gagnante)
+
+
+class MouvementStockTracabiliteTests(APITestCase):
+    """P2 point 16 : un mouvement de stock doit enregistrer l'employé qui
+    l'a effectué, comme Vente.utilisateur."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-tracabilite-mouvement")
+        self.user = User.objects.create_user(username="caissier", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=False)
+
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("100"), prix_unitaire=Decimal("150"), prix_douzaine=Decimal("1500"),
+            quantite_en_stock=10,
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_utilisateur_enregistre_a_la_creation(self):
+        payload = {"produit": self.produit.id, "type_mouvement": "ENTREE", "quantite": 5}
+        response = self.client.post(reverse('mouvements-stock-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mouvement = MouvementStock.objects.get(pk=response.data['id'])
+        self.assertEqual(mouvement.utilisateur_id, self.user.id)
+        self.assertEqual(response.data['utilisateur_nom'], 'caissier')
+
+    def test_utilisateur_soumis_dans_le_payload_est_ignore(self):
+        """`utilisateur` est en lecture seule : impossible d'attribuer un
+        mouvement à quelqu'un d'autre que l'appelant."""
+        autre = User.objects.create_user(username="autre_employe", password="pass1234")
+        payload = {
+            "produit": self.produit.id, "type_mouvement": "ENTREE", "quantite": 5,
+            "utilisateur": autre.id,
+        }
+        response = self.client.post(reverse('mouvements-stock-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mouvement = MouvementStock.objects.get(pk=response.data['id'])
+        self.assertEqual(mouvement.utilisateur_id, self.user.id)

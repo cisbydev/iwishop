@@ -262,3 +262,55 @@ class AchatAnnulationPermissionTests(APITestCase):
         self.assertEqual(self.achat.statut, 'ANNULE')
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 10)  # retiré
+
+
+class AchatTracabiliteTests(APITestCase):
+    """P2 point 16 : un achat doit enregistrer l'employé qui l'a créé,
+    comme Vente.utilisateur."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-tracabilite-achat")
+        self.user = User.objects.create_user(username="employe_achat", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=False)
+
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=0,
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_utilisateur_enregistre_a_la_creation(self):
+        payload = {
+            "fournisseur": self.fournisseur.id,
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 3,
+                "unite": self.unite.id, "prix_unitaire_achat": "60.00",
+            }],
+        }
+        response = self.client.post(reverse('achats-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        achat = Achat.objects.get(pk=response.data['id'])
+        self.assertEqual(achat.utilisateur_id, self.user.id)
+        self.assertEqual(response.data['utilisateur_nom'], 'employe_achat')
+
+    def test_utilisateur_soumis_dans_le_payload_est_ignore(self):
+        autre = User.objects.create_user(username="autre_employe", password="pass1234")
+        payload = {
+            "fournisseur": self.fournisseur.id,
+            "utilisateur": autre.id,
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 3,
+                "unite": self.unite.id, "prix_unitaire_achat": "60.00",
+            }],
+        }
+        response = self.client.post(reverse('achats-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        achat = Achat.objects.get(pk=response.data['id'])
+        self.assertEqual(achat.utilisateur_id, self.user.id)

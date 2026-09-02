@@ -36,6 +36,13 @@ class DepenseViewSet(
     # doit pouvoir déclarer une dépense).
     actions_reservees_proprietaire = ('annuler',)
 
+    def perform_create(self, serializer):
+        # Enregistre l'employé auteur de la dépense (P2 point 16 -
+        # traçabilité) en plus de la boutique déjà injectée par le mixin.
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
+        serializer.save(boutique=boutique, utilisateur=self.request.user)
+
     @action(detail=True, methods=['post'])
     def annuler(self, request, pk=None):
         # get_object() applique le scoping boutique (BoutiqueScopedMixin) :

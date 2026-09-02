@@ -1,7 +1,11 @@
+from decimal import Decimal
+
 from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
-from rest_framework.test import APIClient
+from rest_framework import status
+from rest_framework.reverse import reverse
+from rest_framework.test import APIClient, APITestCase
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
 from tenants.models import Boutique, Profil
@@ -79,3 +83,81 @@ class JWTAccessTokenLifetimeTests(TestCase):
         client_expire.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh_response.data['access']}")
         rejeu = client_expire.get('/api/accounts/me/')
         self.assertEqual(rejeu.status_code, 200)
+
+
+class EmployeDesactivationTests(APITestCase):
+    """P2 point 16 : supprimer un employé désactive son compte
+    (is_active=False) au lieu de le supprimer réellement, pour ne pas
+    casser rétroactivement la traçabilité déjà en place (Vente.utilisateur
+    et équivalents)."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-desactivation")
+
+        self.proprietaire = User.objects.create_user(username="proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+
+        self.employe = User.objects.create_user(username="employe", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+
+        self.url_detail = reverse('employes-detail', args=[self.employe.id])
+
+    def test_proprietaire_peut_desactiver(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.delete(self.url_detail)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data['is_active'])
+        self.employe.refresh_from_db()
+        self.assertFalse(self.employe.is_active)
+        # Le compte existe toujours (pas de suppression réelle).
+        self.assertTrue(User.objects.filter(pk=self.employe.id).exists())
+
+    def test_proprietaire_ne_peut_pas_se_desactiver_lui_meme(self):
+        """Le résultat est un 404, pas un 400 : get_queryset() exclut déjà
+        est_proprietaire=True de la liste ("le propriétaire n'apparaît pas
+        dans cette liste"), donc get_object() échoue avant même d'atteindre
+        le garde-fou explicite de destroy() - qui est de fait inatteignable
+        tant que ce filtre existe. Le résultat reste sûr (impossible de se
+        désactiver soi-même) ; seul le code HTTP diffère de ce qu'on
+        pourrait attendre à la lecture de destroy() seul."""
+        self.client.force_authenticate(user=self.proprietaire)
+        url_soi_meme = reverse('employes-detail', args=[self.proprietaire.id])
+        response = self.client.delete(url_soi_meme)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_double_desactivation_refusee(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        self.client.delete(self.url_detail)
+
+        response = self.client.delete(self.url_detail)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_compte_desactive_ne_peut_plus_s_authentifier(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        self.client.delete(self.url_detail)
+
+        client_employe = APIClient()
+        reponse_login = client_employe.post(
+            '/api/token/', {'username': 'employe', 'password': 'pass1234'}
+        )
+        self.assertEqual(reponse_login.status_code, 401)
+
+    def test_desactivation_preserve_la_tracabilite_des_ventes_passees(self):
+        """Contrairement à une suppression réelle (SET_NULL), désactiver un
+        employé ne doit pas faire disparaître son attribution sur les
+        ventes déjà enregistrées."""
+        from sales.models import Vente
+
+        vente = Vente.objects.create(
+            boutique=self.boutique, utilisateur=self.employe, montant_paye=Decimal("150"),
+        )
+
+        self.client.force_authenticate(user=self.proprietaire)
+        self.client.delete(self.url_detail)
+
+        vente.refresh_from_db()
+        self.assertEqual(vente.utilisateur_id, self.employe.id)
+        self.assertEqual(vente.utilisateur.username, 'employe')

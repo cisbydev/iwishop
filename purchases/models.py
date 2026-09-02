@@ -1,3 +1,4 @@
+from django.contrib.auth.models import User
 from django.db import models
 from suppliers.models import Fournisseur
 from products.models import Produit
@@ -12,6 +13,11 @@ class Achat(models.Model):
 
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     fournisseur = models.ForeignKey(Fournisseur, on_delete=models.SET_NULL, null=True, related_name='achats')
+    # Employé ayant enregistré l'achat - traçabilité (P2 point 16). SET_NULL
+    # comme Vente.utilisateur : si le compte est un jour réellement supprimé
+    # (hors flux normal, qui désactive désormais - cf. EmployeViewSet),
+    # l'historique de l'achat ne doit jamais être effacé pour autant.
+    utilisateur = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     date_achat = models.DateTimeField(auto_now_add=True)
     montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     notes = models.TextField(blank=True, null=True)

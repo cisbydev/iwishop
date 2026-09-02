@@ -31,7 +31,9 @@ class MouvementStockViewSet(
 
     @transaction.atomic
     def perform_create(self, serializer):
-        mouvement = serializer.save(boutique=self.request.user.profil.boutique)
+        mouvement = serializer.save(
+            boutique=self.request.user.profil.boutique, utilisateur=self.request.user
+        )
         # Reverrouille le produit dans la transaction (P1 point 7) :
         # mouvement.produit vient de la validation DRF, faite hors de ce
         # bloc atomique et donc potentiellement périmé si une autre
