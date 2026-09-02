@@ -409,3 +409,85 @@ class ProduitPrixNegatifTests(APITestCase):
             format='json',
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class ProduitStockNegatifTests(APITestCase):
+    """Audit point 3 (trouvaille complémentaire testée en production) : un
+    stock négatif (quantite_en_stock ou stock_minimum) n'a aucun sens
+    métier, même si les ventes suivantes échouent déjà avec "stock
+    insuffisant" - rien n'empêchait de créer/modifier un produit avec un
+    stock initial négatif (ex: -50)."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-stock-negatif")
+        self.user = User.objects.create_user(username="user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10, stock_minimum=5,
+        )
+
+    def _payload(self, **overrides):
+        payload = {
+            "nom": "Produit test", "prix_achat": "100.00",
+            "prix_unitaire": "150.00", "prix_douzaine": "1500.00",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_creation_quantite_en_stock_negative_refusee(self):
+        """Reproduit exactement la faille démontrée : un stock initial de
+        -50 ne doit plus pouvoir être créé."""
+        response = self.client.post(reverse('produit-list'), self._payload(quantite_en_stock=-50), format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_creation_stock_minimum_negatif_refusee(self):
+        response = self.client.post(reverse('produit-list'), self._payload(stock_minimum=-1), format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_quantite_en_stock_negative_refuse(self):
+        response = self.client.patch(
+            reverse('produit-detail', args=[self.produit.id]), {"quantite_en_stock": -50}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_patch_stock_minimum_negatif_refuse(self):
+        response = self.client.patch(
+            reverse('produit-detail', args=[self.produit.id]), {"stock_minimum": -1}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.stock_minimum, 5)
+
+    def test_creation_stock_zero_toujours_autorisee(self):
+        """Non-régression : un stock à zéro (rupture, nouveau produit pas
+        encore approvisionné) reste permis, seul le négatif est bloqué."""
+        response = self.client.post(
+            reverse('produit-list'),
+            self._payload(quantite_en_stock=0, stock_minimum=0),
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_creation_stock_positif_toujours_autorisee(self):
+        """Non-régression : une création normale reste possible."""
+        response = self.client.post(
+            reverse('produit-list'),
+            self._payload(quantite_en_stock=20, stock_minimum=3),
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_patch_stock_positif_toujours_autorise(self):
+        """Non-régression : un réajustement de stock normal reste possible."""
+        response = self.client.patch(
+            reverse('produit-detail', args=[self.produit.id]), {"quantite_en_stock": 25}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 25)

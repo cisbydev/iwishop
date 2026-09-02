@@ -29,8 +29,11 @@ class Produit(models.Model):
     prix_douzaine = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0'))])
 
     # Stock
-    quantite_en_stock = models.IntegerField(default=0)
-    stock_minimum = models.IntegerField(default=5)
+    # >= 0 - un stock négatif n'a aucun sens métier, même si les ventes
+    # suivantes échouent déjà avec "stock insuffisant" (audit point 3,
+    # trouvaille complémentaire testée en production).
+    quantite_en_stock = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+    stock_minimum = models.IntegerField(default=5, validators=[MinValueValidator(0)])
 
     # Média et dates
     photo = models.ImageField(upload_to='produits/', blank=True, null=True)
