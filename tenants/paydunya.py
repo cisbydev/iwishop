@@ -88,11 +88,16 @@ def confirmer_facture(token):
     d'une facture. C'est ce résultat, jamais le contenu du webhook POST, qui
     fait foi pour créditer un abonnement.
 
-    Retourne le statut ('completed', 'pending', 'cancelled', ...) si la
-    vérification a réellement pu se faire. Lève PaydunyaVerificationError
-    si la vérification elle-même a échoué (réseau, JSON invalide, réponse
-    non conforme) - dans ce cas on ne sait pas si le paiement est complété
-    ou non, il ne faut donc jamais le traiter comme "non complété".
+    Retourne {'status': ..., 'montant_confirme': ...} si la vérification a
+    réellement pu se faire - le statut ('completed', 'pending',
+    'cancelled', ...) ET le montant réellement confirmé par PayDunya
+    (`invoice.total_amount`), pour que l'appelant puisse le comparer au
+    montant attendu avant de créditer quoi que ce soit (audit point 7 :
+    seul le statut était vérifié jusqu'ici, jamais le montant). Lève
+    PaydunyaVerificationError si la vérification elle-même a échoué
+    (réseau, JSON invalide, réponse non conforme) - dans ce cas on ne sait
+    pas si le paiement est complété ou non, il ne faut donc jamais le
+    traiter comme "non complété".
     """
     try:
         response = requests.get(
@@ -114,7 +119,10 @@ def confirmer_facture(token):
         logger.error("PayDunya confirm : réponse non-00 pour le token %s : %s", token, data)
         raise PaydunyaVerificationError(data.get('response_text', 'Réponse PayDunya non conforme'))
 
-    return data.get('status')
+    return {
+        'status': data.get('status'),
+        'montant_confirme': (data.get('invoice') or {}).get('total_amount'),
+    }
 
 
 def hash_valide(hash_recu):

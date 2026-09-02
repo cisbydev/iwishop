@@ -1,4 +1,5 @@
 import hashlib
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
 from decouple import config
@@ -107,6 +108,7 @@ class WebhookEchecVerificationTests(TestCase):
         )
         self.paiement = PaiementAbonnement.objects.create(
             boutique=self.boutique, formule=self.formule, invoice_token='tok-123',
+            montant_attendu=self.formule.prix,
         )
         self.client = APIClient()
 
@@ -257,7 +259,10 @@ class WebhookNonRegressionTests(TestCase):
         mock_confirmer.assert_not_called()
 
     def test_reference_inconnue_repond_404_pas_500(self):
-        with patch('tenants.views.paydunya.confirmer_facture', return_value='completed'):
+        with patch(
+            'tenants.views.paydunya.confirmer_facture',
+            return_value={'status': 'completed', 'montant_confirme': 5000},
+        ):
             response = self._post_webhook(paiement_id=999999)
 
         self.assertEqual(response.status_code, 404)
@@ -265,8 +270,12 @@ class WebhookNonRegressionTests(TestCase):
     def test_webhook_duplique_ne_double_pas_le_credit(self):
         paiement = PaiementAbonnement.objects.create(
             boutique=self.boutique, formule=self.formule, invoice_token='tok-999',
+            montant_attendu=self.formule.prix,
         )
-        with patch('tenants.views.paydunya.confirmer_facture', return_value='completed'):
+        with patch(
+            'tenants.views.paydunya.confirmer_facture',
+            return_value={'status': 'completed', 'montant_confirme': 5000},
+        ):
             self._post_webhook(paiement.id)
             self._post_webhook(paiement.id)
 
@@ -276,6 +285,7 @@ class WebhookNonRegressionTests(TestCase):
     def test_confirmer_paiement_idempotent_appel_direct(self):
         paiement = PaiementAbonnement.objects.create(
             boutique=self.boutique, formule=self.formule, invoice_token='tok-777',
+            montant_attendu=self.formule.prix,
         )
         self.assertTrue(confirmer_paiement(paiement.id))
         self.assertFalse(confirmer_paiement(paiement.id))
@@ -284,7 +294,9 @@ class WebhookNonRegressionTests(TestCase):
         self.assertEqual(abonnement.date_fin, timezone.localdate() + timezone.timedelta(days=30))
 
     def test_activation_premier_paiement(self):
-        paiement = PaiementAbonnement.objects.create(boutique=self.boutique, formule=self.formule)
+        paiement = PaiementAbonnement.objects.create(
+            boutique=self.boutique, formule=self.formule, montant_attendu=self.formule.prix,
+        )
         confirmer_paiement(paiement.id)
 
         abonnement = Abonnement.objects.get(boutique=self.boutique)
@@ -298,7 +310,9 @@ class WebhookNonRegressionTests(TestCase):
             date_fin=timezone.localdate() + timezone.timedelta(days=10),
             statut='ACTIF',
         )
-        paiement = PaiementAbonnement.objects.create(boutique=self.boutique, formule=self.formule)
+        paiement = PaiementAbonnement.objects.create(
+            boutique=self.boutique, formule=self.formule, montant_attendu=self.formule.prix,
+        )
         confirmer_paiement(paiement.id)
 
         abonnement = Abonnement.objects.get(boutique=self.boutique)
@@ -311,9 +325,157 @@ class WebhookNonRegressionTests(TestCase):
             date_fin=timezone.localdate() - timezone.timedelta(days=10),
             statut='ACTIF',
         )
-        paiement = PaiementAbonnement.objects.create(boutique=self.boutique, formule=self.formule)
+        paiement = PaiementAbonnement.objects.create(
+            boutique=self.boutique, formule=self.formule, montant_attendu=self.formule.prix,
+        )
         confirmer_paiement(paiement.id)
 
         abonnement = Abonnement.objects.get(boutique=self.boutique)
         self.assertEqual(abonnement.date_debut, timezone.localdate())
         self.assertEqual(abonnement.date_fin, timezone.localdate() + timezone.timedelta(days=30))
+
+
+class WebhookMontantConfirmeTests(TestCase):
+    """Audit point 7 : le webhook ne comparait que le statut PayDunya
+    ('completed'), jamais le montant réellement confirmé au montant
+    attendu (celui de la FormuleAbonnement choisie, figé à la création de
+    la facture sur PaiementAbonnement.montant_attendu). Un montant payé
+    inférieur au prix de la formule créditait quand même l'abonnement
+    complet - contournement démontré."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom='Boutique Montant', slug='boutique-montant')
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Mensuel', duree_jours=30, prix=5000, actif=True
+        )
+        self.paiement = PaiementAbonnement.objects.create(
+            boutique=self.boutique, formule=self.formule, invoice_token='tok-montant',
+            montant_attendu=self.formule.prix,
+        )
+        self.client = APIClient()
+
+    def _post_webhook(self, paiement_id, token='tok-montant'):
+        return self.client.post('/api/tenants/paydunya-webhook/', {
+            'data[hash]': hash_paydunya_valide(),
+            'data[invoice][token]': token,
+            'data[custom_data][paiement_id]': str(paiement_id),
+        })
+
+    def test_montant_confirme_inferieur_refuse_credit(self):
+        """Reproduit exactement le contournement décrit : payer moins que
+        le prix de la formule (1000 au lieu de 5000) ne doit plus créditer
+        l'abonnement."""
+        with patch(
+            'tenants.views.paydunya.confirmer_facture',
+            return_value={'status': 'completed', 'montant_confirme': 1000},
+        ):
+            with self.assertLogs('tenants.views', level='ERROR') as logs:
+                response = self._post_webhook(self.paiement.id)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(any('montant confirmé' in message for message in logs.output))
+        self.paiement.refresh_from_db()
+        self.assertEqual(self.paiement.statut, 'EN_ATTENTE')
+        self.assertFalse(hasattr(self.boutique, 'abonnement'))
+
+    def test_montant_confirme_superieur_refuse_credit(self):
+        """La comparaison est une égalité stricte, pas un simple seuil
+        minimum : un montant confirmé différent (même supérieur) est aussi
+        rejeté plutôt que silencieusement accepté."""
+        with patch(
+            'tenants.views.paydunya.confirmer_facture',
+            return_value={'status': 'completed', 'montant_confirme': 9000},
+        ):
+            response = self._post_webhook(self.paiement.id)
+
+        self.assertEqual(response.status_code, 400)
+        self.paiement.refresh_from_db()
+        self.assertEqual(self.paiement.statut, 'EN_ATTENTE')
+
+    def test_montant_confirme_absent_refuse_credit(self):
+        """Si PayDunya ne renvoie pas le montant confirmé (réponse
+        inattendue), on ne peut pas vérifier - on ne crédite pas plutôt
+        que de faire confiance au statut seul."""
+        with patch(
+            'tenants.views.paydunya.confirmer_facture',
+            return_value={'status': 'completed', 'montant_confirme': None},
+        ):
+            response = self._post_webhook(self.paiement.id)
+
+        self.assertEqual(response.status_code, 400)
+        self.paiement.refresh_from_db()
+        self.assertEqual(self.paiement.statut, 'EN_ATTENTE')
+
+    def test_montant_confirme_egal_credite_normalement(self):
+        """Non-régression : un montant confirmé égal au montant attendu
+        crédite l'abonnement normalement."""
+        with patch(
+            'tenants.views.paydunya.confirmer_facture',
+            return_value={'status': 'completed', 'montant_confirme': 5000},
+        ):
+            response = self._post_webhook(self.paiement.id)
+
+        self.assertEqual(response.status_code, 200)
+        self.paiement.refresh_from_db()
+        self.assertEqual(self.paiement.statut, 'CONFIRME')
+        abonnement = Abonnement.objects.get(boutique=self.boutique)
+        self.assertEqual(abonnement.date_fin, timezone.localdate() + timezone.timedelta(days=30))
+
+    def test_montant_confirme_decimal_exact_credite_normalement(self):
+        """Non-régression : un montant décimal (ex: renvoyé en chaîne par
+        l'API) doit être comparé correctement, pas seulement les entiers."""
+        formule_decimale = FormuleAbonnement.objects.create(
+            nom='Annuel', duree_jours=365, prix=Decimal('4999.99'), actif=True
+        )
+        paiement = PaiementAbonnement.objects.create(
+            boutique=self.boutique, formule=formule_decimale, invoice_token='tok-decimal',
+            montant_attendu=formule_decimale.prix,
+        )
+        with patch(
+            'tenants.views.paydunya.confirmer_facture',
+            return_value={'status': 'completed', 'montant_confirme': '4999.99'},
+        ):
+            response = self._post_webhook(paiement.id, token='tok-decimal')
+
+        self.assertEqual(response.status_code, 200)
+        paiement.refresh_from_db()
+        self.assertEqual(paiement.statut, 'CONFIRME')
+
+
+class CreerPaiementMontantAttenduTests(TestCase):
+    """Audit point 7 (subsidiaire) : le montant attendu doit être figé au
+    prix de la formule au moment de la création de la facture, pas relu
+    depuis FormuleAbonnement.prix à la confirmation - qui pourrait avoir
+    changé entre-temps."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom='Boutique Fige', slug='boutique-fige')
+        self.owner = User.objects.create_user(username='owner_fige', password='x')
+        Profil.objects.create(user=self.owner, boutique=self.boutique, est_proprietaire=True)
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Mensuel', duree_jours=30, prix=5000, actif=True
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.owner)
+
+    @patch('tenants.views.paydunya.creer_facture')
+    def test_montant_attendu_fige_au_prix_de_la_formule(self, mock_creer):
+        mock_creer.return_value = (True, {'token': 'tok-fige', 'url': 'https://paydunya.test/checkout/fige'})
+
+        self.client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+
+        paiement = PaiementAbonnement.objects.get(boutique=self.boutique, formule=self.formule)
+        self.assertEqual(paiement.montant_attendu, Decimal('5000.00'))
+
+    @patch('tenants.views.paydunya.creer_facture')
+    def test_changement_de_prix_de_la_formule_apres_creation_naffecte_pas_le_montant_attendu(self, mock_creer):
+        mock_creer.return_value = (True, {'token': 'tok-fige2', 'url': 'https://paydunya.test/checkout/fige2'})
+
+        self.client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+        paiement = PaiementAbonnement.objects.get(boutique=self.boutique, formule=self.formule)
+
+        self.formule.prix = Decimal('9999.00')
+        self.formule.save()
+
+        paiement.refresh_from_db()
+        self.assertEqual(paiement.montant_attendu, Decimal('5000.00'))

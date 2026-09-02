@@ -1,5 +1,6 @@
 import logging
 import secrets
+from decimal import Decimal
 from django.utils import timezone
 from django.utils.text import slugify
 from django.contrib.auth.models import User
@@ -274,7 +275,13 @@ class CreerPaiementView(APIView):
         if paiement_recent:
             return Response({"url_paiement": paiement_recent.url_paiement})
 
-        paiement = PaiementAbonnement.objects.create(boutique=boutique, formule=formule)
+        # Figé maintenant plutôt que relu depuis formule.prix à la
+        # confirmation - protège contre un changement de prix de la
+        # formule entre la création de la facture et son paiement (audit
+        # point 7).
+        paiement = PaiementAbonnement.objects.create(
+            boutique=boutique, formule=formule, montant_attendu=formule.prix
+        )
 
         ok, resultat = paydunya.creer_facture(paiement)
         if not ok:
@@ -314,12 +321,12 @@ class PaydunyaWebhookView(APIView):
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            statut_reel = paydunya.confirmer_facture(token)
+            resultat = paydunya.confirmer_facture(token)
         except paydunya.PaydunyaVerificationError as e:
             logger.error("Webhook PayDunya : vérification impossible pour le token %s : %s", token, e)
             return Response(status=status.HTTP_502_BAD_GATEWAY)
 
-        if statut_reel != 'completed':
+        if resultat['status'] != 'completed':
             # Accusé de réception : PENDING/CANCELLED ne sont pas des erreurs,
             # juste rien à créditer pour l'instant.
             return Response(status=status.HTTP_200_OK)
@@ -329,6 +336,20 @@ class PaydunyaWebhookView(APIView):
         except (PaiementAbonnement.DoesNotExist, ValueError):
             logger.error("Webhook PayDunya : paiement introuvable pour id=%s token=%s", paiement_id, token)
             return Response(status=status.HTTP_404_NOT_FOUND)
+
+        # Le statut 'completed' seul ne suffit pas : sans cette comparaison,
+        # un montant réellement encaissé inférieur au prix de la formule
+        # (frais déduits, bug d'intégration, mode de paiement contournant le
+        # montant fixé à la création de la facture...) créditerait quand
+        # même l'abonnement complet (audit point 7).
+        montant_confirme = resultat['montant_confirme']
+        if montant_confirme is None or Decimal(str(montant_confirme)) != paiement.montant_attendu:
+            logger.error(
+                "Webhook PayDunya : montant confirmé (%s) différent du montant attendu (%s) "
+                "pour le paiement #%s (token %s).",
+                montant_confirme, paiement.montant_attendu, paiement.id, token,
+            )
+            return Response(status=status.HTTP_400_BAD_REQUEST)
 
         confirmer_paiement(paiement.id)
 

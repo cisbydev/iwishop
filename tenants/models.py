@@ -116,6 +116,11 @@ class PaiementAbonnement(models.Model):
     )
     boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name='paiements_abonnement')
     formule = models.ForeignKey(FormuleAbonnement, on_delete=models.PROTECT)
+    # Figé au prix de la formule au moment de la création de la facture
+    # (pas relu depuis `formule.prix` à la confirmation, qui pourrait avoir
+    # changé entre-temps) - comparé strictement au montant confirmé par
+    # PayDunya avant de créditer l'abonnement (audit point 7).
+    montant_attendu = models.DecimalField(max_digits=10, decimal_places=2)
     invoice_token = models.CharField(max_length=100, blank=True, default='')
     url_paiement = models.CharField(max_length=500, blank=True, default='')
     statut = models.CharField(max_length=20, choices=STATUTS, default='EN_ATTENTE')
