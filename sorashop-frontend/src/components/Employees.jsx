@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
-import { Plus, UserCircle, UserX, ShieldCheck, ShieldOff } from 'lucide-react';
+import { Plus, UserCircle, UserX, UserCheck, ShieldCheck, ShieldOff } from 'lucide-react';
 
 const FORM_VIDE = { username: '', first_name: '', last_name: '', password: '' };
 
@@ -49,6 +49,15 @@ export default function Employees() {
       fetchEmployes();
     } catch (err) {
       alert(getErrorMessage(err, "Erreur lors de la désactivation du compte."));
+    }
+  };
+
+  const handleReactiver = async (employe) => {
+    try {
+      await api.post(`accounts/employes/${employe.id}/reactiver/`);
+      fetchEmployes();
+    } catch (err) {
+      alert(getErrorMessage(err, "Erreur lors de la réactivation du compte."));
     }
   };
 
@@ -110,7 +119,13 @@ export default function Employees() {
                         <UserX className="w-4 h-4" />
                       </button>
                     ) : (
-                      <span className="text-xs font-medium text-gray-400 italic">Désactivé</span>
+                      <button
+                        onClick={() => handleReactiver(emp)}
+                        className="text-green-600 hover:text-green-800"
+                        title="Réactiver"
+                      >
+                        <UserCheck className="w-4 h-4" />
+                      </button>
                     )}
                   </td>
                 </tr>

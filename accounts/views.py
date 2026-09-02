@@ -1,5 +1,6 @@
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
@@ -100,6 +101,22 @@ class EmployeViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         instance.is_active = False
+        instance.save(update_fields=['is_active'])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def reactiver(self, request, pk=None):
+        # get_object() applique déjà le scoping boutique + est_proprietaire=False
+        # (get_queryset() ci-dessus) : impossible de réactiver l'employé
+        # d'une autre boutique (404) ou un compte propriétaire.
+        instance = self.get_object()
+        if instance.is_active:
+            return Response(
+                {"detail": "Ce compte est déjà actif."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        instance.is_active = True
         instance.save(update_fields=['is_active'])
         serializer = self.get_serializer(instance)
         return Response(serializer.data)

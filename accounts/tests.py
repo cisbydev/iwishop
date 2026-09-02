@@ -163,6 +163,75 @@ class EmployeDesactivationTests(APITestCase):
         self.assertEqual(vente.utilisateur.username, 'employe')
 
 
+class EmployeReactivationTests(APITestCase):
+    """Trouvaille complémentaire au P2 point 16 : la désactivation d'un
+    employé (is_active=False) n'avait aucun moyen d'être annulée - ni
+    action dédiée sur EmployeViewSet, ni bouton côté frontend."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-reactivation")
+
+        self.proprietaire = User.objects.create_user(username="proprio_react", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+
+        self.employe = User.objects.create_user(username="employe_react", password="pass1234", is_active=False)
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+
+        self.url_reactiver = reverse('employes-reactiver', args=[self.employe.id])
+
+    def test_proprietaire_peut_reactiver(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.post(self.url_reactiver)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['is_active'])
+        self.employe.refresh_from_db()
+        self.assertTrue(self.employe.is_active)
+
+    def test_compte_reactive_peut_de_nouveau_s_authentifier(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        self.client.post(self.url_reactiver)
+
+        client_employe = APIClient()
+        reponse_login = client_employe.post(
+            '/api/token/', {'username': 'employe_react', 'password': 'pass1234'}
+        )
+        self.assertEqual(reponse_login.status_code, 200)
+
+    def test_double_reactivation_refusee(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        self.client.post(self.url_reactiver)
+
+        response = self.client.post(self.url_reactiver)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_employe_ne_peut_pas_reactiver(self):
+        """Un employé (même actif) n'a pas accès à EmployeViewSet du tout
+        (IsOwner sur l'ensemble du ViewSet)."""
+        autre_employe = User.objects.create_user(username="autre_employe_react", password="pass1234")
+        Profil.objects.create(user=autre_employe, boutique=self.boutique, est_proprietaire=False)
+
+        self.client.force_authenticate(user=autre_employe)
+        response = self.client.post(self.url_reactiver)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.employe.refresh_from_db()
+        self.assertFalse(self.employe.is_active)
+
+    def test_reactivation_par_proprietaire_dune_autre_boutique_refusee(self):
+        autre_boutique = Boutique.objects.create(nom="Autre Boutique", slug="autre-boutique-reactivation")
+        autre_proprietaire = User.objects.create_user(username="autre_proprio_react", password="pass1234")
+        Profil.objects.create(user=autre_proprietaire, boutique=autre_boutique, est_proprietaire=True)
+
+        self.client.force_authenticate(user=autre_proprietaire)
+        response = self.client.post(self.url_reactiver)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.employe.refresh_from_db()
+        self.assertFalse(self.employe.is_active)
+
+
 class EmployeAbonnementExpireTests(APITestCase):
     """Audit complémentaire point 1 : une boutique dont l'abonnement a
     expiré ne doit plus pouvoir créer ou lister ses employés.
