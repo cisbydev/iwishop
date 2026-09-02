@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { useSettings } from '../context/SettingsContext';
 import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
@@ -47,8 +47,8 @@ export default function Expenses() {
   const fetchDepenses = async (categorie = '') => {
     try {
       const params = categorie ? `?categorie=${categorie}` : '';
-      const response = await api.get(`depenses/${params}`);
-      setDepenses(response.data);
+      const depenses = await getAll(`depenses/${params}`);
+      setDepenses(depenses);
       setLoading(false);
     } catch (err) {
       console.error("Erreur chargement dépenses", err);

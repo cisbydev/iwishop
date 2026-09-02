@@ -1,6 +1,8 @@
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -10,7 +12,7 @@ from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from suppliers.models import Fournisseur
 from products.models import Produit, UniteVente
 from inventory.models import MouvementStock
-from .models import Achat
+from .models import Achat, LigneAchat
 
 
 class AchatFournisseurIsolationTests(APITestCase):
@@ -486,3 +488,58 @@ class AchatPrixInvalideTests(APITestCase):
         response = self._tenter_achat("60.00")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class AchatListQueryCountTests(APITestCase):
+    """Audit point 13 : fournisseur_nom/utilisateur_nom, et surtout les
+    lignes imbriquées (produit_nom/unite_nom par ligne), faisaient
+    plusieurs requêtes par achat listé sans select_related/prefetch_related.
+    Le nombre de requêtes doit rester constant, pas proportionnel au
+    nombre d'achats ni de lignes."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-n1-achats")
+        self.user = User.objects.create_user(username="user_n1_achats", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000")
+        )
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('achats-list')
+
+    def _creer_achats(self, n, lignes_par_achat=2):
+        for i in range(n):
+            achat = Achat.objects.create(
+                boutique=self.boutique, fournisseur=self.fournisseur, utilisateur=self.user,
+            )
+            for j in range(lignes_par_achat):
+                produit = Produit.objects.create(
+                    boutique=self.boutique, nom=f"Produit {i}-{j}",
+                    prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+                )
+                LigneAchat.objects.create(
+                    boutique=self.boutique, achat=achat, produit=produit, quantite=1,
+                    unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+                    prix_unitaire_achat=Decimal("50"),
+                )
+
+    def test_nombre_de_requetes_constant_quel_que_soit_le_nombre_dachats(self):
+        # Réauthentifie avec une instance User fraîche avant CHAQUE appel :
+        # self.user (construit dans setUp) a son .profil.boutique mis en
+        # cache gratuitement dès la construction, ce qu'une vraie requête
+        # HTTP n'a jamais - sans ce rafraîchissement systématique, seul le
+        # premier appel refléterait ce coût réel.
+        self._creer_achats(2)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as premier:
+            response_1 = self.client.get(self.url_list)
+
+        self._creer_achats(5)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as second:
+            response_2 = self.client.get(self.url_list)
+
+        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_2.data['results']), 7)
+        self.assertEqual(len(premier.captured_queries), len(second.captured_queries))

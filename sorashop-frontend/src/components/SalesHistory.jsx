@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import { getAll } from '../services/api';
 import { useSettings } from '../context/SettingsContext';
 import { useSupportView } from '../context/SupportViewContext';
 import { History, FileText, Calendar } from 'lucide-react';
@@ -13,8 +13,8 @@ export default function SalesHistory() {
 
   const fetchVentes = async () => {
     try {
-      const response = await api.get('ventes/');
-      setVentes(response.data);
+      const ventes = await getAll('ventes/');
+      setVentes(ventes);
       setLoading(false);
     } catch (err) {
       console.error("Erreur lors du chargement de l'historique des ventes", err);

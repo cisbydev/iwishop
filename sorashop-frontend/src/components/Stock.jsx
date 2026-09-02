@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
 import { PackagePlus, PackageMinus, ClipboardList, History } from 'lucide-react';
@@ -31,10 +31,10 @@ export default function Stock() {
 
   const fetchProduits = async () => {
     try {
-      const response = await api.get('produits/');
-      setProduits(response.data);
-      if (response.data.length > 0) {
-        setSelectedProduit(response.data[0].id);
+      const produits = await getAll('produits/');
+      setProduits(produits);
+      if (produits.length > 0) {
+        setSelectedProduit(produits[0].id);
       }
     } catch (err) {
       console.error("Erreur chargement produits", err);
@@ -44,8 +44,8 @@ export default function Stock() {
   const fetchMouvements = async (type = '') => {
     try {
       const params = type ? `?type_mouvement=${type}` : '';
-      const response = await api.get(`inventory/mouvements/${params}`);
-      setMouvements(response.data);
+      const mouvements = await getAll(`inventory/mouvements/${params}`);
+      setMouvements(mouvements);
       setLoading(false);
     } catch (err) {
       console.error("Erreur chargement mouvements", err);

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/SupportViewContext';
 import { useSettings } from '../context/SettingsContext';
 import { getErrorMessage } from '../services/errorUtils';
@@ -18,8 +18,8 @@ export default function Categories() {
 
   const fetchCategories = async () => {
     try {
-      const response = await api.get('categories/');
-      setCategories(response.data);
+      const categories = await getAll('categories/');
+      setCategories(categories);
       setLoading(false);
     } catch (err) {
       console.error("Erreur chargement catégories", err);

@@ -4,6 +4,8 @@ from io import BytesIO
 from PIL import Image
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -653,3 +655,120 @@ class ProduitPhotoUploadTests(APITestCase):
         response = self.client.post(self.url_list, self._payload(), format='multipart')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class ProduitListQueryCountTests(APITestCase):
+    """Audit point 13 : categorie_nom (ProduitSerializer) faisait une
+    requête par produit listé sans select_related('categorie') - le
+    nombre de requêtes doit rester constant, pas proportionnel au nombre
+    de produits."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-n1-produits")
+        self.user = User.objects.create_user(username="user_n1_produits", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('produit-list')
+
+    def _creer_produits(self, n):
+        for i in range(n):
+            categorie = Categorie.objects.create(boutique=self.boutique, nom=f"Categorie {i}-{n}")
+            Produit.objects.create(
+                boutique=self.boutique, nom=f"Produit {i}-{n}", categorie=categorie,
+                prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            )
+
+    def test_nombre_de_requetes_constant_quel_que_soit_le_nombre_de_produits(self):
+        # Réauthentifie avec une instance User fraîche avant CHAQUE appel :
+        # self.user (construit dans setUp avec l'objet Profil/Boutique déjà
+        # en mémoire) a son .profil.boutique mis en cache gratuitement dès
+        # la construction, ce qu'une vraie requête HTTP n'a jamais - sans ce
+        # rafraîchissement, seul le premier appel refléterait ce coût réel.
+        self._creer_produits(2)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as premier:
+            response_1 = self.client.get(self.url_list)
+
+        self._creer_produits(5)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as second:
+            response_2 = self.client.get(self.url_list)
+
+        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_2.data['results']), 7)
+        self.assertEqual(len(premier.captured_queries), len(second.captured_queries))
+
+
+class ProduitPrixListQueryCountTests(APITestCase):
+    """Audit point 13 : produit_nom/unite_nom (ProduitPrixSerializer)
+    faisaient deux requêtes par ligne listée sans select_related."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-n1-produitprix")
+        self.user = User.objects.create_user(username="user_n1_produitprix", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('produit-prix-list')
+
+    def _creer_prix(self, n):
+        for i in range(n):
+            unite = UniteVente.objects.create(
+                boutique=self.boutique, nom=f"Unite {i}-{n}", facteur_conversion=Decimal("1.000")
+            )
+            produit = Produit.objects.create(
+                boutique=self.boutique, nom=f"Produit {i}-{n}",
+                prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            )
+            ProduitPrix.objects.create(produit=produit, unite=unite, prix=Decimal("100"))
+
+    def test_nombre_de_requetes_constant_quel_que_soit_le_nombre_de_prix(self):
+        # Réauthentifie avec une instance User fraîche avant CHAQUE appel
+        # (voir commentaire équivalent dans ProduitListQueryCountTests).
+        self._creer_prix(2)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as premier:
+            self.client.get(self.url_list)
+
+        self._creer_prix(5)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as second:
+            response_2 = self.client.get(self.url_list)
+
+        self.assertEqual(len(response_2.data['results']), 7)
+        self.assertEqual(len(premier.captured_queries), len(second.captured_queries))
+
+
+class PaginationListeTests(APITestCase):
+    """Audit point 13 (pagination) : les listes ne renvoyaient auparavant
+    aucune pagination - l'historique d'une vraie boutique finirait par
+    produire des réponses de taille non bornée. PageNumberPagination
+    (PAGE_SIZE=50) borne désormais chaque page."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-pagination")
+        self.user = User.objects.create_user(username="user_pagination", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+
+        for i in range(55):
+            Produit.objects.create(
+                boutique=self.boutique, nom=f"Produit {i}",
+                prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            )
+
+    def test_premiere_page_limitee_a_50_avec_count_et_next(self):
+        response = self.client.get(reverse('produit-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 55)
+        self.assertEqual(len(response.data['results']), 50)
+        self.assertIsNotNone(response.data['next'])
+        self.assertIsNone(response.data['previous'])
+
+    def test_deuxieme_page_recupere_le_reste(self):
+        response = self.client.get(reverse('produit-list'), {'page': 2})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 5)
+        self.assertIsNone(response.data['next'])
+        self.assertIsNotNone(response.data['previous'])

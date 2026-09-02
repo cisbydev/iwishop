@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, UserCircle, UserX, ShieldCheck, ShieldOff } from 'lucide-react';
 
@@ -15,8 +15,8 @@ export default function Employees() {
 
   const fetchEmployes = async () => {
     try {
-      const response = await api.get('accounts/employes/');
-      setEmployes(response.data);
+      const employes = await getAll('accounts/employes/');
+      setEmployes(employes);
       setLoading(false);
     } catch (err) {
       console.error("Erreur chargement employés", err);

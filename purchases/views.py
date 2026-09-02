@@ -4,11 +4,12 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
+from django.db.models import Prefetch
 from tenants.mixins import BoutiqueScopedMixin
 from inventory.models import MouvementStock
 from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
-from .models import Achat
+from .models import Achat, LigneAchat
 from .serializers import AchatSerializer
 
 class AchatViewSet(
@@ -24,7 +25,13 @@ class AchatViewSet(
     # même principe que Vente/MouvementStock). Pour corriger une erreur, on
     # l'annule via l'action `annuler`, qui retire le stock ajouté par une
     # écriture inverse plutôt que de réécrire ou effacer l'historique.
-    queryset = Achat.objects.all()
+    # select_related : fournisseur_nom/utilisateur_nom (serializer).
+    # prefetch_related : la sérialisation imbriquée des lignes (LigneAchatSerializer,
+    # produit_nom/unite_nom) ferait sinon 1 requête par achat pour ses lignes,
+    # + 2 requêtes par ligne (N+1, audit point 13).
+    queryset = Achat.objects.select_related('fournisseur', 'utilisateur').prefetch_related(
+        Prefetch('lignes', queryset=LigneAchat.objects.select_related('produit', 'unite'))
+    )
     serializer_class = AchatSerializer
     permission_classes = [IsAuthenticated]
     # Annuler reverse une écriture comptable déjà entrée (stock + rapports) :

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
 import { useSupportView } from '../context/SupportViewContext';
 import { ShieldCheck, CheckCircle, XCircle, Loader2, Copy, Store, Power, Search } from 'lucide-react';
@@ -104,8 +104,8 @@ function BoutiquesPanel() {
     setLoading(true);
     setError('');
     try {
-      const response = await api.get('tenants/boutiques/');
-      setBoutiques(response.data);
+      const boutiques = await getAll('tenants/boutiques/');
+      setBoutiques(boutiques);
     } catch (err) {
       setError(getErrorMessage(err, "Erreur lors du chargement des boutiques."));
     } finally {
@@ -242,8 +242,8 @@ function DemandesPanel() {
     setLoading(true);
     setError('');
     try {
-      const response = await api.get('tenants/demandes/');
-      setDemandes(response.data);
+      const demandes = await getAll('tenants/demandes/');
+      setDemandes(demandes);
     } catch (err) {
       if (err?.response?.status === 403) {
         setAccesRefuse(true);

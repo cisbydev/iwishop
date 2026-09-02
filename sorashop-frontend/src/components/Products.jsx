@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { useSettings } from '../context/SettingsContext';
 import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
@@ -47,8 +47,8 @@ export default function Products() {
 
   const fetchProduits = async () => {
     try {
-      const response = await api.get('produits/');
-      setProduits(response.data);
+      const produits = await getAll('produits/');
+      setProduits(produits);
       setLoading(false);
     } catch (err) {
       console.error("Erreur chargement produits", err);
@@ -58,8 +58,8 @@ export default function Products() {
 
   const fetchCategories = async () => {
     try {
-      const response = await api.get('categories/');
-      setCategories(response.data);
+      const categories = await getAll('categories/');
+      setCategories(categories);
     } catch (err) {
       console.error("Erreur chargement catégories", err);
     }
@@ -67,8 +67,8 @@ export default function Products() {
 
   const fetchUnitesVente = async () => {
     try {
-      const response = await api.get('produits/unites-vente/');
-      setUnitesPersonnalisees(response.data.filter((u) => !u.est_systeme));
+      const unites = await getAll('produits/unites-vente/');
+      setUnitesPersonnalisees(unites.filter((u) => !u.est_systeme));
     } catch (err) {
       console.error("Erreur chargement unités de vente", err);
     }
@@ -76,8 +76,8 @@ export default function Products() {
 
   const fetchPrix = async () => {
     try {
-      const response = await api.get('produits/prix/');
-      setPrixExistants(response.data);
+      const prix = await getAll('produits/prix/');
+      setPrixExistants(prix);
     } catch (err) {
       console.error("Erreur chargement prix par unité", err);
     }

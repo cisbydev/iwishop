@@ -4,12 +4,13 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
+from django.db.models import Prefetch
 from django_filters.rest_framework import DjangoFilterBackend
 from tenants.mixins import BoutiqueScopedMixin
 from inventory.models import MouvementStock
 from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
-from .models import Vente
+from .models import Vente, LigneVente
 from .serializers import VenteSerializer
 
 class VenteViewSet(
@@ -25,7 +26,13 @@ class VenteViewSet(
     # désactivés, même principe que MouvementStock). Pour corriger une
     # erreur, on l'annule via l'action `annuler`, qui restaure le stock par
     # une écriture inverse plutôt que de réécrire ou effacer l'historique.
-    queryset = Vente.objects.all()
+    # select_related : utilisateur_nom (serializer).
+    # prefetch_related : la sérialisation imbriquée des lignes (LigneVenteSerializer,
+    # produit_nom/unite_nom) ferait sinon 1 requête par vente pour ses lignes,
+    # + 2 requêtes par ligne (N+1, audit point 13).
+    queryset = Vente.objects.select_related('utilisateur').prefetch_related(
+        Prefetch('lignes', queryset=LigneVente.objects.select_related('produit', 'unite'))
+    )
     serializer_class = VenteSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]

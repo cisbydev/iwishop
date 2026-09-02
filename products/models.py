@@ -102,6 +102,11 @@ class ProduitPrix(models.Model):
 
     class Meta:
         unique_together = ['produit', 'unite']
+        # Sans ordre par défaut, la pagination (audit point 13) donnait un
+        # UnorderedObjectListWarning - l'ordre des lignes entre deux pages
+        # n'étant pas garanti, une même ligne pouvait apparaître deux fois
+        # ou disparaître selon les pages.
+        ordering = ['id']
 
     def __str__(self):
         return f"{self.produit.nom} - {self.unite.nom} : {self.prix}"

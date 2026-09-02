@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import { getAll } from '../services/api';
 import { ShieldCheck, Clock } from 'lucide-react';
 
 export default function AccesSupportHistorique() {
@@ -9,8 +9,8 @@ export default function AccesSupportHistorique() {
   useEffect(() => {
     const fetchAcces = async () => {
       try {
-        const response = await api.get('tenants/mes-acces-support/');
-        setAcces(response.data);
+        const acces = await getAll('tenants/mes-acces-support/');
+        setAcces(acces);
       } catch (err) {
         console.error("Erreur chargement historique des accès support", err);
       } finally {

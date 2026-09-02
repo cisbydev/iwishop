@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { CreditCard, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 
 function StatutAbonnement({ info }) {
   if (!info) return null;
@@ -42,11 +42,11 @@ export default function MonAbonnement() {
   useEffect(() => {
     Promise.all([
       api.get('tenants/mon-abonnement/'),
-      api.get('tenants/formules-abonnement/'),
+      getAll('tenants/formules-abonnement/'),
     ])
-      .then(([infoRes, formulesRes]) => {
+      .then(([infoRes, formules]) => {
         setInfo(infoRes.data);
-        setFormules(formulesRes.data);
+        setFormules(formules);
       })
       .catch(() => {})
       .finally(() => setLoading(false));

@@ -110,4 +110,25 @@ api.interceptors.response.use(
   }
 );
 
+// Le backend pagine désormais toutes les listes (PageNumberPagination,
+// 50 par page - audit point 13, pour ne pas renvoyer un historique entier
+// en une seule réponse). Ce helper récupère toutes les pages d'une liste
+// et les concatène, pour que les composants existants (qui affichent tout
+// d'un coup, sans contrôles "page suivante") continuent de voir la liste
+// complète sans changement de comportement perçu.
+export async function getAll(url, config) {
+  let resultats = [];
+  let suivant = url;
+  let premierAppel = true;
+
+  while (suivant) {
+    const response = await api.get(suivant, premierAppel ? config : undefined);
+    resultats = resultats.concat(response.data.results);
+    suivant = response.data.next;
+    premierAppel = false;
+  }
+
+  return resultats;
+}
+
 export default api;

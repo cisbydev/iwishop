@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { useSettings } from '../context/SettingsContext';
 import { useSupportView } from '../context/SupportViewContext';
 import { getErrorMessage } from '../services/errorUtils';
@@ -30,9 +30,9 @@ export default function Purchases() {
   // retoucher aux unités, qui ne changent pas en cours de session.
   const fetchProduits = async () => {
     try {
-      const response = await api.get('produits/');
-      setProduits(response.data);
-      if (response.data.length > 0) setSelectedProduit(response.data[0].id);
+      const produits = await getAll('produits/');
+      setProduits(produits);
+      if (produits.length > 0) setSelectedProduit(produits[0].id);
     } catch (err) {
       console.error("Erreur chargement produits", err);
     }
@@ -40,14 +40,14 @@ export default function Purchases() {
 
   const fetchCatalogue = async () => {
     try {
-      const [produitsRes, prixRes, unitesRes] = await Promise.all([
-        api.get('produits/'),
-        api.get('produits/prix/'),
-        api.get('produits/unites-vente/'),
+      const [produits, prix, unites] = await Promise.all([
+        getAll('produits/'),
+        getAll('produits/prix/'),
+        getAll('produits/unites-vente/'),
       ]);
 
       const facteurParUnite = {};
-      unitesRes.data.forEach((u) => {
+      unites.forEach((u) => {
         facteurParUnite[u.id] = parseFloat(u.facteur_conversion);
       });
 
@@ -58,7 +58,7 @@ export default function Purchases() {
       // propre prix négocié).
       const rangUnite = (nom) => (nom === 'Unité' ? 0 : nom === 'Douzaine' ? 1 : 2);
       const map = {};
-      prixRes.data.forEach((p) => {
+      prix.forEach((p) => {
         const facteur = facteurParUnite[p.unite];
         if (facteur === undefined) return; // unité inconnue : on ignore par sécurité
         if (!map[p.produit]) map[p.produit] = [];
@@ -72,9 +72,9 @@ export default function Purchases() {
         options.sort((a, b) => rangUnite(a.unite_nom) - rangUnite(b.unite_nom) || a.unite_nom.localeCompare(b.unite_nom));
       });
 
-      setProduits(produitsRes.data);
+      setProduits(produits);
       setUnitesParProduit(map);
-      if (produitsRes.data.length > 0) setSelectedProduit(produitsRes.data[0].id);
+      if (produits.length > 0) setSelectedProduit(produits[0].id);
     } catch (err) {
       console.error("Erreur chargement catalogue", err);
     } finally {
@@ -84,9 +84,9 @@ export default function Purchases() {
 
   const fetchFournisseurs = async () => {
     try {
-      const response = await api.get('fournisseurs/');
-      setFournisseurs(response.data);
-      if (response.data.length > 0) setSelectedFournisseur(response.data[0].id);
+      const fournisseurs = await getAll('fournisseurs/');
+      setFournisseurs(fournisseurs);
+      if (fournisseurs.length > 0) setSelectedFournisseur(fournisseurs[0].id);
     } catch (err) {
       console.error("Erreur chargement fournisseurs", err);
     }
@@ -94,8 +94,8 @@ export default function Purchases() {
 
   const fetchAchats = async () => {
     try {
-      const response = await api.get('achats/');
-      setAchats(response.data);
+      const achats = await getAll('achats/');
+      setAchats(achats);
     } catch (err) {
       console.error("Erreur chargement achats", err);
     }

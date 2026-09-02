@@ -11,7 +11,9 @@ from .models import Produit, UniteVente, ProduitPrix
 from .serializers import ProduitSerializer, UniteVenteSerializer, ProduitPrixSerializer
 
 class ProduitViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewsets.ModelViewSet):
-    queryset = Produit.objects.all()
+    # select_related('categorie') : categorie_nom (serializer) ferait sinon
+    # une requête par produit listé (N+1, audit point 13).
+    queryset = Produit.objects.select_related('categorie')
     serializer_class = ProduitSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -87,7 +89,9 @@ class UniteVenteViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, vie
 
 
 class ProduitPrixViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewsets.ModelViewSet):
-    queryset = ProduitPrix.objects.all()
+    # select_related : produit_nom/unite_nom (serializer) feraient sinon deux
+    # requêtes par ligne listée (N+1, audit point 13).
+    queryset = ProduitPrix.objects.select_related('produit', 'unite')
     serializer_class = ProduitPrixSerializer
     permission_classes = [IsAuthenticated]
     boutique_lookup = 'produit__boutique'

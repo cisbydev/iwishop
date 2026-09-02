@@ -25,7 +25,9 @@ class DepenseViewSet(
     # statut sans jamais effacer l'historique (P2 point 15 : avant cette
     # correction, une dépense pouvait être réécrite ou effacée en dur, même
     # restreinte au propriétaire).
-    queryset = Depense.objects.all()
+    # select_related('utilisateur') : utilisateur_nom (serializer) ferait
+    # sinon une requête par dépense listée (N+1, audit point 13).
+    queryset = Depense.objects.select_related('utilisateur')
     serializer_class = DepenseSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]

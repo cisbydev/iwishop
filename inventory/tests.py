@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -391,3 +392,47 @@ class MouvementStockQuantiteInvalideTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 10)
+
+
+class MouvementStockListQueryCountTests(APITestCase):
+    """Audit point 13 : utilisateur_nom (MouvementStockSerializer) faisait
+    encore une requête par mouvement listé malgré le select_related('produit')
+    déjà en place."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-n1-mouvements")
+        self.user = User.objects.create_user(username="user_n1_mouvements", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('mouvements-stock-list')
+
+    def _creer_mouvements(self, n):
+        for i in range(n):
+            produit = Produit.objects.create(
+                boutique=self.boutique, nom=f"Produit {i}",
+                prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            )
+            MouvementStock.objects.create(
+                boutique=self.boutique, produit=produit, type_mouvement='ENTREE',
+                quantite=5, utilisateur=self.user,
+            )
+
+    def test_nombre_de_requetes_constant_quel_que_soit_le_nombre_de_mouvements(self):
+        # Réauthentifie avec une instance User fraîche avant CHAQUE appel :
+        # self.user (construit dans setUp) a son .profil.boutique mis en
+        # cache gratuitement dès la construction, ce qu'une vraie requête
+        # HTTP n'a jamais - sans ce rafraîchissement systématique, seul le
+        # premier appel refléterait ce coût réel.
+        self._creer_mouvements(2)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as premier:
+            response_1 = self.client.get(self.url_list)
+
+        self._creer_mouvements(5)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as second:
+            response_2 = self.client.get(self.url_list)
+
+        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_2.data['results']), 7)
+        self.assertEqual(len(premier.captured_queries), len(second.captured_queries))

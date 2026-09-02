@@ -2,6 +2,8 @@ from decimal import Decimal
 from datetime import date
 
 from django.contrib.auth.models import User
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
@@ -219,3 +221,42 @@ class DepenseMontantInvalideTests(APITestCase):
         response = self._tenter_depense("2000.00")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class DepenseListQueryCountTests(APITestCase):
+    """Audit point 13 : utilisateur_nom (DepenseSerializer) faisait une
+    requête par dépense listée sans select_related('utilisateur')."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-n1-depenses")
+        self.user = User.objects.create_user(username="user_n1_depenses", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('depenses-list')
+
+    def _creer_depenses(self, n):
+        for i in range(n):
+            Depense.objects.create(
+                boutique=self.boutique, titre=f"Dépense {i}", categorie="AUTRE",
+                montant=Decimal("1000"), date_depense=date(2026, 8, 1), utilisateur=self.user,
+            )
+
+    def test_nombre_de_requetes_constant_quel_que_soit_le_nombre_de_depenses(self):
+        # Réauthentifie avec une instance User fraîche avant CHAQUE appel :
+        # self.user (construit dans setUp) a son .profil.boutique mis en
+        # cache gratuitement dès la construction, ce qu'une vraie requête
+        # HTTP n'a jamais - sans ce rafraîchissement systématique, seul le
+        # premier appel refléterait ce coût réel.
+        self._creer_depenses(2)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as premier:
+            response_1 = self.client.get(self.url_list)
+
+        self._creer_depenses(5)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as second:
+            response_2 = self.client.get(self.url_list)
+
+        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_2.data['results']), 7)
+        self.assertEqual(len(premier.captured_queries), len(second.captured_queries))

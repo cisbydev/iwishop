@@ -23,7 +23,10 @@ class MouvementStockViewSet(
     # valeur absolue sans jamais garder l'état précédent). Pour corriger une
     # erreur, on crée un nouveau mouvement inverse plutôt que d'éditer
     # l'historique. Le frontend n'a jamais utilisé PUT/PATCH/DELETE ici.
-    queryset = MouvementStock.objects.select_related('produit').all()
+    # utilisateur ajouté : utilisateur_nom (serializer) faisait encore une
+    # requête par mouvement listé malgré le select_related('produit')
+    # existant (N+1, audit point 13).
+    queryset = MouvementStock.objects.select_related('produit', 'utilisateur')
     serializer_class = MouvementStockSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]

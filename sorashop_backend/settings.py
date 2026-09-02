@@ -103,6 +103,11 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    # Sans ça, chaque liste (produits, ventes, achats...) renvoyait TOUTES
+    # les lignes en une fois - l'historique d'une vraie boutique finirait
+    # par produire des réponses énormes (audit point 13).
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 50,
 }
 
 from datetime import timedelta

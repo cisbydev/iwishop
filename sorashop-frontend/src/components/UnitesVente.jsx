@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/SupportViewContext';
 import { useSettings } from '../context/SettingsContext';
 import { getErrorMessage } from '../services/errorUtils';
@@ -23,8 +23,8 @@ export default function UnitesVente() {
 
   const fetchUnites = async () => {
     try {
-      const response = await api.get('produits/unites-vente/');
-      setUnites(response.data);
+      const unites = await getAll('produits/unites-vente/');
+      setUnites(unites);
       setLoading(false);
     } catch (err) {
       console.error("Erreur chargement unités de vente", err);

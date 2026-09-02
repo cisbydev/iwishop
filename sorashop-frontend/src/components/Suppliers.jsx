@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../services/api';
+import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/SupportViewContext';
 import { useSettings } from '../context/SettingsContext';
 import { getErrorMessage } from '../services/errorUtils';
@@ -21,8 +21,8 @@ export default function Suppliers() {
 
   const fetchFournisseurs = async () => {
     try {
-      const response = await api.get('fournisseurs/');
-      setFournisseurs(response.data);
+      const fournisseurs = await getAll('fournisseurs/');
+      setFournisseurs(fournisseurs);
       setLoading(false);
     } catch (err) {
       console.error("Erreur chargement fournisseurs", err);
