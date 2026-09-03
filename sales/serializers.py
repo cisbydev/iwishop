@@ -18,8 +18,8 @@ class LigneVenteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LigneVente
-        fields = ['id', 'produit', 'produit_nom', 'quantite', 'type_vente', 'unite', 'unite_nom', 'prix_applique', 'sous_total']
-        read_only_fields = ['sous_total']
+        fields = ['id', 'produit', 'produit_nom', 'quantite', 'type_vente', 'unite', 'unite_nom', 'prix_applique', 'prix_achat_unitaire', 'sous_total']
+        read_only_fields = ['prix_achat_unitaire', 'sous_total']
 
     def validate_quantite(self, value):
         # Une quantité négative inverserait le sens de l'opération : au
@@ -146,6 +146,11 @@ class VenteSerializer(serializers.ModelSerializer):
             ligne_data['unite'] = unite
             ligne_data['facteur_conversion_applique'] = unite.facteur_conversion
             ligne_data['prix_applique'] = produit_prix.prix
+            # Coût de revient figé au moment de la vente (bug P1 corrigé) :
+            # Produit.prix_achat est relu ici, sous le verrou select_for_update
+            # posé plus haut, et gravé sur la ligne pour ne plus jamais
+            # dépendre de sa valeur courante lors des calculs de bénéfice.
+            ligne_data['prix_achat_unitaire'] = produit.prix_achat
 
             # Créer la ligne de vente
             ligne = LigneVente.objects.create(vente=vente, boutique=boutique, **ligne_data)

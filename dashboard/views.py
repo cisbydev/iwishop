@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField
+from django.db.models.functions import Coalesce
 from tenants.mixins import BoutiqueScopedMixin
 from sales.models import Vente, LigneVente
 from sales.utils import unites_reelles_expr
@@ -50,9 +51,17 @@ class TableauDeBordView(BoutiqueScopedMixin, APIView):
         # facteur de conversion centralisé sur son unité de vente.
         unites_reelles = unites_reelles_expr()
 
-        # Bénéfice d'une ligne = montant vendu (sous_total) - coût d'achat (prix_achat x unités réelles)
+        # Bénéfice d'une ligne = montant vendu (sous_total) - coût d'achat
+        # HISTORIQUE (prix_achat_unitaire x unités réelles), figé au moment
+        # de la vente - jamais Produit.prix_achat courant, qui change à
+        # chaque nouvel achat et déformerait rétroactivement le bénéfice
+        # d'une vente déjà réalisée (bug P1 corrigé). Le repli sur
+        # Produit.prix_achat via Coalesce ne s'applique qu'aux lignes créées
+        # avant ce correctif (prix_achat_unitaire NULL, aucun coût
+        # historique connu) - limite assumée et documentée, voir
+        # sales.models.LigneVente.prix_achat_unitaire.
         benefice_ligne_expr = ExpressionWrapper(
-            F('sous_total') - F('produit__prix_achat') * unites_reelles,
+            F('sous_total') - Coalesce(F('prix_achat_unitaire'), F('produit__prix_achat')) * unites_reelles,
             output_field=DecimalField(max_digits=14, decimal_places=2)
         )
 

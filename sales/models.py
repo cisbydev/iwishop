@@ -80,6 +80,26 @@ class LigneVente(models.Model):
     unite = models.ForeignKey('products.UniteVente', on_delete=models.PROTECT, related_name='lignes_vente')
     facteur_conversion_applique = models.DecimalField(max_digits=10, decimal_places=3)
     prix_applique = models.DecimalField(max_digits=12, decimal_places=2)
+    # Coût de revient unitaire figé au moment de la vente (Produit.prix_achat
+    # au moment de la création de la ligne), même principe que prix_applique
+    # et facteur_conversion_applique ci-dessus : Produit.prix_achat change à
+    # chaque nouvel achat (dernier prix payé au fournisseur - voir
+    # purchases.serializers.AchatSerializer.create()) et ne doit jamais être
+    # relu pour recalculer le bénéfice d'une vente déjà réalisée (bug P1
+    # corrigé - bénéfice historique qui se déformait rétroactivement).
+    #
+    # Nullable en base : les lignes créées avant ce correctif n'ont pas de
+    # coût historique connu et NE SONT PAS backfillées avec la valeur
+    # actuelle de Produit.prix_achat - ce serait recréer exactement le bug
+    # qu'on corrige (une donnée reconstituée n'est pas une donnée
+    # historique). Ces lignes restent NULL indéfiniment ; les calculs de
+    # bénéfice (dashboard/reports) retombent explicitement sur
+    # Produit.prix_achat pour elles uniquement, comme avant ce correctif -
+    # limite assumée et documentée pour les ventes antérieures à la migration.
+    prix_achat_unitaire = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal('0'))],
+    )
     sous_total = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
 
     def save(self, *args, **kwargs):

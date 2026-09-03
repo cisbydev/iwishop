@@ -574,3 +574,104 @@ class VenteListQueryCountTests(APITestCase):
         self.assertEqual(response_1.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response_2.data['results']), 7)
         self.assertEqual(len(premier.captured_queries), len(second.captured_queries))
+
+
+class LigneVenteCoutHistoriqueTests(APITestCase):
+    """BUG P1 : LigneVente.prix_achat_unitaire doit figer le coût de revient
+    au moment de la vente (Produit.prix_achat au moment de la création),
+    jamais recalculé depuis la valeur courante du produit. Voir aussi
+    reports.tests.CoutHistoriqueBeneficeTests pour l'impact sur le bénéfice
+    calculé (TESTs 1/2/3 du chantier)."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique A", slug="boutique-a-cout")
+        self.boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-b-cout")
+
+        self.user_a = User.objects.create_user(username="user_a_cout", password="pass1234")
+        Profil.objects.create(user=self.user_a, boutique=self.boutique_a, est_proprietaire=True)
+
+        self.unite_a = UniteVente.objects.create(
+            boutique=self.boutique_a, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit_a = Produit.objects.create(
+            boutique=self.boutique_a, nom="Produit A",
+            prix_achat=Decimal("500.00"), prix_unitaire=Decimal("800.00"), prix_douzaine=Decimal("9600.00"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=self.produit_a, unite=self.unite_a, prix=Decimal("800.00"))
+
+        self.client.force_authenticate(user=self.user_a)
+        self.url_list = reverse('ventes-list')
+
+    def test_prix_achat_unitaire_fige_au_prix_achat_courant_du_produit(self):
+        """TEST 1 (partie création) : le coût gravé sur la ligne est celui
+        du produit au moment de la vente."""
+        response = self.client.post(self.url_list, {
+            "montant_paye": "8000.00",
+            "lignes": [{"produit": self.produit_a.id, "quantite": 10, "type_vente": "UNITE", "prix_applique": "800.00"}],
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        ligne = LigneVente.objects.get(vente_id=response.data['id'])
+        self.assertEqual(ligne.prix_achat_unitaire, Decimal("500.00"))
+
+        # Le produit change de coût APRÈS la vente : la ligne déjà créée ne
+        # doit plus jamais refléter cette nouvelle valeur.
+        self.produit_a.prix_achat = Decimal("700.00")
+        self.produit_a.save()
+        ligne.refresh_from_db()
+        self.assertEqual(ligne.prix_achat_unitaire, Decimal("500.00"))
+
+    def test_4_isolation_multi_tenant_du_cout_historique(self):
+        """TEST 4 : le coût figé sur une ligne de vente ne peut provenir que
+        du produit de la MÊME boutique - jamais du produit d'une autre
+        boutique, même avec un nom/une référence identiques."""
+        produit_b = Produit.objects.create(
+            boutique=self.boutique_b, nom="Produit A",  # même nom, boutique différente
+            prix_achat=Decimal("999.00"), prix_unitaire=Decimal("800.00"), prix_douzaine=Decimal("9600.00"),
+            quantite_en_stock=10,
+        )
+
+        response = self.client.post(self.url_list, {
+            "montant_paye": "8000.00",
+            "lignes": [{"produit": self.produit_a.id, "quantite": 10, "type_vente": "UNITE", "prix_applique": "800.00"}],
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        ligne = LigneVente.objects.get(vente_id=response.data['id'])
+        self.assertEqual(ligne.prix_achat_unitaire, Decimal("500.00"))
+        self.assertNotEqual(ligne.prix_achat_unitaire, produit_b.prix_achat)
+
+        # Un utilisateur de la boutique A ne peut de toute façon pas vendre
+        # le produit d'une autre boutique (contrôle déjà en place) : ce
+        # chemin ne peut donc jamais faire fuiter le coût de la boutique B.
+        response_croise = self.client.post(self.url_list, {
+            "montant_paye": "8000.00",
+            "lignes": [{"produit": produit_b.id, "quantite": 1, "type_vente": "UNITE", "prix_applique": "800.00"}],
+        }, format='json')
+        self.assertEqual(response_croise.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_5_atomicite_creation_vente_et_cout_historique(self):
+        """TEST 5 : si une ligne de la vente échoue (ex: stock insuffisant),
+        aucune LigneVente ni Vente ne doit être créée - l'écriture du coût
+        historique fait partie de la même transaction que le reste."""
+        produit_stock_faible = Produit.objects.create(
+            boutique=self.boutique_a, nom="Produit stock faible",
+            prix_achat=Decimal("100.00"), prix_unitaire=Decimal("150.00"), prix_douzaine=Decimal("1500.00"),
+            quantite_en_stock=1,
+        )
+        ProduitPrix.objects.create(produit=produit_stock_faible, unite=self.unite_a, prix=Decimal("150.00"))
+
+        response = self.client.post(self.url_list, {
+            "montant_paye": "8150.00",
+            "lignes": [
+                {"produit": self.produit_a.id, "quantite": 10, "type_vente": "UNITE", "prix_applique": "800.00"},
+                # Stock insuffisant (1 disponible) : doit faire échouer toute la vente.
+                {"produit": produit_stock_faible.id, "quantite": 5, "type_vente": "UNITE", "prix_applique": "150.00"},
+            ],
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+        self.assertEqual(LigneVente.objects.count(), 0)
+        self.produit_a.refresh_from_db()
+        self.assertEqual(self.produit_a.quantite_en_stock, 10)  # inchangé

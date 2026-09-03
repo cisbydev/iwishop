@@ -143,8 +143,13 @@ class AchatSerializer(serializers.ModelSerializer):
 
             # Le prix d'achat du produit reflète désormais le dernier prix
             # réellement payé au fournisseur, ramené à l'unité de stock
-            # (ex: 20000 FCFA le Sac 25kg -> 800 FCFA/unité de stock), pour
-            # que le calcul du bénéfice (Tableau de bord) reste juste.
+            # (ex: 20000 FCFA le Sac 25kg -> 800 FCFA/unité de stock). Ce
+            # champ représente le COÛT ACTUEL du produit, utilisé pour les
+            # prochaines ventes (sales.serializers.VenteSerializer.create()
+            # le fige alors sur LigneVente.prix_achat_unitaire) - il n'est
+            # plus jamais relu pour recalculer le bénéfice d'une vente déjà
+            # réalisée (bug P1 corrigé, coût historique désormais porté par
+            # la ligne de vente elle-même, pas par le produit).
             produit.prix_achat = (prix / unite.facteur_conversion).quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
