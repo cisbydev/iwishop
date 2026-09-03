@@ -10,6 +10,17 @@ DEBUG = config('DEBUG', default=False, cast=bool)           # <-- remplace l'anc
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost', cast=lambda v: [s.strip() for s in v.split(',')])
 
+# Stockage des médias (Produit.photo, ParametresBoutique.logo) : bascule sur
+# Cloudflare R2 (compatible S3) uniquement si configuré
+# (CLOUDFLARE_R2_BUCKET_NAME renseigné), sinon FileSystemStorage local par
+# défaut - un dev n'a pas besoin d'un compte R2 pour lancer le projet. Le
+# disque local d'un service web Render est éphémère (pas de disque
+# persistant attaché) : les fichiers uploadés en production n'y survivent
+# pas à un redémarrage du conteneur (bug constaté - logo qui redevient
+# l'ancien après un redéploiement/une remise en veille). Cloudinary a été
+# écarté : service bloqué depuis le Mali ("not available in your country").
+CLOUDFLARE_R2_BUCKET_NAME = config('CLOUDFLARE_R2_BUCKET_NAME', default='')
+
 # Render termine le HTTPS à son edge et transmet en HTTP interne à l'app -
 # sans ça, request.is_secure() renverrait toujours False. Sûr uniquement
 # parce que l'app n'est jamais exposée directement, seulement via ce proxy.
@@ -46,12 +57,16 @@ INSTALLED_APPS = [
     'expenses',
     'reports',
     'dashboard',
+]
 
+INSTALLED_APPS += [
     # Placé après nos apps : accounts définit une commande `runserver` personnalisée
     # (port par défaut fixé à 8001) qui doit avoir priorité sur celle de staticfiles.
     'django.contrib.staticfiles',
-
 ]
+
+if CLOUDFLARE_R2_BUCKET_NAME:
+    INSTALLED_APPS += ['storages']
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -170,9 +185,30 @@ MEDIA_ROOT = BASE_DIR / 'media'
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+if CLOUDFLARE_R2_BUCKET_NAME:
+    AWS_ACCESS_KEY_ID = config('CLOUDFLARE_R2_ACCESS_KEY', default='')
+    AWS_SECRET_ACCESS_KEY = config('CLOUDFLARE_R2_SECRET_KEY', default='')
+    AWS_STORAGE_BUCKET_NAME = CLOUDFLARE_R2_BUCKET_NAME
+    AWS_S3_ENDPOINT_URL = config('CLOUDFLARE_R2_ENDPOINT_URL', default='')
+    AWS_S3_REGION_NAME = 'auto'
+    # R2 exige la signature s3v4 (pas la valeur par défaut de boto3 pour un
+    # endpoint non-AWS) - sans ça, erreurs "SignatureDoesNotMatch".
+    AWS_S3_SIGNATURE_VERSION = 's3v4'
+    # R2 rejette les ACL façon S3 ("AccessControlListNotSupported") - ne
+    # jamais envoyer d'en-tête ACL sur les objets.
+    AWS_DEFAULT_ACL = None
+    # Parité avec FileSystemStorage (qui ne remplace jamais un fichier
+    # existant silencieusement, cf. get_available_name) : sans ça,
+    # django-storages écraserait un objet existant du même nom.
+    AWS_S3_FILE_OVERWRITE = False
+
 STORAGES = {
     "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "BACKEND": (
+            "storages.backends.s3boto3.S3Boto3Storage"
+            if CLOUDFLARE_R2_BUCKET_NAME else
+            "django.core.files.storage.FileSystemStorage"
+        ),
     },
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
