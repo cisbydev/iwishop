@@ -1,3 +1,4 @@
+import traceback
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import IsOwner
@@ -33,3 +34,18 @@ class ParametresBoutiqueView(BoutiqueScopedMixin, generics.RetrieveUpdateAPIView
             self._verifier_acces(boutique)
         obj, created = ParametresBoutique.objects.get_or_create(boutique=boutique)
         return obj
+
+    # [DEBUG-R2] Temporaire : diagnostic du 500 sur PATCH (upload logo) en
+    # prod, faute d'accès au Shell Render sur ce plan. print() contourne le
+    # LOGGING par défaut de Django (handler console filtré par
+    # require_debug_true, donc muet quand DEBUG=False) - Render capture le
+    # stdout du process quoi qu'il arrive. Ne modifie pas la réponse envoyée
+    # au client (re-raise) : aucun changement de comportement. A retirer une
+    # fois le diagnostic confirmé.
+    def perform_update(self, serializer):
+        try:
+            serializer.save()
+        except Exception:
+            print("[DEBUG-R2] Echec serializer.save() sur ParametresBoutique :", flush=True)
+            print(traceback.format_exc(), flush=True)
+            raise
