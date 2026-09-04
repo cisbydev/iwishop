@@ -52,8 +52,8 @@ function AppContent({ onLogout }) {
       <AbonnementBanner />
       <header className="bg-white shadow-sm border-b px-6 py-4 flex justify-between items-center">
         <h1 className="text-xl font-bold text-blue-600 flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full overflow-hidden bg-white flex items-center justify-center border border-gray-200">
-            <img src={logoUrl} alt="Logo" className="w-4/5 h-4/5 object-contain" />
+          <div className="h-8 max-w-[120px] px-1 flex items-center justify-center bg-white border border-gray-200 rounded-md overflow-hidden shrink-0">
+            <img src={logoUrl} alt="Logo" className="max-h-full max-w-full object-contain" />
           </div>
           {nomBoutique}
         </h1>

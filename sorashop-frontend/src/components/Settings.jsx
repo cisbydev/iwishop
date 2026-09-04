@@ -117,8 +117,8 @@ function BoutiqueSettings() {
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Logo de la boutique</label>
           <div className="flex items-center gap-4">
-            <div className="w-20 h-20 rounded-full overflow-hidden bg-white flex items-center justify-center border border-gray-200">
-              <img src={logoAffiche} alt="Logo boutique" className="w-4/5 h-4/5 object-contain" />
+            <div className="h-24 max-w-[200px] px-2 flex items-center justify-center bg-white border border-gray-200 rounded-lg overflow-hidden shrink-0">
+              <img src={logoAffiche} alt="Logo boutique" className="max-h-full max-w-full object-contain" />
             </div>
             <label className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer text-sm">
               <Upload className="w-4 h-4" /> Choisir une image
