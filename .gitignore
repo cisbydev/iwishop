@@ -85,3 +85,12 @@ desktop.ini
 # etc.) : préfixe-le par "scratch_" pour qu'il ne soit jamais versionné,
 # même via un `git add -A` (voir incidents "test"/"tes" du 29 août 2026).
 scratch_*
+
+# Blocage nominal explicite : "tes"/"test" à la racine ont servi de
+# scratch pour des commandes contenant des secrets en clair à 3 reprises
+# (29 août, 03 et 04 septembre 2026), sans jamais adopter le préfixe
+# scratch_* ci-dessus. Ces deux noms précis ne pourront plus jamais être
+# suivis par git via un `git add -A`/`.` classique (seul un `git add -f`
+# explicite et volontaire passerait outre - hors périmètre d'un gitignore).
+/tes
+/test
