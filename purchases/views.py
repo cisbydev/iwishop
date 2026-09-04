@@ -1,3 +1,4 @@
+from decimal import Decimal, ROUND_HALF_UP
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -11,6 +12,46 @@ from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
 from .models import Achat, LigneAchat
 from .serializers import AchatSerializer
+
+
+def _dernier_prix_achat_valide(produit, boutique):
+    # Coût courant recalculé depuis l'historique restant (LigneAchat des
+    # achats encore VALIDE), jamais depuis l'achat qu'on est en train
+    # d'annuler - qu'il soit ou non la source du prix actuel n'a pas
+    # besoin d'être déterminé explicitement : cette requête retombe
+    # naturellement sur le bon achat dans tous les cas (P1 - achat annulé
+    # ne restaure plus produit.prix_achat, cf. audit).
+    #
+    # Tri par -achat_id (pas -achat__date_achat) : la pk d'Achat est une
+    # séquence strictement monotone à la création, sans les risques de
+    # précision/égalité d'un DateTimeField. Le tri secondaire -id
+    # (LigneAchat) départage plusieurs lignes du même produit dans le
+    # MÊME achat : ces lignes sont insérées séquentiellement dans la
+    # même transaction (AchatSerializer.create()), donc la pk la plus
+    # élevée est celle qui a réellement fixé produit.prix_achat en
+    # dernier à la fin de cette création (chaque ligne écrase la
+    # précédente en mémoire avant son save()).
+    derniere_ligne = (
+        LigneAchat.objects
+        .filter(produit=produit, boutique=boutique, achat__statut='VALIDE')
+        .order_by('-achat_id', '-id')
+        .first()
+    )
+    if derniere_ligne is None:
+        # Aucun achat valide ne justifie plus de coût pour ce produit
+        # (l'achat annulé était le seul, ou tous les précédents le sont
+        # aussi déjà). 0.00 n'est pas une valeur inventée : c'est un état
+        # déjà légitime du schéma (Produit.prix_achat n'est pas nullable,
+        # MinValueValidator(0)), et un signal explicite plutôt que de
+        # laisser subsister le prix de l'achat qu'on vient d'invalider.
+        return Decimal('0.00')
+
+    # Formule et arrondi identiques à AchatSerializer.create() : on relit
+    # facteur_conversion_applique figé sur CETTE ligne historique, jamais
+    # unite.facteur_conversion courant (qui peut avoir changé depuis).
+    return (derniere_ligne.prix_unitaire_achat / derniere_ligne.facteur_conversion_applique).quantize(
+        Decimal('0.01'), rounding=ROUND_HALF_UP
+    )
 
 class AchatViewSet(
     BoutiqueScopedMixin,
@@ -114,6 +155,19 @@ class AchatViewSet(
 
             achat.statut = 'ANNULE'
             achat.save(update_fields=['statut'])
+
+            # Restaure produit.prix_achat sur le dernier achat encore
+            # VALIDE pour chaque produit touché - sans ça, le coût de
+            # l'achat qu'on vient d'annuler restait figé indéfiniment sur
+            # le produit et se retrouvait gravé sur les ventes futures
+            # (LigneVente.prix_achat_unitaire) via VenteSerializer.create()
+            # (P1 - audit complémentaire). Ne touche jamais aux
+            # LigneVente déjà créées : leur coût historique reste figé
+            # (correctif déjà en place, cf. sales.serializers).
+            for produit_id in produit_ids:
+                produit = produits_par_id[produit_id]
+                produit.prix_achat = _dernier_prix_achat_valide(produit, achat.boutique)
+                produit.save(update_fields=['prix_achat'])
 
         serializer = self.get_serializer(achat)
         return Response(serializer.data)
