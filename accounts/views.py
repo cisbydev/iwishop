@@ -15,10 +15,19 @@ from .serializers import (
 )
 from .serializers_auth import CustomTokenObtainPairSerializer
 from .permissions import IsOwner
+from .throttling import LoginIPRateThrottle, LoginUsernameRateThrottle
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    # Durcissement pré-lancement (P2) : aucun throttling n'existait sur cet
+    # endpoint, un brute-force applicatif n'était limité par rien. Deux
+    # dimensions complémentaires (cf. accounts.throttling) - ni l'une ni
+    # l'autre ne touche User.is_active ni n'ajoute de compteur métier en
+    # base : un attaquant ne peut donc pas bloquer le compte d'un client
+    # en enchaînant volontairement de mauvais mots de passe, seul son
+    # accès (IP/identifiant) est temporairement ralenti.
+    throttle_classes = [LoginIPRateThrottle, LoginUsernameRateThrottle]
 
 
 class MeView(APIView):

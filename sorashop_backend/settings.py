@@ -123,6 +123,23 @@ REST_FRAMEWORK = {
     # par produire des réponses énormes (audit point 13).
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 50,
+    # Pas de DEFAULT_THROTTLE_CLASSES ici volontairement : ces taux ne
+    # s'appliquent qu'aux vues qui déclarent explicitement throttle_classes
+    # (CustomTokenObtainPairView, cf. accounts.throttling) - aucune autre
+    # route n'est limitée par ce biais.
+    #
+    # Aucun CACHES n'est défini dans ce fichier -> Django retombe sur son
+    # défaut implicite, LocMemCache, propre à CHAQUE PROCESSUS. Avec
+    # plusieurs workers Gunicorn, le seuil ci-dessous est donc appliqué
+    # par worker, pas globalement (N workers ~= seuil réel multiplié par
+    # N) - ça réduit très largement le volume de brute-force possible par
+    # rapport à l'absence totale actuelle de throttling, mais ce n'est
+    # pas une garantie stricte tant qu'un cache partagé (Redis) n'est pas
+    # configuré. Non traité ici (hors périmètre de ce correctif).
+    'DEFAULT_THROTTLE_RATES': {
+        'login_ip': '10/min',
+        'login_username': '5/min',
+    },
 }
 
 from datetime import timedelta

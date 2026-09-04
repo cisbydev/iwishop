@@ -1,6 +1,9 @@
+import itertools
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.auth.models import User
+from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework import status
@@ -329,3 +332,215 @@ class EmployeAbonnementExpireTests(APITestCase):
         self.assertIn("Abonnement expiré", str(response.data))
         employe.refresh_from_db()
         self.assertFalse(employe.is_active)
+
+
+class LoginThrottlingTests(APITestCase):
+    """Durcissement pré-lancement (P2) : POST /api/token/ n'avait aucun
+    throttling - un brute-force applicatif n'était limité par rien
+    (DEFAULT_THROTTLE_CLASSES absent de REST_FRAMEWORK, aucun
+    throttle_classes sur CustomTokenObtainPairView). Deux dimensions
+    complémentaires (cf. accounts.throttling) : IP cliente (10/min) et
+    identifiant normalisé (5/min), chacune indépendamment vérifiable via
+    429. Ni l'une ni l'autre ne touche User.is_active ni n'ajoute de
+    compteur métier en base - cf. tests dédiés ci-dessous."""
+
+    LIMITE_IP = 10
+    LIMITE_USERNAME = 5
+
+    def setUp(self):
+        # Isolation entre tests (LocMemCache est partagé pour tout le
+        # process de test - sans ce clear(), les compteurs d'un test
+        # contamineraient le suivant et produiraient des tests flaky).
+        cache.clear()
+
+        # SimpleRateThrottle utilise time.time() en interne pour sa
+        # fenêtre glissante. Sur cet environnement, une requête de login
+        # (hachage de mot de passe compris) peut prendre plusieurs
+        # secondes réelles - largement de quoi laisser la fenêtre de 60s
+        # s'écouler pendant qu'un test enchaîne 10-11 requêtes, et
+        # empêcher le seuil d'être jamais atteint (constaté : échec
+        # reproductible sans rapport avec la logique de throttling
+        # elle-même). On fige l'horloge INTERNE DU THROTTLE (jamais
+        # celle de Python/Django en général) sur un temps simulé qui
+        # n'avance que de quelques millisecondes par appel : la fenêtre
+        # de 60s réelle ne peut alors jamais s'écouler pendant un test,
+        # quelle que soit la lenteur réelle de l'environnement.
+        horloge_simulee = itertools.count(0.0, 0.01)
+        patcher_horloge = mock.patch(
+            'rest_framework.throttling.SimpleRateThrottle.timer',
+            new=staticmethod(lambda: next(horloge_simulee)),
+        )
+        patcher_horloge.start()
+        self.addCleanup(patcher_horloge.stop)
+
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-throttle")
+        self.user = User.objects.create_user(username="cible_throttle", password="motdepasse_correct")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.superuser = User.objects.create_superuser(
+            username="admin_throttle", password="motdepasse_admin", email="admin@example.com"
+        )
+
+    def tearDown(self):
+        cache.clear()
+
+    def _login(self, username, password, ip=None, client=None):
+        client = client or APIClient()
+        extra = {'HTTP_X_FORWARDED_FOR': ip} if ip else {}
+        return client.post('/api/token/', {'username': username, 'password': password}, **extra)
+
+    def test_tentatives_sous_la_limite_retournent_echec_normal(self):
+        """Quelques mauvaises tentatives, sous les deux limites : réponse
+        d'échec d'authentification classique, jamais 429."""
+        for _ in range(3):
+            response = self._login('cible_throttle', 'mauvais_mot_de_passe', ip='10.0.0.1')
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_connexion_valide_fonctionne_avant_depassement(self):
+        """Une connexion valide reste possible avant tout dépassement, et
+        renvoie des tokens JWT exploitables."""
+        for _ in range(2):
+            self._login('cible_throttle', 'mauvais_mot_de_passe', ip='10.0.0.2')
+
+        response = self._login('cible_throttle', 'motdepasse_correct', ip='10.0.0.2')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+        self.assertIn('refresh', response.data)
+        access = AccessToken(response.data['access'])
+        self.assertEqual(str(access['user_id']), str(self.user.id))
+        refresh = RefreshToken(response.data['refresh'])
+        self.assertEqual(str(refresh['user_id']), str(self.user.id))
+
+    def test_depassement_limite_ip_retourne_429(self):
+        """LIMITE_IP tentatives depuis la même IP, avec un identifiant
+        DIFFÉRENT à chaque fois (pour ne jamais atteindre la limite
+        username, plus basse, et isoler proprement la dimension IP) :
+        toutes passent sous le seuil, la suivante est 429."""
+        ip = '20.0.0.1'
+        for i in range(self.LIMITE_IP):
+            response = self._login(f'utilisateur_inexistant_{i}', 'peu_importe', ip=ip)
+            self.assertNotEqual(
+                response.status_code, status.HTTP_429_TOO_MANY_REQUESTS,
+                f"Tentative {i + 1}/{self.LIMITE_IP} n'aurait pas dû être throttlée."
+            )
+
+        response = self._login('utilisateur_inexistant_suivant', 'peu_importe', ip=ip)
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_depassement_limite_username_retourne_429(self):
+        """LIMITE_USERNAME tentatives sur le MÊME identifiant, chacune
+        depuis une IP DIFFÉRENTE (pour ne jamais atteindre la limite IP,
+        plus haute, et isoler proprement la dimension username) : toutes
+        passent sous le seuil, la suivante est 429 - alors même que la
+        nouvelle IP utilisée n'a, elle, servi qu'une seule fois."""
+        for i in range(self.LIMITE_USERNAME):
+            response = self._login('cible_throttle', 'mauvais_mot_de_passe', ip=f'30.0.0.{i}')
+            self.assertNotEqual(
+                response.status_code, status.HTTP_429_TOO_MANY_REQUESTS,
+                f"Tentative {i + 1}/{self.LIMITE_USERNAME} n'aurait pas dû être throttlée."
+            )
+
+        response = self._login('cible_throttle', 'mauvais_mot_de_passe', ip='30.0.0.99')
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_quota_username_isole_entre_utilisateurs_differents(self):
+        """Épuiser le quota d'un identifiant ne doit pas affecter un autre
+        identifiant, même en cas de collision de casse/espaces (normalisation)."""
+        autre_user = User.objects.create_user(username="autre_cible", password="motdepasse_correct")
+        Profil.objects.create(user=autre_user, boutique=self.boutique, est_proprietaire=False)
+
+        for i in range(self.LIMITE_USERNAME):
+            self._login('cible_throttle', 'mauvais_mot_de_passe', ip=f'40.0.0.{i}')
+        # Le quota de 'cible_throttle' est épuisé.
+        epuise = self._login('cible_throttle', 'mauvais_mot_de_passe', ip='40.0.0.99')
+        self.assertEqual(epuise.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # 'autre_cible' (autre utilisateur) doit rester totalement libre.
+        response = self._login('autre_cible', 'motdepasse_correct', ip='40.0.0.98')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Une variante de casse/espaces du MÊME identifiant doit en
+        # revanche être reconnue comme le même compte (normalisation) et
+        # donc rester throttlée.
+        variante = self._login('  Cible_Throttle  ', 'motdepasse_correct', ip='40.0.0.97')
+        self.assertEqual(variante.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_quota_ip_isole_entre_ip_differentes(self):
+        """Épuiser le quota d'une IP ne doit pas affecter une autre IP."""
+        ip_attaquant = '50.0.0.1'
+        for i in range(self.LIMITE_IP):
+            self._login(f'inexistant_{i}', 'peu_importe', ip=ip_attaquant)
+        epuise = self._login('inexistant_suivant', 'peu_importe', ip=ip_attaquant)
+        self.assertEqual(epuise.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # Une IP différente doit pouvoir se connecter normalement.
+        response = self._login('cible_throttle', 'motdepasse_correct', ip='50.0.0.2')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_repli_sur_remote_addr_si_pas_de_x_forwarded_for(self):
+        """Sans X-Forwarded-For (dev local, requête directe), le throttle
+        IP doit quand même fonctionner via REMOTE_ADDR - et pas planter
+        ni désactiver silencieusement le throttling. Identifiant
+        différent à chaque tentative pour isoler proprement la dimension
+        IP (REMOTE_ADDR, constant pour ce client de test) de la
+        dimension username."""
+        client = APIClient()
+        for i in range(self.LIMITE_IP):
+            response = client.post(
+                '/api/token/', {'username': f'repli_{i}', 'password': 'mauvais'}
+            )
+            self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        response = client.post(
+            '/api/token/', {'username': 'repli_suivant', 'password': 'mauvais'}
+        )
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_superuser_peut_toujours_se_connecter(self):
+        response = self._login('admin_throttle', 'motdepasse_admin', ip='60.0.0.1')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('access', response.data)
+
+    def test_compte_desactive_toujours_refuse_avec_throttling_actif(self):
+        """Non-régression : la vérification boutique active/compte
+        désactivé (CustomTokenObtainPairSerializer.validate) continue de
+        fonctionner normalement (401, pas 429) avec le throttling en place."""
+        employe = User.objects.create_user(username="employe_throttle", password="pass1234", is_active=False)
+        Profil.objects.create(user=employe, boutique=self.boutique, est_proprietaire=False)
+
+        response = self._login('employe_throttle', 'pass1234', ip='70.0.0.1')
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_mot_de_passe_absent_du_cache(self):
+        """Les clés de cache posées par le throttling (IP + username) ne
+        doivent jamais contenir le mot de passe soumis - preuve directe :
+        SimpleRateThrottle ne stocke que des horodatages (floats), jamais
+        de chaîne de caractères, donc structurellement aucun mot de passe
+        ne peut y transiter."""
+        from accounts.throttling import LoginIPRateThrottle, LoginUsernameRateThrottle
+        import hashlib
+
+        mot_de_passe_distinctif = "MotDePasseTresDistinctifXYZ_98765"
+        self._login('cible_throttle', mot_de_passe_distinctif, ip='80.0.0.1')
+
+        cle_ip = LoginIPRateThrottle.cache_format % {'scope': 'login_ip', 'ident': '80.0.0.1'}
+        cle_username = LoginUsernameRateThrottle.cache_format % {
+            'scope': 'login_username',
+            'ident': hashlib.sha256('cible_throttle'.encode('utf-8')).hexdigest(),
+        }
+
+        valeur_ip = cache.get(cle_ip)
+        valeur_username = cache.get(cle_username)
+
+        self.assertIsNotNone(valeur_ip)
+        self.assertIsNotNone(valeur_username)
+        for valeur in (valeur_ip, valeur_username):
+            self.assertIsInstance(valeur, list)
+            for entree in valeur:
+                self.assertIsInstance(entree, float)
+            self.assertNotIn(mot_de_passe_distinctif, str(valeur))
