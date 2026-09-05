@@ -1,0 +1,4 @@
+# Hooks git : fins de ligne LF forcées, indépendamment de core.autocrlf
+# côté utilisateur - un shebang (#!/usr/bin/env python) en CRLF peut
+# empêcher l'exécution du hook (interpréteur non trouvé).
+scripts/git-hooks/* text eol=lf
