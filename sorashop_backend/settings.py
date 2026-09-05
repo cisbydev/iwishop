@@ -25,6 +25,21 @@ CLOUDFLARE_R2_BUCKET_NAME = config('CLOUDFLARE_R2_BUCKET_NAME', default='')
 # sans ça, request.is_secure() renverrait toujours False. Sûr uniquement
 # parce que l'app n'est jamais exposée directement, seulement via ce proxy.
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = not DEBUG
+
+SESSION_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+
+# Start with a short HSTS duration in production, then increase it only after
+# HTTPS has been validated on every deployed hostname.
+SECURE_HSTS_SECONDS = 300 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+SECURE_HSTS_PRELOAD = False
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'same-origin'
 
 
 
