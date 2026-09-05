@@ -1,10 +1,13 @@
+import os
+import time
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django.contrib.auth.models import User
+from django.core.cache import cache
 
 from tenants.mixins import BoutiqueScopedMixin
 from .serializers import (
@@ -28,6 +31,37 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     # en enchaînant volontairement de mauvais mots de passe, seul son
     # accès (IP/identifiant) est temporairement ralenti.
     throttle_classes = [LoginIPRateThrottle, LoginUsernameRateThrottle]
+
+
+class DiagnosticCacheView(APIView):
+    """[DEBUG-THROTTLE] Temporaire : diagnostic du throttling qui ne se
+    déclenche jamais en prod (toujours 401, jamais 429) malgré des tests
+    manuels répétés. Écrit une valeur dans le cache Django par défaut
+    (celui utilisé par SimpleRateThrottle) puis la relit immédiatement,
+    et expose le PID du process qui répond - si le PID change d'un
+    appel à l'autre, ça confirme plusieurs workers Gunicorn avec des
+    mémoires LocMemCache isolées (aucun CACHES configuré dans
+    settings.py, donc pas de cache partagé entre processus). AllowAny
+    volontaire (aucune donnée sensible exposée) pour tester sans avoir à
+    regénérer un JWT à chaque appel. A retirer une fois le diagnostic
+    confirmé (même principe que [DEBUG-R2], déjà utilisé sur ce projet)."""
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        pid = os.getpid()
+        cle = 'diagnostic_cache_throttle'
+        valeur_avant = cache.get(cle)
+        compteur_avant = (valeur_avant or {}).get('compteur', 0)
+        nouvelle_valeur = {'pid': pid, 'timestamp': time.time(), 'compteur': compteur_avant + 1}
+        cache.set(cle, nouvelle_valeur, 300)
+        relue = cache.get(cle)
+        return Response({
+            'pid_worker_actuel': pid,
+            'valeur_avant_cet_appel': valeur_avant,
+            'valeur_ecrite': nouvelle_valeur,
+            'valeur_relue_immediatement_apres_ecriture': relue,
+            'lecture_immediate_coherente': relue == nouvelle_valeur,
+        })
 
 
 class MeView(APIView):
