@@ -10,7 +10,9 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APIClient, APITestCase
+from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 
@@ -39,8 +41,8 @@ class JWTAccessTokenLifetimeTests(TestCase):
 
     def _csrf_client(self):
         client = APIClient(enforce_csrf_checks=True)
-        client.get('/api/csrf/')
-        token = client.cookies[settings.CSRF_COOKIE_NAME].value
+        response = client.get('/api/csrf/')
+        token = response.data['csrfToken']
         return client, token
 
     def test_access_token_dure_15_minutes(self):
@@ -111,6 +113,36 @@ class JWTAccessTokenLifetimeTests(TestCase):
         rejeu = ancien_client.post('/api/token/refresh/', {})
         self.assertEqual(rejeu.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_rotations_successives_enregistrent_et_blacklistent_chaque_refresh(self):
+        login = self._connexion()
+        refresh_initial = self._refresh_cookie(login)
+
+        refresh_1 = self.client.post('/api/token/refresh/', {})
+        self.assertEqual(refresh_1.status_code, status.HTTP_200_OK)
+        token_1 = self._refresh_cookie(refresh_1)
+        jti_1 = RefreshToken(token_1)[api_settings.JTI_CLAIM]
+        self.assertTrue(OutstandingToken.objects.filter(jti=jti_1).exists())
+
+        refresh_2 = self.client.post('/api/token/refresh/', {})
+        self.assertEqual(refresh_2.status_code, status.HTTP_200_OK)
+        token_2 = self._refresh_cookie(refresh_2)
+        jti_2 = RefreshToken(token_2)[api_settings.JTI_CLAIM]
+        self.assertTrue(OutstandingToken.objects.filter(jti=jti_2).exists())
+
+        refresh_3 = self.client.post('/api/token/refresh/', {})
+        self.assertEqual(refresh_3.status_code, status.HTTP_200_OK)
+
+        for token in (refresh_initial, token_1, token_2):
+            client = APIClient()
+            client.cookies[settings.JWT_REFRESH_COOKIE_NAME] = token
+            self.assertEqual(
+                client.post('/api/token/refresh/', {}).status_code,
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        self.assertTrue(BlacklistedToken.objects.filter(token__jti=jti_1).exists())
+        self.assertTrue(BlacklistedToken.objects.filter(token__jti=jti_2).exists())
+
     def test_refresh_et_logout_exigent_csrf(self):
         client, csrf_token = self._csrf_client()
         login = client.post('/api/token/', {'username': 'jwtuser', 'password': 'motdepasse123'})
@@ -124,6 +156,24 @@ class JWTAccessTokenLifetimeTests(TestCase):
 
         logout_refuse = client.post('/api/token/logout/', {})
         self.assertEqual(logout_refuse.status_code, status.HTTP_403_FORBIDDEN)
+
+        logout_accepte = client.post('/api/token/logout/', {}, HTTP_X_CSRFTOKEN=csrf_token)
+        self.assertEqual(logout_accepte.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_endpoint_csrf_renvoie_un_token_masque_utilisable(self):
+        client = APIClient(enforce_csrf_checks=True)
+        csrf = client.get('/api/csrf/')
+
+        self.assertEqual(csrf.status_code, status.HTTP_200_OK)
+        self.assertTrue(csrf.data['csrfToken'])
+        self.assertIn(settings.CSRF_COOKIE_NAME, csrf.cookies)
+
+        login = client.post('/api/token/', {'username': 'jwtuser', 'password': 'motdepasse123'})
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+        refresh = client.post(
+            '/api/token/refresh/', {}, HTTP_X_CSRFTOKEN=csrf.data['csrfToken']
+        )
+        self.assertEqual(refresh.status_code, status.HTTP_200_OK)
 
     def test_logout_blackliste_efface_cookie_et_est_idempotent(self):
         client, csrf_token = self._csrf_client()

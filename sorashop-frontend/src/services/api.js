@@ -5,9 +5,6 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
 
 const csrfOptions = {
   withCredentials: true,
-  withXSRFToken: true,
-  xsrfCookieName: 'csrftoken',
-  xsrfHeaderName: 'X-CSRFToken',
 };
 
 const authClient = axios.create({
@@ -25,6 +22,7 @@ const api = axios.create({
 // Access tokens deliberately live only in this module's memory. A page reload
 // requires a silent refresh using the HttpOnly cookie.
 let accessToken = null;
+let csrfToken = null;
 let refreshPromise = null;
 let authFailureHandler = null;
 
@@ -41,8 +39,19 @@ export function setAuthFailureHandler(handler) {
 }
 
 async function ensureCsrfToken() {
-  await authClient.get('csrf/');
+  const response = await authClient.get('csrf/');
+  csrfToken = response.data.csrfToken || null;
+  if (!csrfToken) {
+    throw new Error('Le serveur n’a pas renvoyé de token CSRF.');
+  }
 }
+
+authClient.interceptors.request.use((config) => {
+  if (csrfToken && !['get', 'head', 'options'].includes(config.method?.toLowerCase())) {
+    config.headers['X-CSRFToken'] = csrfToken;
+  }
+  return config;
+});
 
 export function refreshAccessToken() {
   if (!refreshPromise) {

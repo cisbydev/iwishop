@@ -127,6 +127,10 @@ class CookieTokenRefreshView(APIView):
                     refresh.set_jti()
                     refresh.set_exp()
                     refresh.set_iat()
+                    # SimpleJWT's supported API registers the rotated token in
+                    # OutstandingToken, so it can itself be blacklisted during
+                    # the next rotation or logout.
+                    refresh.outstand()
             except (OutstandingToken.DoesNotExist, TokenError):
                 raise AuthenticationFailed('Refresh token invalide.')
 
@@ -158,12 +162,15 @@ class LogoutView(APIView):
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
 class CsrfTokenView(APIView):
-    """Initialize the CSRF cookie for cross-origin frontend bootstrap."""
+    """Initialize the CSRF cookie and return its masked token to the SPA."""
 
     permission_classes = [AllowAny]
 
     def get(self, request, *args, **kwargs):
-        return Response({'detail': 'CSRF cookie set.'})
+        # A frontend on another origin cannot read the backend's host-only
+        # csrftoken cookie. It receives this masked value instead and keeps it
+        # only in memory; the browser still returns the CSRF cookie itself.
+        return Response({'csrfToken': get_token(request)})
 
 
 class MeView(APIView):
