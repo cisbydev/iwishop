@@ -1,19 +1,17 @@
 import React, { useState } from 'react';
-import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import logoParDefaut from '../assets/iwishop-logo-removebg-preview.png';
 
-export default function Login({ onLoginSuccess }) {
+export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const { login } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await api.post('token/', { username, password });
-      localStorage.setItem('access_token', response.data.access);
-      localStorage.setItem('refresh_token', response.data.refresh);
-      onLoginSuccess();
+      await login(username, password);
     } catch (err) {
       setError('Identifiants incorrects. Veuillez réessayer.');
     }

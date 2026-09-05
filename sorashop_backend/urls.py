@@ -2,15 +2,21 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
-from rest_framework_simplejwt.views import TokenRefreshView
-from accounts.views import CustomTokenObtainPairView
+from accounts.views import (
+    CookieTokenRefreshView,
+    CsrfTokenView,
+    CustomTokenObtainPairView,
+    LogoutView,
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
 
     # Routes d'authentification JWT
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/token/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/token/logout/', LogoutView.as_view(), name='token_logout'),
+    path('api/csrf/', CsrfTokenView.as_view(), name='csrf_token'),
     
     # Routes des modules
     path('api/tenants/', include('tenants.urls')),

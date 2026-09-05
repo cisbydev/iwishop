@@ -17,6 +17,7 @@ import Sales from './components/Sales';
 import SalesHistory from './components/SalesHistory';
 import { SettingsProvider, useSettings } from './context/SettingsContext';
 import { SupportViewProvider, useSupportView } from './context/SupportViewContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import SupportViewBanner from './components/SupportViewBanner';
 import AbonnementBanner from './components/AbonnementBanner';
 import { LayoutDashboard, Package, Tag, Warehouse, Truck, ShoppingBag, Wallet, FileBarChart, Settings as SettingsIcon, ShoppingCart, History, LogOut } from 'lucide-react';
@@ -31,16 +32,15 @@ function resoudreUrlLogo(logo) {
   return `${SERVER_BASE_URL}${logo.startsWith('/') ? logo.slice(1) : logo}`;
 }
 
-function AppContent({ onLogout }) {
+function AppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { parametres } = useSettings();
   const { quitter: quitterVueSupport } = useSupportView();
+  const { logout } = useAuth();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     quitterVueSupport();
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    onLogout();
+    await logout();
   };
 
   const nomBoutique = parametres?.nom_boutique || 'iwiShop';
@@ -198,31 +198,34 @@ function AppContent({ onLogout }) {
 }
 
 function AccueilApp() {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    !!localStorage.getItem('access_token')
-  );
+  const { isLoading, isAuthenticated } = useAuth();
 
+  if (isLoading) {
+    return <div className="min-h-screen bg-gray-100" />;
+  }
 
   if (!isAuthenticated) {
-    return <Login onLoginSuccess={() => setIsAuthenticated(true)} />;
+    return <Login />;
   }
 
   return (
     <SettingsProvider>
-      <AppContent onLogout={() => setIsAuthenticated(false)} />
+      <AppContent />
     </SettingsProvider>
   );
 }
 
 export default function App() {
   return (
-    <SupportViewProvider>
-      <Routes>
-        <Route path="/" element={<AccueilApp />} />
-        <Route path="/demande-acces" element={<DemandeAccesPage />} />
-        <Route path="/admin-plateforme" element={<AdminPlateformePage />} />
-        <Route path="/abonnement/retour" element={<RetourPaiement />} />
-      </Routes>
-    </SupportViewProvider>
+    <AuthProvider>
+      <SupportViewProvider>
+        <Routes>
+          <Route path="/" element={<AccueilApp />} />
+          <Route path="/demande-acces" element={<DemandeAccesPage />} />
+          <Route path="/admin-plateforme" element={<AdminPlateformePage />} />
+          <Route path="/abonnement/retour" element={<RetourPaiement />} />
+        </Routes>
+      </SupportViewProvider>
+    </AuthProvider>
   );
 }

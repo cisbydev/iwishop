@@ -3,8 +3,9 @@ from decimal import Decimal
 from unittest import mock
 
 from django.contrib.auth.models import User
+from django.conf import settings
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -21,13 +22,26 @@ class JWTAccessTokenLifetimeTests(TestCase):
     en direct, cf. rapport d'audit)."""
 
     def setUp(self):
+        cache.clear()
         boutique = Boutique.objects.create(nom='Boutique JWT', slug='boutique-jwt')
         self.user = User.objects.create_user(username='jwtuser', password='motdepasse123')
         Profil.objects.create(user=self.user, boutique=boutique, est_proprietaire=True)
         self.client = APIClient()
 
+    def tearDown(self):
+        cache.clear()
+
     def _connexion(self):
         return self.client.post('/api/token/', {'username': 'jwtuser', 'password': 'motdepasse123'})
+
+    def _refresh_cookie(self, response):
+        return response.cookies[settings.JWT_REFRESH_COOKIE_NAME].value
+
+    def _csrf_client(self):
+        client = APIClient(enforce_csrf_checks=True)
+        client.get('/api/csrf/')
+        token = client.cookies[settings.CSRF_COOKIE_NAME].value
+        return client, token
 
     def test_access_token_dure_15_minutes(self):
         response = self._connexion()
@@ -40,20 +54,124 @@ class JWTAccessTokenLifetimeTests(TestCase):
     def test_refresh_token_reste_a_7_jours(self):
         response = self._connexion()
 
-        refresh = RefreshToken(response.data['refresh'])
+        self.assertNotIn('refresh', response.data)
+        refresh = RefreshToken(self._refresh_cookie(response))
         duree_secondes = refresh['exp'] - refresh['iat']
         self.assertAlmostEqual(duree_secondes, 7 * 24 * 60 * 60, delta=1)
 
     def test_endpoint_refresh_emet_un_nouvel_access_token_de_15_minutes(self):
         response = self._connexion()
-        refresh_token = response.data['refresh']
 
-        refresh_response = self.client.post('/api/token/refresh/', {'refresh': refresh_token})
+        refresh_response = self.client.post('/api/token/refresh/', {})
 
         self.assertEqual(refresh_response.status_code, 200)
+        self.assertNotIn('refresh', refresh_response.data)
         nouveau_access = AccessToken(refresh_response.data['access'])
         duree_secondes = nouveau_access['exp'] - nouveau_access['iat']
         self.assertAlmostEqual(duree_secondes, 15 * 60, delta=1)
+
+    def test_login_depose_un_refresh_httponly_hors_json(self):
+        response = self._connexion()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn('refresh', response.data)
+        cookie = response.cookies[settings.JWT_REFRESH_COOKIE_NAME]
+        self.assertTrue(cookie['httponly'])
+        self.assertEqual(cookie['samesite'], settings.JWT_REFRESH_COOKIE_SAMESITE)
+        self.assertEqual(cookie['path'], settings.JWT_REFRESH_COOKIE_PATH)
+
+    @override_settings(JWT_REFRESH_COOKIE_SECURE=True, JWT_REFRESH_COOKIE_SAMESITE='None')
+    def test_cookie_respecte_secure_et_samesite_configures(self):
+        response = self._connexion()
+        cookie = response.cookies[settings.JWT_REFRESH_COOKIE_NAME]
+
+        self.assertTrue(cookie['secure'])
+        self.assertEqual(cookie['samesite'], 'None')
+
+    def test_refresh_absent_ou_invalide_est_refuse(self):
+        absent = APIClient().post('/api/token/refresh/', {})
+        self.assertEqual(absent.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        invalide_client = APIClient()
+        invalide_client.cookies[settings.JWT_REFRESH_COOKIE_NAME] = 'invalide'
+        invalide = invalide_client.post('/api/token/refresh/', {})
+        self.assertEqual(invalide.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_rotation_remplace_cookie_et_invalide_ancien_refresh(self):
+        response = self._connexion()
+        ancien_refresh = self._refresh_cookie(response)
+
+        refresh_response = self.client.post('/api/token/refresh/', {})
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        nouveau_refresh = self._refresh_cookie(refresh_response)
+        self.assertNotEqual(ancien_refresh, nouveau_refresh)
+
+        ancien_client = APIClient()
+        ancien_client.cookies[settings.JWT_REFRESH_COOKIE_NAME] = ancien_refresh
+        rejeu = ancien_client.post('/api/token/refresh/', {})
+        self.assertEqual(rejeu.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_refresh_et_logout_exigent_csrf(self):
+        client, csrf_token = self._csrf_client()
+        login = client.post('/api/token/', {'username': 'jwtuser', 'password': 'motdepasse123'})
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+
+        refuse = client.post('/api/token/refresh/', {})
+        self.assertEqual(refuse.status_code, status.HTTP_403_FORBIDDEN)
+
+        accepte = client.post('/api/token/refresh/', {}, HTTP_X_CSRFTOKEN=csrf_token)
+        self.assertEqual(accepte.status_code, status.HTTP_200_OK)
+
+        logout_refuse = client.post('/api/token/logout/', {})
+        self.assertEqual(logout_refuse.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_logout_blackliste_efface_cookie_et_est_idempotent(self):
+        client, csrf_token = self._csrf_client()
+        login = client.post('/api/token/', {'username': 'jwtuser', 'password': 'motdepasse123'})
+        refresh = self._refresh_cookie(login)
+
+        logout = client.post('/api/token/logout/', {}, HTTP_X_CSRFTOKEN=csrf_token)
+        self.assertEqual(logout.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(logout.cookies[settings.JWT_REFRESH_COOKIE_NAME]['max-age'], 0)
+
+        ancien_client = APIClient()
+        ancien_client.cookies[settings.JWT_REFRESH_COOKIE_NAME] = refresh
+        self.assertEqual(
+            ancien_client.post('/api/token/refresh/', {}).status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+        self.assertEqual(
+            client.post('/api/token/logout/', {}, HTTP_X_CSRFTOKEN=csrf_token).status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+    def test_compte_desactive_est_refuse_au_refresh(self):
+        self._connexion()
+        self.user.is_active = False
+        self.user.save(update_fields=['is_active'])
+
+        response = self.client.post('/api/token/refresh/', {})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_boutique_inactive_conserve_le_comportement_refresh_existant(self):
+        self._connexion()
+        self.user.profil.boutique.actif = False
+        self.user.profil.boutique.save(update_fields=['actif'])
+
+        response = self.client.post('/api/token/refresh/', {})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_superuser_sans_profil_peut_login_et_refresh(self):
+        superuser = User.objects.create_superuser(
+            username='admin-jwt', password='motdepasse123', email='admin@example.com'
+        )
+        client = APIClient()
+        login = client.post('/api/token/', {'username': 'admin-jwt', 'password': 'motdepasse123'})
+
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+        self.assertIn('access', login.data)
+        self.assertNotIn('refresh', login.data)
+        self.assertEqual(client.post('/api/token/refresh/', {}).status_code, status.HTTP_200_OK)
 
     def test_access_token_expire_est_rejete_par_un_endpoint_protege(self):
         response = self._connexion()
@@ -71,7 +189,6 @@ class JWTAccessTokenLifetimeTests(TestCase):
         401, appeler token/refresh/ puis rejouer la requête d'origine avec le
         nouveau token - sans jamais redemander de mot de passe."""
         response = self._connexion()
-        refresh_token = response.data['refresh']
         access = AccessToken(response.data['access'])
         access.set_exp(lifetime=timezone.timedelta(seconds=-1))
 
@@ -80,7 +197,7 @@ class JWTAccessTokenLifetimeTests(TestCase):
         echec_initial = client_expire.get('/api/accounts/me/')
         self.assertEqual(echec_initial.status_code, 401)
 
-        refresh_response = self.client.post('/api/token/refresh/', {'refresh': refresh_token})
+        refresh_response = self.client.post('/api/token/refresh/', {})
         self.assertEqual(refresh_response.status_code, 200)
 
         client_expire.credentials(HTTP_AUTHORIZATION=f"Bearer {refresh_response.data['access']}")
@@ -406,10 +523,10 @@ class LoginThrottlingTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('access', response.data)
-        self.assertIn('refresh', response.data)
+        self.assertNotIn('refresh', response.data)
         access = AccessToken(response.data['access'])
         self.assertEqual(str(access['user_id']), str(self.user.id))
-        refresh = RefreshToken(response.data['refresh'])
+        refresh = RefreshToken(response.cookies[settings.JWT_REFRESH_COOKIE_NAME].value)
         self.assertEqual(str(refresh['user_id']), str(self.user.id))
 
     def test_depassement_limite_ip_retourne_429(self):

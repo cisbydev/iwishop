@@ -3,25 +3,91 @@ import { getSupportBoutiqueId } from './supportViewState';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
 
-const api = axios.create({
+const csrfOptions = {
+  withCredentials: true,
+  withXSRFToken: true,
+  xsrfCookieName: 'csrftoken',
+  xsrfHeaderName: 'X-CSRFToken',
+};
+
+const authClient = axios.create({
   baseURL: API_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  headers: { 'Content-Type': 'application/json' },
+  ...csrfOptions,
 });
 
-// Intercepteur pour injecter le token JWT dans les requêtes sortantes
+const api = axios.create({
+  baseURL: API_URL,
+  headers: { 'Content-Type': 'application/json' },
+  ...csrfOptions,
+});
+
+// Access tokens deliberately live only in this module's memory. A page reload
+// requires a silent refresh using the HttpOnly cookie.
+let accessToken = null;
+let refreshPromise = null;
+let authFailureHandler = null;
+
+export function setAccessToken(token) {
+  accessToken = token || null;
+}
+
+export function clearAccessToken() {
+  accessToken = null;
+}
+
+export function setAuthFailureHandler(handler) {
+  authFailureHandler = handler;
+}
+
+async function ensureCsrfToken() {
+  await authClient.get('csrf/');
+}
+
+export function refreshAccessToken() {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      // This also recovers from a deleted/expired CSRF cookie before a refresh.
+      await ensureCsrfToken();
+      const response = await authClient.post('token/refresh/', {});
+      setAccessToken(response.data.access);
+      return response.data.access;
+    })().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
+export async function bootstrapAuthentication() {
+  try {
+    await refreshAccessToken();
+    return true;
+  } catch {
+    clearAccessToken();
+    return false;
+  }
+}
+
+export async function logout() {
+  try {
+    await ensureCsrfToken();
+    await authClient.post('token/logout/', {});
+  } finally {
+    clearAccessToken();
+  }
+}
+
+function isAuthEndpoint(url = '') {
+  return /(^|\/)token(\/|$)|(^|\/)csrf(\/|$)/.test(url);
+}
+
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      config.headers['Authorization'] = `Bearer ${token}`;
+    if (accessToken) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
     }
 
-    // Vue Support : si une session de consultation est active, on ajoute
-    // le header sur TOUTES les requêtes sortantes. Le backend ignore ce
-    // header pour tout utilisateur non-superuser et pour toute méthode
-    // d'écriture - ceci n'est qu'un confort côté client.
     const supportBoutiqueId = getSupportBoutiqueId();
     if (supportBoutiqueId) {
       config.headers['X-Support-Boutique'] = String(supportBoutiqueId);
@@ -32,90 +98,33 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Intercepteur de réponse : si le token a expiré (401), on tente de le rafraîchir
-// puis on rejoue automatiquement la requête d'origine.
-let isRefreshing = false;
-let failedQueue = [];
-
-const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else {
-      prom.resolve(token);
-    }
-  });
-  failedQueue = [];
-};
-
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
-
-    // On ne tente le refresh que sur un 401, et une seule fois par requête
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      if (isRefreshing) {
-        // Une requête de refresh est déjà en cours : on met celle-ci en attente
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then((token) => {
-            originalRequest.headers['Authorization'] = `Bearer ${token}`;
-            return api(originalRequest);
-          })
-          .catch((err) => Promise.reject(err));
-      }
-
-      originalRequest._retry = true;
-      isRefreshing = true;
-
-      const refreshToken = localStorage.getItem('refresh_token');
-
-      if (!refreshToken) {
-        isRefreshing = false;
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        window.location.reload(); // Renvoie vers l'écran de connexion
-        return Promise.reject(error);
-      }
-
-      try {
-        const response = await axios.post(`${API_URL}token/refresh/`, {
-          refresh: refreshToken,
-        });
-
-        const newAccessToken = response.data.access;
-        localStorage.setItem('access_token', newAccessToken);
-
-        api.defaults.headers.common['Authorization'] = `Bearer ${newAccessToken}`;
-        originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`;
-
-        processQueue(null, newAccessToken);
-
-        return api(originalRequest);
-      } catch (refreshError) {
-        processQueue(refreshError, null);
-        // Le refresh token est lui aussi invalide/expiré : on déconnecte l'utilisateur
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        window.location.reload();
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
+    if (
+      error.response?.status !== 401 ||
+      !originalRequest ||
+      originalRequest._retry ||
+      isAuthEndpoint(originalRequest.url)
+    ) {
+      return Promise.reject(error);
     }
 
-    return Promise.reject(error);
+    originalRequest._retry = true;
+    try {
+      const token = await refreshAccessToken();
+      originalRequest.headers.Authorization = `Bearer ${token}`;
+      return api(originalRequest);
+    } catch (refreshError) {
+      clearAccessToken();
+      authFailureHandler?.();
+      return Promise.reject(refreshError);
+    }
   }
 );
 
-// Le backend pagine désormais toutes les listes (PageNumberPagination,
-// 50 par page - audit point 13, pour ne pas renvoyer un historique entier
-// en une seule réponse). Ce helper récupère toutes les pages d'une liste
-// et les concatène, pour que les composants existants (qui affichent tout
-// d'un coup, sans contrôles "page suivante") continuent de voir la liste
-// complète sans changement de comportement perçu.
+// The backend paginates lists. Existing components retain their previous API.
 export async function getAll(url, config) {
   let resultats = [];
   let suivant = url;

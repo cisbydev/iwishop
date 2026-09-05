@@ -3,20 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import api, { getAll } from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
 import { useSupportView } from '../context/SupportViewContext';
+import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, CheckCircle, XCircle, Loader2, Copy, Store, Power, Search } from 'lucide-react';
 
-function AdminLoginForm({ onLoginSuccess }) {
+function AdminLoginForm() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const { login } = useAuth();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await api.post('token/', { username, password });
-      localStorage.setItem('access_token', response.data.access);
-      localStorage.setItem('refresh_token', response.data.refresh);
-      onLoginSuccess();
+      await login(username, password);
     } catch (err) {
       setError('Identifiants incorrects. Veuillez réessayer.');
     }
@@ -415,12 +414,14 @@ function DemandesPanel() {
 }
 
 export default function AdminPlateformePage() {
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    !!localStorage.getItem('access_token')
-  );
+  const { isLoading, isAuthenticated } = useAuth();
+
+  if (isLoading) {
+    return <div className="min-h-screen bg-gray-100" />;
+  }
 
   if (!isAuthenticated) {
-    return <AdminLoginForm onLoginSuccess={() => setIsAuthenticated(true)} />;
+    return <AdminLoginForm />;
   }
 
   return <DemandesPanel />;

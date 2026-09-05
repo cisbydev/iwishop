@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     # Packages tiers
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
 
     # Modules SoraShop (à créer au fil des phases)
@@ -87,7 +88,16 @@ CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=lambda v:
 # La Vue Support ajoute un header custom (X-Support-Boutique) sur les requêtes
 # sortantes du frontend - sans ça, le navigateur bloque la requête au niveau du
 # preflight CORS car ce header n'est pas dans la liste par défaut de corsheaders.
-CORS_ALLOW_HEADERS = list(default_headers) + ['x-support-boutique']
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = list(default_headers) + ['x-support-boutique', 'x-csrftoken']
+
+# Les endpoints qui utilisent le cookie de refresh ont une protection CSRF.
+# Les origines restent explicites pour ne jamais combiner credentials et wildcard.
+CSRF_TRUSTED_ORIGINS = config(
+    'CSRF_TRUSTED_ORIGINS',
+    default='',
+    cast=lambda v: [s.strip() for s in v.split(',') if s.strip()],
+)
 
 ROOT_URLCONF = 'sorashop_backend.urls'
 
@@ -147,7 +157,33 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
     'AUTH_HEADER_TYPES': ('Bearer',),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
+
+# Le refresh JWT ne doit jamais etre accessible a JavaScript. Ces options sont
+# configurables car SameSite=None n'est requis que pour des sites distincts.
+JWT_REFRESH_COOKIE_NAME = config('JWT_REFRESH_COOKIE_NAME', default='iwishop_refresh')
+JWT_REFRESH_COOKIE_SECURE = config(
+    'JWT_REFRESH_COOKIE_SECURE', default=not DEBUG, cast=bool
+)
+JWT_REFRESH_COOKIE_SAMESITE = config('JWT_REFRESH_COOKIE_SAMESITE', default='Lax')
+if JWT_REFRESH_COOKIE_SAMESITE not in {'Lax', 'Strict', 'None'}:
+    raise ValueError('JWT_REFRESH_COOKIE_SAMESITE doit valoir Lax, Strict ou None.')
+JWT_REFRESH_COOKIE_DOMAIN = config('JWT_REFRESH_COOKIE_DOMAIN', default='') or None
+JWT_REFRESH_COOKIE_PATH = config('JWT_REFRESH_COOKIE_PATH', default='/api/')
+JWT_REFRESH_COOKIE_MAX_AGE = config(
+    'JWT_REFRESH_COOKIE_MAX_AGE',
+    default=int(SIMPLE_JWT['REFRESH_TOKEN_LIFETIME'].total_seconds()),
+    cast=int,
+)
+
+# Le cookie CSRF reste lisible par Axios pour envoyer X-CSRFToken, mais il suit
+# la meme politique de transport que le refresh cookie.
+CSRF_COOKIE_SECURE = config('CSRF_COOKIE_SECURE', default=JWT_REFRESH_COOKIE_SECURE, cast=bool)
+CSRF_COOKIE_SAMESITE = config(
+    'CSRF_COOKIE_SAMESITE', default=JWT_REFRESH_COOKIE_SAMESITE
+)
 
 
    
