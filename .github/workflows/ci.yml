@@ -26,6 +26,10 @@ jobs:
       DEBUG: "True"
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/iwishop_test
       DATABASE_SSL_REQUIRE: "False"
+      PAYDUNYA_MASTER_KEY: ci-test-master-key
+      PAYDUNYA_PRIVATE_KEY: ci-test-private-key
+      PAYDUNYA_PUBLIC_KEY: ci-test-public-key
+      PAYDUNYA_TOKEN: ci-test-token
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
