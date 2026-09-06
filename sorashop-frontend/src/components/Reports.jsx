@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../services/api';
-import { useSettings } from '../context/SettingsContext';
-import { useSupportView } from '../context/SupportViewContext';
+import { useSettings } from '../context/settingsContextValue';
+import { useSupportView } from '../context/supportViewContextValue';
 import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer } from 'lucide-react';
 
 function formatDate(d) {
@@ -49,7 +49,11 @@ export default function Reports() {
   };
 
   useEffect(() => {
-    fetchResume(dateDebut, dateFin);
+    const loadResume = async () => {
+      await fetchResume(dateDebut, dateFin);
+    };
+
+    void loadResume();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modeSupport, boutiqueId]);
 

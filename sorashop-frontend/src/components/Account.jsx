@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
-import { useSettings } from '../context/SettingsContext';
-import { KeyRound, Save, Store } from 'lucide-react';
+import { useSettings } from '../context/settingsContextValue';
+import { Save, Store } from 'lucide-react';
 
 export default function Account() {
   const { utilisateur } = useSettings();

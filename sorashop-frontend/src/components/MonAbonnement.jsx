@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CreditCard, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import api, { getAll } from '../services/api';
 

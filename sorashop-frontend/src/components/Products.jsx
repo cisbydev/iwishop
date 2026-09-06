@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
-import { useSettings } from '../context/SettingsContext';
-import { useSupportView } from '../context/SupportViewContext';
+import { useSettings } from '../context/settingsContextValue';
+import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
-import { Plus, Package, Pencil, Trash2, Search, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X } from 'lucide-react';
 
 const FORM_VIDE = {
   nom: '',
@@ -84,10 +84,16 @@ export default function Products() {
   };
 
   useEffect(() => {
-    fetchProduits();
-    fetchCategories();
-    fetchUnitesVente();
-    fetchPrix();
+    const loadProductsData = async () => {
+      await Promise.all([
+        fetchProduits(),
+        fetchCategories(),
+        fetchUnitesVente(),
+        fetchPrix(),
+      ]);
+    };
+
+    void loadProductsData();
   }, [modeSupport, boutiqueId]);
 
   const ouvrirAjout = () => {

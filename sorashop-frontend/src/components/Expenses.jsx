@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
-import { useSettings } from '../context/SettingsContext';
-import { useSupportView } from '../context/SupportViewContext';
+import { useSettings } from '../context/settingsContextValue';
+import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { Ban, Plus, Receipt, Wallet } from 'lucide-react';
 
@@ -57,7 +57,11 @@ export default function Expenses() {
   };
 
   useEffect(() => {
-    fetchDepenses();
+    const loadDepenses = async () => {
+      await fetchDepenses();
+    };
+
+    void loadDepenses();
   }, [modeSupport, boutiqueId]);
 
   const handleFiltreChange = (categorie) => {

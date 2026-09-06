@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
-import { useSettings } from '../context/SettingsContext';
-import { useSupportView } from '../context/SupportViewContext';
+import { useSettings } from '../context/settingsContextValue';
+import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { ShoppingCart, Plus, Trash2, CheckCircle } from 'lucide-react';
 
@@ -78,7 +78,11 @@ export default function Sales() {
   };
 
   useEffect(() => {
-    fetchCatalogue();
+    const loadCatalogue = async () => {
+      await fetchCatalogue();
+    };
+
+    void loadCatalogue();
   }, [modeSupport, boutiqueId]);
 
   const uniteOptions = prixParUnite[parseInt(selectedProduit)] || [];

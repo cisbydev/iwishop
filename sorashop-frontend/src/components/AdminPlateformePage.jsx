@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api, { getAll } from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
-import { useSupportView } from '../context/SupportViewContext';
+import { useSupportView } from '../context/supportViewContextValue';
 import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, CheckCircle, XCircle, Loader2, Copy, Store, Power, Search } from 'lucide-react';
 
@@ -16,7 +16,7 @@ function AdminLoginForm() {
     e.preventDefault();
     try {
       await login(username, password);
-    } catch (err) {
+    } catch {
       setError('Identifiants incorrects. Veuillez réessayer.');
     }
   };
@@ -113,7 +113,11 @@ function BoutiquesPanel() {
   }, []);
 
   useEffect(() => {
-    fetchBoutiques();
+    const loadBoutiques = async () => {
+      await fetchBoutiques();
+    };
+
+    void loadBoutiques();
   }, [fetchBoutiques]);
 
   const handleToggleActif = async (boutique) => {
@@ -255,7 +259,11 @@ function DemandesPanel() {
   }, []);
 
   useEffect(() => {
-    fetchDemandes();
+    const loadDemandes = async () => {
+      await fetchDemandes();
+    };
+
+    void loadDemandes();
   }, [fetchDemandes]);
 
   const handleApprouver = async (id) => {

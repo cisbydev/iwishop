@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
-import { useSupportView } from '../context/SupportViewContext';
-import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/supportViewContextValue';
+import { useSettings } from '../context/settingsContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, Tag, Trash2 } from 'lucide-react';
 
@@ -28,7 +28,11 @@ export default function Categories() {
   };
 
   useEffect(() => {
-    fetchCategories();
+    const loadCategories = async () => {
+      await fetchCategories();
+    };
+
+    void loadCategories();
   }, [modeSupport, boutiqueId]);
 
   const handleSubmit = async (e) => {

@@ -1,7 +1,6 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, LogOut } from 'lucide-react';
-import { useSupportView } from '../context/SupportViewContext';
+import { useSupportView } from '../context/supportViewContextValue';
 
 export default function SupportViewBanner() {
   const { actif, boutiqueNom, quitter } = useSupportView();

@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
-import { useSupportView } from '../context/SupportViewContext';
-import { useSettings } from '../context/SettingsContext';
+import { useSupportView } from '../context/supportViewContextValue';
+import { useSettings } from '../context/settingsContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, Truck, Pencil, Trash2, Phone, MapPin } from 'lucide-react';
 
@@ -31,7 +31,11 @@ export default function Suppliers() {
   };
 
   useEffect(() => {
-    fetchFournisseurs();
+    const loadFournisseurs = async () => {
+      await fetchFournisseurs();
+    };
+
+    void loadFournisseurs();
   }, [modeSupport, boutiqueId]);
 
   const ouvrirAjout = () => {

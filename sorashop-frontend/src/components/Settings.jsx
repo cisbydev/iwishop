@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/settingsContextValue';
 import Account from './Account';
 import Employees from './Employees';
 import AccesSupportHistorique from './AccesSupportHistorique';
@@ -58,7 +58,11 @@ function BoutiqueSettings() {
   };
 
   useEffect(() => {
-    fetchParametres();
+    const loadParametres = async () => {
+      await fetchParametres();
+    };
+
+    void loadParametres();
   }, []);
 
   const handleLogoChange = (e) => {

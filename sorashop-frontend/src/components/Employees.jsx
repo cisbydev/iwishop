@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
 import { Plus, UserCircle, UserX, UserCheck, ShieldCheck, ShieldOff } from 'lucide-react';
@@ -25,7 +25,11 @@ export default function Employees() {
   };
 
   useEffect(() => {
-    fetchEmployes();
+    const loadEmployes = async () => {
+      await fetchEmployes();
+    };
+
+    void loadEmployes();
   }, []);
 
   const handleSubmit = async (e) => {

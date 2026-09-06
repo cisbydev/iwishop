@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../services/api';
-import { useSettings } from '../context/SettingsContext';
-import { useSupportView } from '../context/SupportViewContext';
+import { useSettings } from '../context/settingsContextValue';
+import { useSupportView } from '../context/supportViewContextValue';
 import { DollarSign, ShoppingBag, AlertTriangle, TrendingUp, Award } from 'lucide-react';
 
 export default function Dashboard() {
@@ -13,17 +13,21 @@ export default function Dashboard() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setLoading(true);
-    setError('');
-    api.get('dashboard/kpis/')
-      .then(response => {
+    const loadKpis = async () => {
+      await Promise.resolve();
+      setLoading(true);
+      setError('');
+      try {
+        const response = await api.get('dashboard/kpis/');
         setKpis(response.data);
-        setLoading(false);
-      })
-      .catch(err => {
+      } catch {
         setError('Erreur lors du chargement des indicateurs.');
+      } finally {
         setLoading(false);
-      });
+      }
+    };
+
+    void loadKpis();
   }, [modeSupport, boutiqueId]);
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement du tableau de bord...</div>;

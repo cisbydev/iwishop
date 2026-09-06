@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
-import { useSupportView } from '../context/SupportViewContext';
+import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { PackagePlus, PackageMinus, ClipboardList, History } from 'lucide-react';
 
@@ -54,8 +54,11 @@ export default function Stock() {
   };
 
   useEffect(() => {
-    fetchProduits();
-    fetchMouvements();
+    const loadStockData = async () => {
+      await Promise.all([fetchProduits(), fetchMouvements()]);
+    };
+
+    void loadStockData();
   }, [modeSupport, boutiqueId]);
 
   const handleFiltreChange = (type) => {

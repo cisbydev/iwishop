@@ -1,9 +1,8 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import api from '../services/api';
 import { setSupportBoutiqueId } from '../services/supportViewState';
-
-const SupportViewContext = createContext(null);
+import { SupportViewContext } from './supportViewContextValue';
 
 export function SupportViewProvider({ children }) {
   // null = pas de session Vue Support en cours (comportement normal)
@@ -69,13 +68,4 @@ export function SupportViewProvider({ children }) {
       {children}
     </SupportViewContext.Provider>
   );
-}
-
-// const { actif, boutiqueNom, demarrer, quitter } = useSupportView();
-export function useSupportView() {
-  const context = useContext(SupportViewContext);
-  if (!context) {
-    throw new Error("useSupportView doit être utilisé à l'intérieur d'un <SupportViewProvider>");
-  }
-  return context;
 }

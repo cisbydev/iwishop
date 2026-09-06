@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import logoParDefaut from '../assets/iwishop-logo-removebg-preview.png';
 
@@ -12,7 +12,7 @@ export default function Login() {
     e.preventDefault();
     try {
       await login(username, password);
-    } catch (err) {
+    } catch {
       setError('Identifiants incorrects. Veuillez réessayer.');
     }
   };

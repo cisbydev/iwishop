@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getAll } from '../services/api';
-import { useSettings } from '../context/SettingsContext';
-import { useSupportView } from '../context/SupportViewContext';
-import { History, FileText, Calendar } from 'lucide-react';
+import { useSettings } from '../context/settingsContextValue';
+import { useSupportView } from '../context/supportViewContextValue';
+import { History, Calendar } from 'lucide-react';
 
 export default function SalesHistory() {
   const { parametres } = useSettings();
@@ -23,7 +23,11 @@ export default function SalesHistory() {
   };
 
   useEffect(() => {
-    fetchVentes();
+    const loadVentes = async () => {
+      await fetchVentes();
+    };
+
+    void loadVentes();
   }, [modeSupport, boutiqueId]);
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement de l'historique...</div>;

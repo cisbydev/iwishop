@@ -1,40 +1,43 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
-
-const SettingsContext = createContext(null);
+import { SettingsContext } from './settingsContextValue';
 
 export function SettingsProvider({ children }) {
   const [parametres, setParametres] = useState(null);
   const [utilisateur, setUtilisateur] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchParametres = async () => {
+  const fetchParametres = useCallback(async () => {
     try {
       const response = await api.get('parametres/');
       setParametres(response.data);
     } catch (err) {
       console.error("Erreur chargement des paramètres de la boutique", err);
     }
-  };
+  }, []);
 
-  const fetchUtilisateur = async () => {
+  const fetchUtilisateur = useCallback(async () => {
     try {
       const response = await api.get('accounts/me/');
       setUtilisateur(response.data);
     } catch (err) {
       console.error("Erreur chargement de l'utilisateur connecté", err);
     }
-  };
+  }, []);
 
-  const fetchTout = async () => {
+  const fetchTout = useCallback(async () => {
     setLoading(true);
     await Promise.all([fetchParametres(), fetchUtilisateur()]);
     setLoading(false);
-  };
+  }, [fetchParametres, fetchUtilisateur]);
 
   useEffect(() => {
-    fetchTout();
-  }, []);
+    const loadSettings = async () => {
+      await fetchTout();
+    };
+
+    void loadSettings();
+  }, [fetchTout]);
 
   return (
     <SettingsContext.Provider value={{
@@ -47,16 +50,4 @@ export function SettingsProvider({ children }) {
       {children}
     </SettingsContext.Provider>
   );
-}
-
-// Hook pratique à utiliser dans n'importe quel composant :
-// const { parametres, utilisateur } = useSettings();
-// const devise = parametres?.devise || 'FCFA';
-// const estProprietaire = utilisateur?.est_proprietaire;
-export function useSettings() {
-  const context = useContext(SettingsContext);
-  if (!context) {
-    throw new Error("useSettings doit être utilisé à l'intérieur d'un <SettingsProvider>");
-  }
-  return context;
 }

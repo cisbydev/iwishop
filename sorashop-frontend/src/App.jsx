@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Login from './components/Login';
 import DemandeAccesPage from './components/DemandeAccesPage';
@@ -15,8 +15,10 @@ import Reports from './components/Reports';
 import Settings from './components/Settings';
 import Sales from './components/Sales';
 import SalesHistory from './components/SalesHistory';
-import { SettingsProvider, useSettings } from './context/SettingsContext';
-import { SupportViewProvider, useSupportView } from './context/SupportViewContext';
+import { SettingsProvider } from './context/SettingsContext';
+import { useSettings } from './context/settingsContextValue';
+import { SupportViewProvider } from './context/SupportViewContext';
+import { useSupportView } from './context/supportViewContextValue';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import SupportViewBanner from './components/SupportViewBanner';
 import AbonnementBanner from './components/AbonnementBanner';
