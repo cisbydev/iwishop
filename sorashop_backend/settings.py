@@ -2,11 +2,26 @@ from pathlib import Path
 from decouple import config  # <-- nouvelle ligne
 import dj_database_url
 from corsheaders.defaults import default_headers
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY')                          # <-- remplace l'ancienne ligne
 DEBUG = config('DEBUG', default=False, cast=bool)           # <-- remplace l'ancienne ligne DEBUG = True
+
+# Sentry remains entirely inactive until a DSN is supplied by the environment.
+SENTRY_DSN = config('SENTRY_DSN', default='')
+if SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        integrations=[DjangoIntegration()],
+        environment=config(
+            'SENTRY_ENVIRONMENT', default='development' if DEBUG else 'production'
+        ),
+        send_default_pii=False,
+        traces_sample_rate=0.0,
+    )
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost', cast=lambda v: [s.strip() for s in v.split(',')])
 
