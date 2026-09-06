@@ -17,6 +17,14 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 
 
+class HealthCheckTests(TestCase):
+    def test_anonymous_get_returns_ok_status(self):
+        response = self.client.get('/api/health/', secure=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {'status': 'ok'})
+
+
 class JWTAccessTokenLifetimeTests(TestCase):
     """Point 10 de l'audit : ACCESS_TOKEN_LIFETIME réduit à 15 minutes.
     Vérifie le contrat backend dont dépend le rafraîchissement automatique
