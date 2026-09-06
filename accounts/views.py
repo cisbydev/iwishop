@@ -8,7 +8,7 @@ from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, TokenError
 from rest_framework_simplejwt.settings import api_settings
@@ -25,15 +25,6 @@ from .serializers import (
 from .serializers_auth import CustomTokenObtainPairSerializer
 from .permissions import IsOwner
 from .throttling import LoginIPRateThrottle, LoginUsernameRateThrottle
-
-
-class IsSuperuser(BasePermission):
-    """Allow access only to authenticated Django superusers."""
-
-    message = "Accès réservé aux superutilisateurs."
-
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.is_superuser)
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -180,15 +171,6 @@ class CsrfTokenView(APIView):
         # csrftoken cookie. It receives this masked value instead and keeps it
         # only in memory; the browser still returns the CSRF cookie itself.
         return Response({'csrfToken': get_token(request)})
-
-
-class SentryTestView(APIView):
-    """Temporary, superuser-only endpoint for validating Sentry in production."""
-
-    permission_classes = [IsAuthenticated, IsSuperuser]
-
-    def get(self, request):
-        raise RuntimeError("IwiShop Sentry production test")
 
 
 class MeView(APIView):

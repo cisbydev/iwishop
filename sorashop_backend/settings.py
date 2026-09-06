@@ -19,7 +19,6 @@ if SENTRY_DSN:
         environment=config(
             'SENTRY_ENVIRONMENT', default='development' if DEBUG else 'production'
         ),
-        debug=config('SENTRY_DEBUG', default=False, cast=bool),
         send_default_pii=False,
         traces_sample_rate=0.0,
     )

@@ -7,7 +7,6 @@ from accounts.views import (
     CsrfTokenView,
     CustomTokenObtainPairView,
     LogoutView,
-    SentryTestView,
 )
 
 urlpatterns = [
@@ -18,7 +17,6 @@ urlpatterns = [
     path('api/token/refresh/', CookieTokenRefreshView.as_view(), name='token_refresh'),
     path('api/token/logout/', LogoutView.as_view(), name='token_logout'),
     path('api/csrf/', CsrfTokenView.as_view(), name='csrf_token'),
-    path('api/internal/sentry-test/', SentryTestView.as_view(), name='sentry_test'),
     
     # Routes des modules
     path('api/tenants/', include('tenants.urls')),
