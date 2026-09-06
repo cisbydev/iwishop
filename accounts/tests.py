@@ -17,6 +17,35 @@ from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, Ou
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 
 
+class SentryTestEndpointAccessTests(APITestCase):
+    """The temporary Sentry endpoint must remain superuser-only."""
+
+    def setUp(self):
+        self.url = '/api/internal/sentry-test/'
+        self.user = User.objects.create_user(username='sentry_user', password='pass1234')
+        self.superuser = User.objects.create_superuser(
+            username='sentry_admin', password='pass1234', email='admin@example.com'
+        )
+
+    def test_anonymous_user_cannot_trigger_the_exception(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_non_superuser_cannot_trigger_the_exception(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_superuser_triggers_the_intentional_exception(self):
+        self.client.force_authenticate(user=self.superuser)
+
+        with self.assertRaisesRegex(RuntimeError, 'IwiShop Sentry production test'):
+            self.client.get(self.url)
+
+
 class JWTAccessTokenLifetimeTests(TestCase):
     """Point 10 de l'audit : ACCESS_TOKEN_LIFETIME réduit à 15 minutes.
     Vérifie le contrat backend dont dépend le rafraîchissement automatique
