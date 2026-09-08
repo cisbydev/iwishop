@@ -179,6 +179,7 @@ REST_FRAMEWORK = {
     'DEFAULT_THROTTLE_RATES': {
         'login_ip': '10/min',
         'login_username': '5/min',
+        'demande_acces': '5/hour',
     },
 }
 
@@ -189,6 +190,9 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
+    # SimpleJWT lie chaque token au hash actuel du mot de passe. Ainsi, une
+    # modification de mot de passe révoque les access tokens déjà émis.
+    'CHECK_REVOKE_TOKEN': True,
 }
 
 # Le refresh JWT ne doit jamais etre accessible a JavaScript. Ces options sont

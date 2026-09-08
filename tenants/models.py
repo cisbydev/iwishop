@@ -15,7 +15,13 @@ class Boutique(models.Model):
         """Pas d'abonnement configuré = accès autorisé (boutiques existantes/test)."""
         if not hasattr(self, 'abonnement'):
             return True
-        return self.abonnement.date_fin >= timezone.localdate()
+        abonnement = self.abonnement
+        aujourdhui = timezone.localdate()
+        return (
+            abonnement.statut == 'ACTIF'
+            and abonnement.date_debut <= aujourdhui
+            and abonnement.date_fin >= aujourdhui
+        )
 
     def info_abonnement(self):
         """Statut d'abonnement condensé, utilisé par mon-abonnement/ et par la liste des boutiques (admin plateforme)."""

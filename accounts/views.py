@@ -13,6 +13,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.exceptions import AuthenticationFailed, TokenError
 from rest_framework_simplejwt.settings import api_settings
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.utils import get_md5_hash_password
 from django.contrib.auth.models import User
 
 from tenants.mixins import BoutiqueScopedMixin
@@ -79,11 +80,21 @@ def _user_from_refresh(refresh):
     user_model = get_user_model()
     try:
         user_id = refresh[api_settings.USER_ID_CLAIM]
-        return user_model._default_manager.get(
+        user = user_model._default_manager.get(
             **{api_settings.USER_ID_FIELD: user_id}
         )
     except (KeyError, user_model.DoesNotExist):
         raise AuthenticationFailed('Refresh token invalide.')
+
+    # CHECK_REVOKE_TOKEN est vérifié par JWTAuthentication pour les access
+    # tokens. Ce flux de refresh est volontairement personnalisé pour lire le
+    # cookie HttpOnly, donc il doit appliquer la même vérification avant de
+    # produire un nouvel access token.
+    if api_settings.CHECK_REVOKE_TOKEN:
+        if refresh.get(api_settings.REVOKE_TOKEN_CLAIM) != get_md5_hash_password(user.password):
+            raise AuthenticationFailed('Le mot de passe a été modifié.')
+
+    return user
 
 
 @method_decorator(csrf_protect, name='dispatch')

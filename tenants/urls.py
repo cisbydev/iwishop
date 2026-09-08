@@ -2,7 +2,8 @@ from django.urls import path
 from .views import (
     DemandeAccesCreateView, DemandeAccesListView, ApprouverDemandeView, RejeterDemandeView,
     BoutiqueListView, ToggleBoutiqueActifView, DemarrerVueSupportView, MesAccesSupportView,
-    MonAbonnementView, FormuleAbonnementListView, CreerPaiementView, PaydunyaWebhookView,
+    MonAbonnementView, FormuleAbonnementListView, CreerPaiementView, PaiementAbonnementStatutView,
+    PaydunyaWebhookView,
 )
 
 urlpatterns = [
@@ -17,5 +18,6 @@ urlpatterns = [
     path('mon-abonnement/', MonAbonnementView.as_view(), name='mon-abonnement'),
     path('formules-abonnement/', FormuleAbonnementListView.as_view(), name='formules-abonnement'),
     path('creer-paiement/', CreerPaiementView.as_view(), name='creer-paiement'),
+    path('paiements-abonnement/<str:paiement_id>/', PaiementAbonnementStatutView.as_view(), name='paiement-abonnement-statut'),
     path('paydunya-webhook/', PaydunyaWebhookView.as_view(), name='paydunya-webhook'),
 ]

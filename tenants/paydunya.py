@@ -39,6 +39,11 @@ def creer_facture(paiement):
     frontend_url = config('FRONTEND_URL', default='http://localhost:5174')
     backend_url = config('BACKEND_URL', default='http://127.0.0.1:8001')
 
+    # L'identifiant interne est uniquement un pointeur vers le paiement : au
+    # retour, l'API authentifiée vérifiera toujours qu'il appartient à la
+    # boutique connectée avant d'en révéler le statut.
+    retour_paiement_url = f"{frontend_url}/abonnement/retour?paiement_id={paiement.id}"
+
     payload = {
         "invoice": {
             "total_amount": int(paiement.formule.prix),
@@ -53,8 +58,8 @@ def creer_facture(paiement):
             "formule_id": paiement.formule_id,
         },
         "actions": {
-            "cancel_url": f"{frontend_url}/abonnement/retour",
-            "return_url": f"{frontend_url}/abonnement/retour",
+            "cancel_url": retour_paiement_url,
+            "return_url": retour_paiement_url,
             "callback_url": f"{backend_url}/api/tenants/paydunya-webhook/",
         },
     }

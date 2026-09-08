@@ -17,6 +17,7 @@ from .emails import envoyer_identifiants_email, notifier_nouvelle_demande, envoy
 from . import paydunya
 from .services import confirmer_paiement
 from .profil import boutique_de
+from .throttling import DemandeAccesRateThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class DemandeAccesCreateView(generics.CreateAPIView):
     queryset = DemandeAcces.objects.all()
     serializer_class = DemandeAccesSerializer
     permission_classes = [AllowAny]
+    throttle_classes = [DemandeAccesRateThrottle]
 
     def perform_create(self, serializer):
         demande = serializer.save()
@@ -275,23 +277,41 @@ class CreerPaiementView(APIView):
 
         boutique = boutique_de(request)
 
-        paiement_recent = PaiementAbonnement.objects.filter(
-            boutique=boutique,
-            formule=formule,
-            statut='EN_ATTENTE',
-            date_creation__gte=timezone.now() - FENETRE_REUTILISATION_PAIEMENT,
-        ).exclude(url_paiement='').order_by('-date_creation').first()
+        # Le verrou porte sur une ligne stable (Boutique), pas sur une
+        # recherche vide de PaiementAbonnement. Deux requêtes concurrentes
+        # pour une même boutique sont ainsi sérialisées avant de réserver une
+        # facture locale ; l'appel réseau PayDunya reste hors transaction.
+        with transaction.atomic():
+            boutique_verrouillee = Boutique.objects.select_for_update().get(pk=boutique.pk)
+            paiement_recent = PaiementAbonnement.objects.filter(
+                boutique=boutique_verrouillee,
+                formule=formule,
+                statut='EN_ATTENTE',
+                date_creation__gte=timezone.now() - FENETRE_REUTILISATION_PAIEMENT,
+            ).order_by('-date_creation').first()
 
-        if paiement_recent:
-            return Response({"url_paiement": paiement_recent.url_paiement})
+            if paiement_recent:
+                if paiement_recent.url_paiement:
+                    return Response({
+                        "url_paiement": paiement_recent.url_paiement,
+                        "paiement_id": paiement_recent.id,
+                    })
+                # Une autre requête a déjà réservé ce paiement et appelle
+                # PayDunya. Ne pas créer une seconde invoice pendant ce court
+                # intervalle sans URL.
+                return Response(
+                    {"detail": "Création du paiement en cours. Réessaie dans un instant."},
+                    status=status.HTTP_409_CONFLICT,
+                )
 
-        # Figé maintenant plutôt que relu depuis formule.prix à la
-        # confirmation - protège contre un changement de prix de la
-        # formule entre la création de la facture et son paiement (audit
-        # point 7).
-        paiement = PaiementAbonnement.objects.create(
-            boutique=boutique, formule=formule, montant_attendu=formule.prix
-        )
+            # Figé maintenant plutôt que relu depuis formule.prix à la
+            # confirmation - protège contre un changement de prix de la
+            # formule entre la création de la facture et son paiement.
+            paiement = PaiementAbonnement.objects.create(
+                boutique=boutique_verrouillee,
+                formule=formule,
+                montant_attendu=formule.prix,
+            )
 
         ok, resultat = paydunya.creer_facture(paiement)
         if not ok:
@@ -306,7 +326,31 @@ class CreerPaiementView(APIView):
         paiement.url_paiement = resultat['url']
         paiement.save(update_fields=['invoice_token', 'url_paiement'])
 
-        return Response({"url_paiement": resultat['url']})
+        return Response({"url_paiement": resultat['url'], "paiement_id": paiement.id})
+
+
+class PaiementAbonnementStatutView(APIView):
+    """Retourne le statut du paiement demandé, uniquement à sa boutique.
+
+    L'identifiant transmis par le navigateur n'est jamais une preuve de
+    paiement : seul le statut enregistré après la confirmation PayDunya
+    serveur-à-serveur est exposé ici.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, paiement_id, *args, **kwargs):
+        boutique = boutique_de(request)
+        try:
+            paiement = PaiementAbonnement.objects.get(pk=int(paiement_id), boutique=boutique)
+        except (PaiementAbonnement.DoesNotExist, TypeError, ValueError):
+            # Même réponse pour un identifiant inexistant ou appartenant à
+            # une autre boutique, afin de ne pas divulguer son existence.
+            return Response(
+                {"detail": "Paiement introuvable."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({"id": paiement.id, "statut": paiement.statut})
 
 class PaydunyaWebhookView(APIView):
     """Réception de l'IPN PayDunya. PUBLIC (PayDunya ne peut pas s'authentifier

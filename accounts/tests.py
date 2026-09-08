@@ -263,6 +263,80 @@ class JWTAccessTokenLifetimeTests(TestCase):
         self.assertEqual(rejeu.status_code, 200)
 
 
+class PasswordChangeSessionRevocationTests(TestCase):
+    """Un changement de mot de passe doit invalider les tokens de cet
+    utilisateur, sans affecter les sessions des autres utilisateurs."""
+
+    def setUp(self):
+        cache.clear()
+        boutique = Boutique.objects.create(nom='Boutique révocation', slug='boutique-revocation')
+        self.user = User.objects.create_user(username='utilisateur_revoque', password='ancien-mot-de-passe')
+        Profil.objects.create(user=self.user, boutique=boutique, est_proprietaire=True)
+        self.autre_user = User.objects.create_user(username='autre_utilisateur', password='mot-de-passe-autre')
+        Profil.objects.create(user=self.autre_user, boutique=boutique, est_proprietaire=False)
+        self.client = APIClient()
+
+    def tearDown(self):
+        cache.clear()
+
+    def _login(self, username, password, client=None):
+        return (client or self.client).post('/api/token/', {'username': username, 'password': password})
+
+    def _refresh_cookie(self, response):
+        return response.cookies[settings.JWT_REFRESH_COOKIE_NAME].value
+
+    def test_changement_mot_de_passe_revoque_access_et_refresh_mais_pas_autre_utilisateur(self):
+        login = self._login('utilisateur_revoque', 'ancien-mot-de-passe')
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+        ancien_access = login.data['access']
+        ancien_refresh = self._refresh_cookie(login)
+
+        autre_client = APIClient()
+        autre_login = self._login('autre_utilisateur', 'mot-de-passe-autre', autre_client)
+        self.assertEqual(autre_login.status_code, status.HTTP_200_OK)
+
+        # Le refresh est normal avant le changement de mot de passe.
+        refresh_avant = self.client.post('/api/token/refresh/', {})
+        self.assertEqual(refresh_avant.status_code, status.HTTP_200_OK)
+        refresh_avant_changement = self._refresh_cookie(refresh_avant)
+        access_avant_changement = refresh_avant.data['access']
+
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access_avant_changement}')
+        changement = self.client.post('/api/accounts/change-password/', {
+            'ancien_mot_de_passe': 'ancien-mot-de-passe',
+            'nouveau_mot_de_passe': 'nouveau-mot-de-passe-solide',
+        })
+        self.assertEqual(changement.status_code, status.HTTP_200_OK)
+
+        # Les deux access tokens précédents échouent désormais sur une route protégée.
+        for access in (ancien_access, access_avant_changement):
+            client_access = APIClient()
+            client_access.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+            self.assertEqual(client_access.get('/api/accounts/me/').status_code, status.HTTP_401_UNAUTHORIZED)
+
+        # Un refresh émis avant le changement ne peut plus créer d'access token.
+        for refresh in (ancien_refresh, refresh_avant_changement):
+            client_refresh = APIClient()
+            client_refresh.cookies[settings.JWT_REFRESH_COOKIE_NAME] = refresh
+            self.assertEqual(
+                client_refresh.post('/api/token/refresh/', {}).status_code,
+                status.HTTP_401_UNAUTHORIZED,
+            )
+
+        self.assertEqual(
+            self._login('utilisateur_revoque', 'ancien-mot-de-passe', APIClient()).status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+        nouvelle_connexion = self._login(
+            'utilisateur_revoque', 'nouveau-mot-de-passe-solide', APIClient()
+        )
+        self.assertEqual(nouvelle_connexion.status_code, status.HTTP_200_OK)
+
+        # Le changement de mot de passe de cet utilisateur ne révoque pas
+        # la session de l'autre utilisateur.
+        self.assertEqual(autre_client.post('/api/token/refresh/', {}).status_code, status.HTTP_200_OK)
+
+
 class EmployeDesactivationTests(APITestCase):
     """P2 point 16 : supprimer un employé désactive son compte
     (is_active=False) au lieu de le supprimer réellement, pour ne pas

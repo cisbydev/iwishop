@@ -1,11 +1,18 @@
 import hashlib
+import itertools
+import threading
+import time
 from decimal import Decimal
+from unittest import skipUnless
 from unittest.mock import Mock, patch
 
 from decouple import config
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.cache import cache
+from django.db import connection, connections
+from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
+from rest_framework import status
 from rest_framework.test import APIClient
 
 from . import paydunya
@@ -19,6 +26,217 @@ def hash_paydunya_valide():
     tests webhook envoient un hash accepté sans dupliquer de secret en dur."""
     master_key = config('PAYDUNYA_MASTER_KEY')
     return hashlib.sha512(master_key.encode('utf-8')).hexdigest()
+
+
+class DemandeAccesThrottlingTests(TestCase):
+    """Le formulaire public est limité par IP sans affecter les autres
+    routes publiques. Le cache est isolé entre chaque test."""
+
+    LIMITE = 5
+
+    def setUp(self):
+        cache.clear()
+        horloge_simulee = itertools.count(0.0, 0.01)
+        patcher_horloge = patch(
+            'rest_framework.throttling.SimpleRateThrottle.timer',
+            new=staticmethod(lambda: next(horloge_simulee)),
+        )
+        patcher_horloge.start()
+        self.addCleanup(patcher_horloge.stop)
+        self.addCleanup(cache.clear)
+        self.client = APIClient()
+
+    def _donnees(self, index=0):
+        return {
+            'nom_contact': f'Commerçant {index}',
+            'email': f'commercant{index}@example.com',
+            'telephone': f'700000{index:02d}',
+            'nom_boutique_souhaite': f'Boutique {index}',
+        }
+
+    @patch('tenants.views.notifier_nouvelle_demande')
+    def test_premiere_demande_valide_cree_la_demande_et_notifie(self, mock_notifier):
+        response = self.client.post('/api/tenants/demande-acces/', self._donnees())
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(DemandeAcces.objects.count(), 1)
+        demande = DemandeAcces.objects.get()
+        self.assertEqual(demande.email, 'commercant0@example.com')
+        mock_notifier.assert_called_once_with(
+            nom_contact=demande.nom_contact,
+            email_contact=demande.email,
+            nom_boutique_souhaite=demande.nom_boutique_souhaite,
+            telephone=demande.telephone,
+        )
+
+    @patch('tenants.views.notifier_nouvelle_demande')
+    def test_x_forwarded_for_falsifie_ne_contourne_pas_la_limite(self, mock_notifier):
+        ip_reelle = '203.0.113.10'
+        for index in range(self.LIMITE):
+            response = self.client.post(
+                '/api/tenants/demande-acces/',
+                self._donnees(index),
+                HTTP_CF_CONNECTING_IP=ip_reelle,
+                HTTP_X_FORWARDED_FOR=f'198.51.100.{index}',
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.post(
+            '/api/tenants/demande-acces/',
+            self._donnees(self.LIMITE),
+            HTTP_CF_CONNECTING_IP=ip_reelle,
+            HTTP_X_FORWARDED_FOR='198.51.100.250',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(DemandeAcces.objects.count(), self.LIMITE)
+        self.assertEqual(mock_notifier.call_count, self.LIMITE)
+
+    @patch('tenants.views.notifier_nouvelle_demande')
+    def test_ips_reelles_differentes_utilisent_des_quotas_distincts(self, mock_notifier):
+        premiere_ip = '203.0.113.11'
+        for index in range(self.LIMITE):
+            self.client.post(
+                '/api/tenants/demande-acces/',
+                self._donnees(index),
+                HTTP_CF_CONNECTING_IP=premiere_ip,
+            )
+
+        refusee = self.client.post(
+            '/api/tenants/demande-acces/',
+            self._donnees(self.LIMITE),
+            HTTP_CF_CONNECTING_IP=premiere_ip,
+        )
+        acceptee = self.client.post(
+            '/api/tenants/demande-acces/',
+            self._donnees(self.LIMITE + 1),
+            HTTP_CF_CONNECTING_IP='203.0.113.12',
+        )
+
+        self.assertEqual(refusee.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(acceptee.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(DemandeAcces.objects.count(), self.LIMITE + 1)
+        self.assertEqual(mock_notifier.call_count, self.LIMITE + 1)
+
+    @patch('tenants.views.notifier_nouvelle_demande')
+    def test_demande_invalide_ne_declenche_pas_d_email(self, mock_notifier):
+        donnees = self._donnees()
+        donnees['email'] = 'email-invalide'
+
+        response = self.client.post('/api/tenants/demande-acces/', donnees)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(DemandeAcces.objects.count(), 0)
+        mock_notifier.assert_not_called()
+
+    @patch('tenants.views.notifier_nouvelle_demande')
+    def test_throttle_ne_s_applique_pas_aux_autres_routes_publiques(self, mock_notifier):
+        for index in range(self.LIMITE):
+            self.client.post('/api/tenants/demande-acces/', self._donnees(index))
+
+        self.assertEqual(
+            self.client.post('/api/tenants/demande-acces/', self._donnees(self.LIMITE)).status_code,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+        self.assertEqual(self.client.get('/api/health/').status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_notifier.call_count, self.LIMITE)
+
+
+class AbonnementValideTests(TestCase):
+    """La validité d'un abonnement dépend de son statut et de sa période."""
+
+    def setUp(self):
+        self.aujourdhui = timezone.localdate()
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Formule validation abonnement', duree_jours=30, prix=5000, actif=True
+        )
+
+    def _boutique(self, suffixe):
+        return Boutique.objects.create(
+            nom=f'Boutique validité {suffixe}', slug=f'boutique-validite-{suffixe}'
+        )
+
+    def _abonnement(self, suffixe, statut='ACTIF', date_debut=None, date_fin=None, formule=None):
+        boutique = self._boutique(suffixe)
+        abonnement = Abonnement.objects.create(
+            boutique=boutique,
+            formule=formule or self.formule,
+            statut=statut,
+            date_debut=date_debut or self.aujourdhui,
+            date_fin=date_fin or self.aujourdhui + timezone.timedelta(days=30),
+        )
+        return boutique, abonnement
+
+    def test_abonnement_actif_non_expire_est_valide(self):
+        boutique, _ = self._abonnement('actif')
+
+        self.assertTrue(boutique.abonnement_valide())
+
+    def test_abonnement_actif_expire_est_invalide_meme_si_statut_non_mis_a_jour(self):
+        boutique, abonnement = self._abonnement(
+            'actif-expire', date_fin=self.aujourdhui - timezone.timedelta(days=1)
+        )
+
+        self.assertEqual(abonnement.statut, 'ACTIF')
+        self.assertFalse(boutique.abonnement_valide())
+
+    def test_abonnement_en_attente_avec_date_future_est_invalide(self):
+        boutique, _ = self._abonnement('en-attente', statut='EN_ATTENTE')
+
+        self.assertFalse(boutique.abonnement_valide())
+
+    def test_abonnement_expire_avec_date_future_est_invalide(self):
+        boutique, _ = self._abonnement('expire', statut='EXPIRE')
+
+        self.assertFalse(boutique.abonnement_valide())
+
+    def test_abonnement_actif_qui_n_a_pas_commence_est_invalide(self):
+        boutique, _ = self._abonnement(
+            'a-venir', date_debut=self.aujourdhui + timezone.timedelta(days=1)
+        )
+
+        self.assertFalse(boutique.abonnement_valide())
+
+    def test_boutique_sans_abonnement_conserve_l_acces_historique(self):
+        boutique = self._boutique('sans-abonnement')
+
+        self.assertTrue(boutique.abonnement_valide())
+
+    def test_essai_gratuit_actif_puis_expire_suit_la_meme_regle(self):
+        formule_essai = FormuleAbonnement.objects.create(
+            nom='Essai gratuit', duree_jours=14, prix=0, actif=False
+        )
+        boutique_active, _ = self._abonnement(
+            'essai-actif', formule=formule_essai, date_fin=self.aujourdhui + timezone.timedelta(days=14)
+        )
+        boutique_expire, _ = self._abonnement(
+            'essai-expire', formule=formule_essai, date_fin=self.aujourdhui - timezone.timedelta(days=1)
+        )
+
+        self.assertTrue(boutique_active.abonnement_valide())
+        self.assertFalse(boutique_expire.abonnement_valide())
+
+    def test_paiement_confirme_active_un_abonnement_valide(self):
+        boutique = self._boutique('paiement-confirme')
+        paiement = PaiementAbonnement.objects.create(
+            boutique=boutique, formule=self.formule, montant_attendu=self.formule.prix
+        )
+
+        self.assertTrue(confirmer_paiement(paiement.id))
+        paiement.refresh_from_db()
+
+        self.assertEqual(paiement.statut, 'CONFIRME')
+        self.assertEqual(boutique.abonnement.statut, 'ACTIF')
+        self.assertTrue(boutique.abonnement_valide())
+
+    def test_paiement_non_confirme_ne_valide_pas_un_abonnement_en_attente(self):
+        boutique, _ = self._abonnement('paiement-en-attente', statut='EN_ATTENTE')
+        paiement = PaiementAbonnement.objects.create(
+            boutique=boutique, formule=self.formule, montant_attendu=self.formule.prix
+        )
+
+        self.assertEqual(paiement.statut, 'EN_ATTENTE')
+        self.assertFalse(boutique.abonnement_valide())
 
 
 class EssaiGratuitApprouverDemandeTests(TestCase):
@@ -259,6 +477,7 @@ class CreerPaiementDedoublonnageTests(TestCase):
         self.assertEqual(reponse_1.status_code, 200)
         self.assertEqual(reponse_2.status_code, 200)
         self.assertEqual(reponse_1.data['url_paiement'], reponse_2.data['url_paiement'])
+        self.assertEqual(reponse_1.data['paiement_id'], reponse_2.data['paiement_id'])
         mock_creer.assert_called_once()
         self.assertEqual(
             PaiementAbonnement.objects.filter(boutique=self.boutique, formule=self.formule).count(), 1
@@ -292,6 +511,214 @@ class CreerPaiementDedoublonnageTests(TestCase):
         self.client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
 
         self.assertEqual(mock_creer.call_count, 2)
+
+    @patch('tenants.views.paydunya.creer_facture')
+    def test_echec_paydunya_ne_bloque_pas_un_nouveau_paiement(self, mock_creer):
+        mock_creer.return_value = (False, 'erreur temporaire')
+
+        echec = self.client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+
+        self.assertEqual(echec.status_code, 502)
+        self.assertEqual(
+            PaiementAbonnement.objects.get(boutique=self.boutique, formule=self.formule).statut,
+            'ECHEC',
+        )
+
+        mock_creer.return_value = (True, {'token': 'tok-apres-echec', 'url': 'https://paydunya.test/checkout/apres-echec'})
+        succes = self.client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+
+        self.assertEqual(succes.status_code, 200)
+        self.assertEqual(
+            PaiementAbonnement.objects.filter(boutique=self.boutique, formule=self.formule).count(), 2
+        )
+
+    @patch('tenants.views.paydunya.creer_facture')
+    def test_boutiques_differentes_creent_leurs_paiements_independamment(self, mock_creer):
+        mock_creer.side_effect = [
+            (True, {'token': 'tok-a', 'url': 'https://paydunya.test/checkout/a'}),
+            (True, {'token': 'tok-b', 'url': 'https://paydunya.test/checkout/b'}),
+        ]
+        autre_boutique = Boutique.objects.create(nom='Boutique Dedup B', slug='boutique-dedup-b')
+        autre_user = User.objects.create_user(username='owner_dedup_b', password='x')
+        Profil.objects.create(user=autre_user, boutique=autre_boutique, est_proprietaire=True)
+        autre_client = APIClient()
+        autre_client.force_authenticate(user=autre_user)
+
+        premier = self.client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+        second = autre_client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+
+        self.assertEqual(premier.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(PaiementAbonnement.objects.filter(formule=self.formule, statut='EN_ATTENTE').count(), 2)
+
+
+@skipUnless(connection.vendor == 'postgresql', 'Le verrou de ligne est testé sur PostgreSQL uniquement.')
+class CreerPaiementConcurrentTests(TransactionTestCase):
+    """Reproduit deux requêtes réellement concurrentes avec deux connexions
+    PostgreSQL. SQLite ne représente pas les verrous de production."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom='Boutique Concurrente', slug='boutique-concurrente')
+        self.owner = User.objects.create_user(username='owner_concurrent', password='x')
+        Profil.objects.create(user=self.owner, boutique=self.boutique, est_proprietaire=True)
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Mensuel concurrent', duree_jours=30, prix=5000, actif=True
+        )
+
+    def test_deux_requetes_concurrentes_ne_creent_qu_une_invoice(self):
+        barriere = threading.Barrier(2)
+        facture_demarre = threading.Event()
+        liberer_facture = threading.Event()
+        resultats = []
+        erreurs = []
+        verrou_resultats = threading.Lock()
+
+        def creer_facture_lentement(paiement):
+            facture_demarre.set()
+            liberer_facture.wait(timeout=10)
+            return True, {
+                'token': f'tok-concurrent-{paiement.id}',
+                'url': f'https://paydunya.test/checkout/{paiement.id}',
+            }
+
+        def requete_concurrente():
+            connections.close_all()
+            client = APIClient()
+            client.force_authenticate(user=self.owner)
+            try:
+                barriere.wait(timeout=10)
+                response = client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+                with verrou_resultats:
+                    resultats.append(response.status_code)
+            except Exception as erreur:
+                with verrou_resultats:
+                    erreurs.append(erreur)
+            finally:
+                connections.close_all()
+
+        with patch('tenants.views.paydunya.creer_facture', side_effect=creer_facture_lentement) as mock_creer:
+            threads = [threading.Thread(target=requete_concurrente) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+
+            self.assertTrue(facture_demarre.wait(timeout=10), repr(erreurs))
+            limite_attente = time.monotonic() + 10
+            while not resultats and time.monotonic() < limite_attente:
+                time.sleep(0.01)
+            self.assertEqual(resultats, [status.HTTP_409_CONFLICT])
+            liberer_facture.set()
+            for thread in threads:
+                thread.join(timeout=15)
+
+        self.assertFalse(erreurs)
+        self.assertEqual(sorted(resultats), [status.HTTP_200_OK, status.HTTP_409_CONFLICT])
+        self.assertEqual(mock_creer.call_count, 1)
+        self.assertEqual(
+            PaiementAbonnement.objects.filter(
+                boutique=self.boutique,
+                formule=self.formule,
+                statut='EN_ATTENTE',
+            ).count(),
+            1,
+        )
+
+
+class PaiementAbonnementStatutViewTests(TestCase):
+    """Le retour frontend consulte le paiement précis, jamais l'état global
+    de l'abonnement de la boutique."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom='Boutique Paiement', slug='boutique-paiement')
+        self.owner = User.objects.create_user(username='owner_paiement', password='x')
+        Profil.objects.create(user=self.owner, boutique=self.boutique, est_proprietaire=True)
+        self.autre_boutique = Boutique.objects.create(nom='Autre Boutique', slug='autre-boutique')
+        self.autre_owner = User.objects.create_user(username='autre_owner_paiement', password='x')
+        Profil.objects.create(user=self.autre_owner, boutique=self.autre_boutique, est_proprietaire=True)
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Mensuel statut', duree_jours=30, prix=5000, actif=True
+        )
+        self.paiement = PaiementAbonnement.objects.create(
+            boutique=self.boutique, formule=self.formule, montant_attendu=self.formule.prix,
+        )
+        self.client = APIClient()
+
+    def _url(self, paiement_id=None):
+        return f'/api/tenants/paiements-abonnement/{paiement_id or self.paiement.id}/'
+
+    def test_proprietaire_consulte_son_paiement_en_attente_malgre_abonnement_valide(self):
+        # Régression critique : l'abonnement courant ne confirme pas un
+        # nouveau renouvellement encore EN_ATTENTE.
+        Abonnement.objects.create(
+            boutique=self.boutique,
+            formule=self.formule,
+            date_debut=timezone.localdate(),
+            date_fin=timezone.localdate() + timezone.timedelta(days=10),
+            statut='ACTIF',
+        )
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {'id': self.paiement.id, 'statut': 'EN_ATTENTE'})
+
+    def test_paiement_confirme_est_retourne_comme_confirme(self):
+        self.paiement.statut = 'CONFIRME'
+        self.paiement.save(update_fields=['statut'])
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['statut'], 'CONFIRME')
+
+    def test_autre_boutique_ne_peut_pas_consulter_le_paiement(self):
+        self.client.force_authenticate(user=self.autre_owner)
+
+        response = self.client.get(self._url())
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data, {'detail': 'Paiement introuvable.'})
+
+    def test_identifiant_inexistant_retourne_la_meme_reponse_sans_fuite(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(self._url(999999))
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data, {'detail': 'Paiement introuvable.'})
+
+    def test_identifiant_invalide_retourne_une_reponse_propre(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get('/api/tenants/paiements-abonnement/invalide/')
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data, {'detail': 'Paiement introuvable.'})
+
+    @patch('tenants.paydunya.config')
+    @patch('tenants.paydunya.requests.post')
+    def test_facture_paydunya_retourne_avec_l_identifiant_du_paiement(self, mock_post, mock_config):
+        def valeur_config(nom, default=None):
+            return {
+                'FRONTEND_URL': 'https://frontend.test',
+                'BACKEND_URL': 'https://backend.test',
+            }.get(nom, default or 'cle-test')
+
+        mock_config.side_effect = valeur_config
+        mock_post.return_value.json.return_value = {
+            'response_code': '00',
+            'token': 'token-test',
+            'response_text': 'https://paydunya.test/checkout',
+        }
+
+        ok, _ = paydunya.creer_facture(self.paiement)
+
+        self.assertTrue(ok)
+        actions = mock_post.call_args.kwargs['json']['actions']
+        url_attendue = f'https://frontend.test/abonnement/retour?paiement_id={self.paiement.id}'
+        self.assertEqual(actions['return_url'], url_attendue)
+        self.assertEqual(actions['cancel_url'], url_attendue)
 
 
 class WebhookNonRegressionTests(TestCase):
