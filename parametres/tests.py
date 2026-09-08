@@ -1,8 +1,12 @@
+from copy import deepcopy
 from io import BytesIO
 
 from PIL import Image
+from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.files.storage import InMemoryStorage, default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -10,6 +14,12 @@ from rest_framework.test import APITestCase
 
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from .models import ParametresBoutique
+
+
+UPLOAD_TEST_STORAGES = deepcopy(settings.STORAGES)
+UPLOAD_TEST_STORAGES['default'] = {
+    'BACKEND': 'django.core.files.storage.InMemoryStorage',
+}
 
 
 def image_valide(nom='logo.png', taille=(10, 10)):
@@ -156,6 +166,14 @@ class ParametresBoutiqueLogoUploadTests(APITestCase):
     image (Pillow, via ImageField) était vérifié."""
 
     def setUp(self):
+        self._upload_settings = override_settings(
+            DEBUG=True,
+            STORAGES=deepcopy(UPLOAD_TEST_STORAGES),
+        )
+        self._upload_settings.enable()
+        self.addCleanup(self._upload_settings.disable)
+        self.assertIsInstance(default_storage, InMemoryStorage)
+
         self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-logo-upload")
         self.proprietaire = User.objects.create_user(username="proprio_logo", password="pass1234")
         Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)

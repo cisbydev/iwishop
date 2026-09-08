@@ -1,10 +1,14 @@
+from copy import deepcopy
 from decimal import Decimal
 from io import BytesIO
 
 from PIL import Image
+from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.files.storage import InMemoryStorage, default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
@@ -17,6 +21,12 @@ from inventory.models import MouvementStock
 from purchases.models import Achat, LigneAchat
 from sales.models import Vente, LigneVente
 from .models import Produit, UniteVente, ProduitPrix
+
+
+UPLOAD_TEST_STORAGES = deepcopy(settings.STORAGES)
+UPLOAD_TEST_STORAGES['default'] = {
+    'BACKEND': 'django.core.files.storage.InMemoryStorage',
+}
 
 
 def image_valide(nom='photo.png', taille=(10, 10)):
@@ -661,6 +671,14 @@ class ProduitPhotoUploadTests(APITestCase):
     via ImageField) était vérifié."""
 
     def setUp(self):
+        self._upload_settings = override_settings(
+            DEBUG=True,
+            STORAGES=deepcopy(UPLOAD_TEST_STORAGES),
+        )
+        self._upload_settings.enable()
+        self.addCleanup(self._upload_settings.disable)
+        self.assertIsInstance(default_storage, InMemoryStorage)
+
         self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-photo-upload")
         self.user = User.objects.create_user(username="user_photo", password="pass1234")
         Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
