@@ -221,3 +221,71 @@ class CoutHistoriqueBeneficeTests(APITestCase):
             # prix_achat_unitaire omis : simule une ligne créée avant le correctif.
         )
         self.assertEqual(self._benefice_brut(), Decimal("300.00"))  # 800 - 500 (prix_achat courant)
+
+
+class ResumeFinancierRemiseBeneficeTests(APITestCase):
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique remises", slug="boutique-remises-rapports")
+        self.user = User.objects.create_user(username="user_remises_rapports", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit remisé",
+            prix_achat=Decimal("900.00"), prix_unitaire=Decimal("1000.00"), prix_douzaine=Decimal("12000.00"),
+            quantite_en_stock=100,
+        )
+
+    def _creer_vente(self, remise=Decimal("0.00"), statut="VALIDEE"):
+        montant_total = Decimal("10000.00")
+        montant_net = montant_total - remise
+        vente = Vente.objects.create(
+            boutique=self.boutique,
+            montant_paye=montant_net,
+            montant_total=montant_total,
+            remise=remise,
+            montant_net=montant_net,
+            statut=statut,
+        )
+        LigneVente.objects.create(
+            boutique=self.boutique, vente=vente, produit=self.produit, quantite=10,
+            type_vente="UNITE", unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("1000.00"), prix_achat_unitaire=Decimal("600.00"),
+        )
+
+    def _resume(self):
+        response = self.client.get('/api/reports/resume-financier/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.data
+
+    def test_vente_sans_remise_utilise_le_ca_net_et_le_cout_historique(self):
+        self._creer_vente()
+
+        resume = self._resume()
+        self.assertEqual(Decimal(str(resume['chiffre_affaires'])), Decimal("10000.00"))
+        self.assertEqual(Decimal(str(resume['benefice_brut'])), Decimal("4000.00"))
+
+    def test_vente_avec_remise_diminue_le_benefice_brut(self):
+        self._creer_vente(remise=Decimal("1000.00"))
+
+        resume = self._resume()
+        self.assertEqual(Decimal(str(resume['chiffre_affaires'])), Decimal("9000.00"))
+        self.assertEqual(Decimal(str(resume['benefice_brut'])), Decimal("3000.00"))
+
+    def test_plusieurs_ventes_avec_et_sans_remise_sont_totalisees(self):
+        self._creer_vente()
+        self._creer_vente(remise=Decimal("1000.00"))
+
+        resume = self._resume()
+        self.assertEqual(Decimal(str(resume['chiffre_affaires'])), Decimal("19000.00"))
+        self.assertEqual(Decimal(str(resume['benefice_brut'])), Decimal("7000.00"))
+
+    def test_vente_annulee_ne_compte_ni_dans_le_ca_ni_dans_le_benefice(self):
+        self._creer_vente(remise=Decimal("1000.00"), statut="ANNULEE")
+
+        resume = self._resume()
+        self.assertEqual(Decimal(str(resume['chiffre_affaires'])), Decimal("0.00"))
+        self.assertEqual(Decimal(str(resume['benefice_brut'])), Decimal("0.00"))

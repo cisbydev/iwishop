@@ -51,32 +51,36 @@ class TableauDeBordView(BoutiqueScopedMixin, APIView):
         # facteur de conversion centralisé sur son unité de vente.
         unites_reelles = unites_reelles_expr()
 
-        # Bénéfice d'une ligne = montant vendu (sous_total) - coût d'achat
-        # HISTORIQUE (prix_achat_unitaire x unités réelles), figé au moment
-        # de la vente - jamais Produit.prix_achat courant, qui change à
-        # chaque nouvel achat et déformerait rétroactivement le bénéfice
-        # d'une vente déjà réalisée (bug P1 corrigé). Le repli sur
+        # Le coût d'achat HISTORIQUE (prix_achat_unitaire x unités réelles)
+        # est figé au moment de la vente - jamais Produit.prix_achat courant,
+        # qui change à chaque nouvel achat et déformerait rétroactivement le
+        # bénéfice d'une vente déjà réalisée (bug P1 corrigé). Le repli sur
         # Produit.prix_achat via Coalesce ne s'applique qu'aux lignes créées
         # avant ce correctif (prix_achat_unitaire NULL, aucun coût
         # historique connu) - limite assumée et documentée, voir
         # sales.models.LigneVente.prix_achat_unitaire.
-        benefice_ligne_expr = ExpressionWrapper(
-            F('sous_total') - Coalesce(F('prix_achat_unitaire'), F('produit__prix_achat')) * unites_reelles,
+        cout_historique_expr = ExpressionWrapper(
+            Coalesce(F('prix_achat_unitaire'), F('produit__prix_achat')) * unites_reelles,
             output_field=DecimalField(max_digits=14, decimal_places=2)
         )
 
-        benefice_jour = LigneVente.objects.filter(
+        cout_historique_jour = LigneVente.objects.filter(
             boutique=boutique,
             vente__statut='VALIDEE',
             vente__date_vente__date=aujourd_hui
-        ).aggregate(total=Sum(benefice_ligne_expr))['total'] or 0
+        ).aggregate(total=Sum(cout_historique_expr))['total'] or 0
 
-        benefice_mois = LigneVente.objects.filter(
+        cout_historique_mois = LigneVente.objects.filter(
             boutique=boutique,
             vente__statut='VALIDEE',
             vente__date_vente__year=annee_courante,
             vente__date_vente__month=mois_courant
-        ).aggregate(total=Sum(benefice_ligne_expr))['total'] or 0
+        ).aggregate(total=Sum(cout_historique_expr))['total'] or 0
+
+        # Le CA est déjà calculé à partir de montant_net : une remise globale
+        # doit donc réduire le bénéfice brut du jour et du mois.
+        benefice_jour = ca_jour - cout_historique_jour
+        benefice_mois = ca_mois - cout_historique_mois
 
         # --- Meilleurs produits (top 5, toutes ventes validées confondues) ---
         meilleurs_produits_qs = (

@@ -4,6 +4,9 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
+from products.models import Produit, UniteVente
+from sales.models import Vente, LigneVente
+from decimal import Decimal
 
 
 class TableauDeBordAccesTests(APITestCase):
@@ -69,3 +72,50 @@ class TableauDeBordAccesTests(APITestCase):
         response = self.client.get(self.url, HTTP_X_SUPPORT_BOUTIQUE=str(autre_boutique.id))
         # L'en-tête est ignoré (non-superuser) : retombe sur sa propre boutique.
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class TableauDeBordRemiseBeneficeTests(APITestCase):
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique remises", slug="boutique-remises-dashboard")
+        self.user = User.objects.create_user(username="user_remises_dashboard", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit remisé",
+            prix_achat=Decimal("900.00"), prix_unitaire=Decimal("1000.00"), prix_douzaine=Decimal("12000.00"),
+            quantite_en_stock=100,
+        )
+
+    def _creer_vente(self, remise=Decimal("0.00"), statut="VALIDEE"):
+        montant_total = Decimal("10000.00")
+        montant_net = montant_total - remise
+        vente = Vente.objects.create(
+            boutique=self.boutique,
+            montant_paye=montant_net,
+            montant_total=montant_total,
+            remise=remise,
+            montant_net=montant_net,
+            statut=statut,
+        )
+        LigneVente.objects.create(
+            boutique=self.boutique, vente=vente, produit=self.produit, quantite=10,
+            type_vente="UNITE", unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("1000.00"), prix_achat_unitaire=Decimal("600.00"),
+        )
+
+    def test_kpis_utilisent_le_ca_net_et_excluent_les_ventes_annulees(self):
+        self._creer_vente()
+        self._creer_vente(remise=Decimal("1000.00"))
+        self._creer_vente(remise=Decimal("1000.00"), statut="ANNULEE")
+
+        response = self.client.get('/api/dashboard/kpis/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(Decimal(str(response.data['chiffre_affaires_jour'])), Decimal("19000.00"))
+        self.assertEqual(Decimal(str(response.data['chiffre_affaires_mois'])), Decimal("19000.00"))
+        self.assertEqual(Decimal(str(response.data['benefice_jour'])), Decimal("7000.00"))
+        self.assertEqual(Decimal(str(response.data['benefice_mois'])), Decimal("7000.00"))
