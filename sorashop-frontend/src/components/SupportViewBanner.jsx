@@ -14,7 +14,7 @@ export default function SupportViewBanner() {
   };
 
   return (
-    <div className="bg-orange-500 text-white px-4 py-2 flex items-center justify-between gap-4 flex-wrap sticky top-0 z-50 shadow-md">
+    <div className="bg-orange-500 text-white px-4 py-2 flex items-center justify-between gap-4 flex-wrap">
       <span className="flex items-center gap-2 font-medium text-sm">
         <Search className="w-4 h-4" />
         Vue Support active sur <strong>{boutiqueNom}</strong> — Lecture seule

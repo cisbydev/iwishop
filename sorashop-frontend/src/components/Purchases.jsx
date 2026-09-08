@@ -3,6 +3,7 @@ import api, { getAll } from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
+import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { Truck, Plus, Trash2, CheckCircle, History } from 'lucide-react';
 
 export default function Purchases() {
@@ -14,6 +15,7 @@ export default function Purchases() {
   const [fournisseurs, setFournisseurs] = useState([]);
   const [achats, setAchats] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [erreurChargement, setErreurChargement] = useState('');
 
   const [selectedFournisseur, setSelectedFournisseur] = useState('');
   const [notes, setNotes] = useState('');
@@ -25,6 +27,7 @@ export default function Purchases() {
   const [prixUnitaire, setPrixUnitaire] = useState('');
 
   const [successMessage, setSuccessMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Recharge uniquement les produits (stock à jour après un achat) sans
   // retoucher aux unités, qui ne changent pas en cours de session.
@@ -35,6 +38,7 @@ export default function Purchases() {
       if (produits.length > 0) setSelectedProduit(produits[0].id);
     } catch (err) {
       console.error("Erreur chargement produits", err);
+      setErreurChargement("Impossible de charger les données des achats. Vérifiez votre connexion puis réessayez.");
     }
   };
 
@@ -77,8 +81,7 @@ export default function Purchases() {
       if (produits.length > 0) setSelectedProduit(produits[0].id);
     } catch (err) {
       console.error("Erreur chargement catalogue", err);
-    } finally {
-      setLoading(false);
+      setErreurChargement("Impossible de charger les données des achats. Vérifiez votre connexion puis réessayez.");
     }
   };
 
@@ -89,6 +92,7 @@ export default function Purchases() {
       if (fournisseurs.length > 0) setSelectedFournisseur(fournisseurs[0].id);
     } catch (err) {
       console.error("Erreur chargement fournisseurs", err);
+      setErreurChargement("Impossible de charger les données des achats. Vérifiez votre connexion puis réessayez.");
     }
   };
 
@@ -98,19 +102,32 @@ export default function Purchases() {
       setAchats(achats);
     } catch (err) {
       console.error("Erreur chargement achats", err);
+      setErreurChargement("Impossible de charger les données des achats. Vérifiez votre connexion puis réessayez.");
     }
   };
 
+  const loadPurchasesData = async () => {
+    setLoading(true);
+    setErreurChargement('');
+    await Promise.all([
+      fetchCatalogue(),
+      fetchFournisseurs(),
+      fetchAchats(),
+    ]);
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const loadPurchasesData = async () => {
+    const loadPurchases = async () => {
       await Promise.all([
         fetchCatalogue(),
         fetchFournisseurs(),
         fetchAchats(),
       ]);
+      setLoading(false);
     };
 
-    void loadPurchasesData();
+    void loadPurchases();
   }, [modeSupport, boutiqueId]);
 
   const uniteOptions = unitesParProduit[parseInt(selectedProduit)] || [];
@@ -176,7 +193,7 @@ export default function Purchases() {
   const totalAchat = panier.reduce((acc, item) => acc + item.sous_total, 0);
 
   const handleSubmitAchat = async () => {
-    if (modeSupport) return;
+    if (isSubmitting || modeSupport) return;
     if (panier.length === 0) {
       alert("Ajoute au moins un produit à l'achat.");
       return;
@@ -186,6 +203,7 @@ export default function Purchases() {
       return;
     }
 
+    setIsSubmitting(true);
     try {
       await api.post('achats/', {
         fournisseur: selectedFournisseur,
@@ -205,14 +223,32 @@ export default function Purchases() {
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (err) {
       alert(getErrorMessage(err, "Erreur lors de l'enregistrement de l'achat."));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement...</div>;
 
+  if (erreurChargement) {
+    return (
+      <div className="p-6">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
+          <p>{erreurChargement}</p>
+          <button onClick={loadPurchasesData} className="mt-3 rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2">
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Achats Fournisseurs</h2>
+    <div className="space-y-6 min-[1366px]:-mx-3">
+      <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Achats fournisseurs</h2>
+        <p className="mt-2 text-sm text-slate-600">Enregistrez vos approvisionnements et suivez le détail de vos achats.</p>
+      </section>
 
       {successMessage && (
         <div className="p-4 bg-green-100 text-green-700 rounded-lg flex items-center gap-2">
@@ -220,25 +256,26 @@ export default function Purchases() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)] lg:items-start">
         {/* Formulaire d'ajout au panier */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 lg:col-span-1">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Truck className="w-5 h-5" /> Nouvel achat
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <h3 className="mb-5 flex items-center gap-2 text-lg font-semibold text-slate-900">
+            <Truck className="h-5 w-5 text-blue-600" /> Nouvel achat
           </h3>
 
           {fournisseurs.length === 0 ? (
-            <p className="text-sm text-gray-500">
-              Aucun fournisseur enregistré. Ajoute d'abord un fournisseur dans l'onglet "Fournisseurs".
-            </p>
+            <div className="py-6 text-center">
+              <p className="font-medium text-gray-800">Aucun fournisseur enregistré.</p>
+              <p className="mt-1 text-sm text-gray-500">Ajoutez d'abord un fournisseur dans l'onglet « Fournisseurs » avant de créer un achat.</p>
+            </div>
           ) : (
             <>
-              <div className="mb-4">
+              <div className="mb-5">
                 <label className="block text-sm font-medium text-gray-700">Fournisseur</label>
                 <select
                   value={selectedFournisseur}
                   onChange={(e) => setSelectedFournisseur(e.target.value)}
-                  className="mt-1 w-full p-2 border rounded-md"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 >
                   {fournisseurs.map((f) => (
                     <option key={f.id} value={f.id}>{f.nom}</option>
@@ -246,14 +283,14 @@ export default function Purchases() {
                 </select>
               </div>
 
-              <form onSubmit={handleAddLigne} className="space-y-4 border-t pt-4">
+              <form onSubmit={handleAddLigne} className="space-y-5 border-t border-slate-100 pt-5">
                 <p className="text-sm font-medium text-gray-700">Ajouter un produit à l'achat</p>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Produit</label>
                   <select
                     value={selectedProduit}
                     onChange={(e) => setSelectedProduit(e.target.value)}
-                    className="mt-1 w-full p-2 border rounded-md"
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   >
                     {produits.map((p) => (
                       <option key={p.id} value={p.id}>{p.nom}</option>
@@ -266,7 +303,7 @@ export default function Purchases() {
                     <select
                       value={uniteIdEffectif}
                       onChange={(e) => setSelectedUniteId(e.target.value)}
-                      className="mt-1 w-full p-2 border rounded-md"
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                     >
                       {uniteOptions.map((u) => (
                         <option key={u.unite_id} value={u.unite_id}>{u.unite_nom}</option>
@@ -283,7 +320,7 @@ export default function Purchases() {
                     min="1"
                     value={quantite}
                     onChange={(e) => setQuantite(e.target.value)}
-                    className="mt-1 w-full p-2 border rounded-md"
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                     required
                   />
                 </div>
@@ -298,7 +335,7 @@ export default function Purchases() {
                     value={prixUnitaire}
                     onChange={(e) => setPrixUnitaire(e.target.value)}
                     placeholder="0.00"
-                    className="mt-1 w-full p-2 border rounded-md"
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                     required
                   />
                 </div>
@@ -312,7 +349,7 @@ export default function Purchases() {
                         ? "Aucune unité configurée pour ce produit"
                         : undefined
                   }
-                  className={`w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
+                  className={`flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
                     modeSupport || uniteOptions.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
                   }`}
                 >
@@ -321,15 +358,18 @@ export default function Purchases() {
               </form>
             </>
           )}
-        </div>
+        </section>
 
         {/* Panier de l'achat en cours */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 lg:col-span-2 flex flex-col justify-between">
+        <section className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div>
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Détail de l'achat</h3>
+            <h3 className="mb-5 text-lg font-semibold text-slate-900">Détail de l'achat</h3>
 
             {panier.length === 0 ? (
-              <p className="text-gray-500 text-sm py-8 text-center">Aucun produit ajouté pour le moment.</p>
+              <div className="flex min-h-44 flex-col items-center justify-center text-center">
+                <p className="font-medium text-slate-800">Aucun produit ajouté.</p>
+                <p className="mt-1 text-sm text-slate-500">Sélectionnez un produit puis ajoutez-le à l'achat.</p>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
@@ -349,14 +389,15 @@ export default function Purchases() {
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.nom}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.unite_nom}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.quantite}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{item.prix_unitaire_achat} {devise}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-800">{item.sous_total} {devise}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{formatCurrency(item.prix_unitaire_achat, devise)}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-gray-800">{formatCurrency(item.sous_total, devise)}</td>
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => handleRemoveLigne(index)}
                             disabled={modeSupport}
                             title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
-                            className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
+                            aria-label={`Retirer ${item.nom} de l'achat`}
+                            className={`inline-flex min-w-11 min-h-11 items-center justify-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 ${modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -383,69 +424,73 @@ export default function Purchases() {
 
             <div className="flex justify-between items-center text-lg font-bold text-gray-900">
               <span>Montant Total :</span>
-              <span className="text-blue-600">{totalAchat} {devise}</span>
+              <span className="text-blue-600">{formatCurrency(totalAchat, devise)}</span>
             </div>
 
             <button
               onClick={handleSubmitAchat}
-              disabled={panier.length === 0 || modeSupport}
+              disabled={panier.length === 0 || modeSupport || isSubmitting}
               title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
-              className={`w-full py-3 rounded-lg text-white font-semibold transition ${
-                panier.length === 0 || modeSupport ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+              className={`w-full py-3 rounded-lg text-white text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2 ${
+                panier.length === 0 || modeSupport || isSubmitting ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
               }`}
+              aria-busy={isSubmitting}
             >
-              Valider l'Achat
+              {isSubmitting ? 'Validation...' : "Valider l'Achat"}
             </button>
           </div>
-        </div>
+        </section>
       </div>
 
       {/* Historique des achats */}
-      <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <History className="w-5 h-5" /> Historique des achats
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <h3 className="mb-5 flex items-center gap-2 text-lg font-semibold text-slate-900">
+          <History className="h-5 w-5 text-blue-600" /> Historique des achats
         </h3>
 
         {achats.length === 0 ? (
-          <p className="text-gray-500 text-sm py-4 text-center">Aucun achat enregistré pour le moment.</p>
+          <div className="py-6 text-center">
+            <p className="font-medium text-gray-800">Aucun achat enregistré.</p>
+            <p className="mt-1 text-sm text-gray-500">Les achats validés apparaîtront ici.</p>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="border-b border-blue-200 bg-blue-100/70">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fournisseur</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Détail</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Montant Total</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">ID</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">Fournisseur</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">Date</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">Détail</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">Montant Total</th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="divide-y divide-slate-100">
                 {achats.map((a) => (
-                  <tr key={a.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-blue-600">#{a.id}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{a.fournisseur_nom || 'Inconnu'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(a.date_achat).toLocaleString()}
+                  <tr key={a.id}>
+                    <td className="px-6 py-5 whitespace-nowrap text-sm font-semibold text-blue-600">#{a.id}</td>
+                    <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-slate-800">{a.fournisseur_nom || 'Inconnu'}</td>
+                    <td className="px-6 py-5 whitespace-nowrap text-sm text-slate-600">
+                      {formatDateTime(a.date_achat)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-700">
-                      <ul className="space-y-1">
+                    <td className="px-6 py-5 text-sm text-slate-600">
+                      <ul className="space-y-1.5">
                         {a.lignes && a.lignes.map((ligne, idx) => (
-                          <li key={idx} className="text-xs bg-gray-50 p-1.5 rounded border border-gray-100">
-                            <span className="font-medium text-gray-800">{ligne.produit_nom}</span>
-                            {' '}- {ligne.quantite} ({ligne.unite_nom}) x {ligne.prix_unitaire_achat} {devise}
+                          <li key={idx} className="text-xs leading-5 text-slate-600">
+                            <span className="font-medium text-slate-800">{ligne.produit_nom}</span>
+                            {' '}- {ligne.quantite} ({ligne.unite_nom}) x {formatCurrency(ligne.prix_unitaire_achat, devise)}
                           </li>
                         ))}
                       </ul>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">{a.montant_total} {devise}</td>
+                    <td className="px-6 py-5 whitespace-nowrap text-sm font-semibold text-slate-900">{formatCurrency(a.montant_total, devise)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import api from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
+import { formatCurrency, formatDate } from '../utils/formatters';
 import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer } from 'lucide-react';
 
-function formatDate(d) {
+function formatDateForInput(d) {
   return d.toISOString().split('T')[0];
 }
 
@@ -23,7 +24,7 @@ function getPlagePeriode(periode) {
     fin = new Date(aujourdHui.getFullYear(), 11, 31);
   }
 
-  return { debut: formatDate(debut), fin: formatDate(fin) };
+  return { debut: formatDateForInput(debut), fin: formatDateForInput(fin) };
 }
 
 export default function Reports() {
@@ -35,15 +36,18 @@ export default function Reports() {
   const [dateFin, setDateFin] = useState(getPlagePeriode('mois').fin);
   const [resume, setResume] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [erreurChargement, setErreurChargement] = useState('');
 
   const fetchResume = async (debut, fin) => {
     setLoading(true);
+    setErreurChargement('');
     try {
       const response = await api.get(`reports/resume-financier/?date_debut=${debut}&date_fin=${fin}`);
       setResume(response.data);
-      setLoading(false);
     } catch (err) {
       console.error("Erreur chargement rapport", err);
+      setErreurChargement("Impossible de charger le rapport. Vérifiez votre connexion puis réessayez.");
+    } finally {
       setLoading(false);
     }
   };
@@ -71,58 +75,81 @@ export default function Reports() {
   };
 
   const boutonClasse = (p) =>
-    `px-4 py-2 rounded-md text-sm font-medium transition ${
-      periode === p ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+    `inline-flex h-10 items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
+      periode === p ? 'bg-blue-600 text-white shadow-sm' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
     }`;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 print:hidden">
-        <h2 className="text-2xl font-bold text-gray-800">Rapports</h2>
+    <div className="space-y-6 min-[1366px]:-mx-3">
+      <section className="flex flex-col gap-4 rounded-xl border border-blue-100 bg-white p-5 shadow-sm print:hidden sm:flex-row sm:items-start sm:justify-between sm:p-6">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Rapports</h2>
+          <p className="mt-2 text-sm text-slate-600">Analysez les performances de votre boutique sur la période de votre choix.</p>
+        </div>
         <button
           onClick={() => window.print()}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition self-start sm:self-auto"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 sm:w-auto"
         >
-          <Printer className="w-4 h-4" /> Imprimer
+          <Printer className="h-4 w-4" /> Imprimer
         </button>
-      </div>
+      </section>
 
       {/* Sélecteur de période */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex flex-wrap items-center gap-3 print:hidden">
-        <button className={boutonClasse('jour')} onClick={() => handlePeriodeRapide('jour')}>Aujourd'hui</button>
-        <button className={boutonClasse('mois')} onClick={() => handlePeriodeRapide('mois')}>Ce mois</button>
-        <button className={boutonClasse('annee')} onClick={() => handlePeriodeRapide('annee')}>Cette année</button>
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm print:hidden sm:p-6">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex flex-wrap gap-2">
+            <button className={boutonClasse('jour')} onClick={() => handlePeriodeRapide('jour')}>Aujourd'hui</button>
+            <button className={boutonClasse('mois')} onClick={() => handlePeriodeRapide('mois')}>Ce mois</button>
+            <button className={boutonClasse('annee')} onClick={() => handlePeriodeRapide('annee')}>Cette année</button>
+          </div>
 
-        <div className="flex items-center gap-2 ml-0 sm:ml-4">
-          <input
-            type="date"
-            value={dateDebut}
-            onChange={(e) => setDateDebut(e.target.value)}
-            className="p-2 border rounded-md text-sm"
-          />
-          <span className="text-gray-400 text-sm">à</span>
-          <input
-            type="date"
-            value={dateFin}
-            onChange={(e) => setDateFin(e.target.value)}
-            className="p-2 border rounded-md text-sm"
-          />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label htmlFor="rapport-date-debut" className="mb-1 block text-sm font-medium text-slate-700">Date de début</label>
+              <input
+                id="rapport-date-debut"
+                type="date"
+                value={dateDebut}
+                onChange={(e) => setDateDebut(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+            <div>
+              <label htmlFor="rapport-date-fin" className="mb-1 block text-sm font-medium text-slate-700">Date de fin</label>
+              <input
+                id="rapport-date-fin"
+                type="date"
+                value={dateFin}
+                onChange={(e) => setDateFin(e.target.value)}
+                className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+            </div>
+          </div>
           <button
             onClick={handlePeriodePersonnalisee}
-            className={boutonClasse('personnalise')}
+            className={`w-full sm:w-auto ${boutonClasse('personnalise')}`}
           >
             Appliquer
           </button>
+          </div>
         </div>
-      </div>
 
-      <p className="text-sm text-gray-500">
-        Période affichée : <span className="font-medium text-gray-700">{dateDebut}</span> au{' '}
-        <span className="font-medium text-gray-700">{dateFin}</span>
-      </p>
+        <p className="mt-4 border-t border-slate-100 pt-4 text-sm text-slate-500">
+          Période affichée : <span className="font-medium text-slate-700">{formatDate(dateDebut)}</span> au{' '}
+          <span className="font-medium text-slate-700">{formatDate(dateFin)}</span>
+        </p>
+      </section>
 
       {loading ? (
         <div className="p-6 text-center text-gray-600">Chargement du rapport...</div>
+      ) : erreurChargement ? (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
+          <p>{erreurChargement}</p>
+          <button onClick={() => fetchResume(dateDebut, dateFin)} className="mt-3 rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2">
+            Réessayer
+          </button>
+        </div>
       ) : (
         <>
           {/* KPIs principaux */}
@@ -130,7 +157,7 @@ export default function Reports() {
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-500">Chiffre d'Affaires</p>
-                <h3 className="text-2xl font-bold text-gray-800 mt-1">{resume?.chiffre_affaires} {devise}</h3>
+                <h3 className="text-2xl font-bold text-gray-800 mt-1">{formatCurrency(resume?.chiffre_affaires, devise)}</h3>
                 <p className="text-xs text-gray-400 mt-1">{resume?.nombre_ventes} vente(s)</p>
               </div>
               <div className="p-3 bg-blue-50 text-blue-600 rounded-full">
@@ -141,7 +168,7 @@ export default function Reports() {
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-500">Total Achats</p>
-                <h3 className="text-2xl font-bold text-gray-800 mt-1">{resume?.total_achats} {devise}</h3>
+                <h3 className="text-2xl font-bold text-gray-800 mt-1">{formatCurrency(resume?.total_achats, devise)}</h3>
                 <p className="text-xs text-gray-400 mt-1">{resume?.nombre_achats} achat(s)</p>
               </div>
               <div className="p-3 bg-orange-50 text-orange-600 rounded-full">
@@ -152,7 +179,7 @@ export default function Reports() {
             <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-gray-500">Total Dépenses</p>
-                <h3 className="text-2xl font-bold text-gray-800 mt-1">{resume?.total_depenses} {devise}</h3>
+                <h3 className="text-2xl font-bold text-gray-800 mt-1">{formatCurrency(resume?.total_depenses, devise)}</h3>
                 <p className="text-xs text-gray-400 mt-1">{resume?.nombre_depenses} dépense(s)</p>
               </div>
               <div className="p-3 bg-red-50 text-red-600 rounded-full">
@@ -167,7 +194,7 @@ export default function Reports() {
               <div>
                 <p className="text-sm font-medium text-gray-500">Bénéfice Brut</p>
                 <p className="text-xs text-gray-400">Ventes − Coût des produits vendus</p>
-                <h3 className="text-2xl font-bold text-emerald-600 mt-1">{resume?.benefice_brut} {devise}</h3>
+                <h3 className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(resume?.benefice_brut, devise)}</h3>
               </div>
               <div className="p-3 bg-emerald-50 text-emerald-600 rounded-full">
                 <TrendingUp className="w-6 h-6" />
@@ -179,7 +206,7 @@ export default function Reports() {
                 <p className="text-sm font-medium text-gray-500">Bénéfice Net</p>
                 <p className="text-xs text-gray-400">Bénéfice brut − Dépenses</p>
                 <h3 className={`text-2xl font-bold mt-1 ${resume?.benefice_net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {resume?.benefice_net} {devise}
+                  {formatCurrency(resume?.benefice_net, devise)}
                 </h3>
               </div>
               <div className={`p-3 rounded-full ${resume?.benefice_net >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>

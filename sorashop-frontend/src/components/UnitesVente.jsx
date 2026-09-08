@@ -195,25 +195,25 @@ export default function UnitesVente() {
 
       {/* Modal d'ajout / modification d'unité */}
       {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-xl font-bold text-gray-800 mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]">
+          <div className="max-h-[calc(100vh-2rem)] w-full max-w-[30rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
+            <h3 className="mb-5 text-xl font-semibold text-slate-900">
               {editingId ? "Modifier l'unité de vente" : 'Ajouter une nouvelle unité de vente'}
             </h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Nom de l'unité</label>
+                <label className="block text-sm font-medium text-slate-700">Nom de l'unité</label>
                 <input
                   type="text"
                   value={form.nom}
                   onChange={(e) => updateForm('nom', e.target.value)}
                   placeholder="Ex: Kg, Sac 25kg, Carton..."
-                  className="mt-1 w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Facteur de conversion</label>
+                <label className="block text-sm font-medium text-slate-700">Facteur de conversion</label>
                 <input
                   type="number"
                   step="0.001"
@@ -221,24 +221,24 @@ export default function UnitesVente() {
                   value={form.facteur_conversion}
                   onChange={(e) => updateForm('facteur_conversion', e.target.value)}
                   placeholder="Ex: 25 pour un sac de 25kg"
-                  className="mt-1 w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="mt-2 text-xs text-slate-500">
                   Combien d'unités de stock représente une vente de cette unité (Ex : "Sac 25kg" = 25).
                 </p>
               </div>
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
                   onClick={fermerModal}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300"
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2"
                 >
                   Annuler
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
                 >
                   {editingId ? 'Enregistrer les modifications' : 'Enregistrer'}
                 </button>

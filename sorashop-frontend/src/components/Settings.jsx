@@ -8,7 +8,6 @@ import AccesSupportHistorique from './AccesSupportHistorique';
 import UnitesVente from './UnitesVente';
 import MonAbonnement from './MonAbonnement';
 import { Store, Save, Upload, KeyRound, Users, ShieldCheck, Ruler, CreditCard } from 'lucide-react';
-import logoParDefaut from '../assets/iwishop-logo-removebg-preview.png';
 
 // Déduit l'URL de base du serveur (sans le "/api/") pour construire l'URL complète du logo
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
@@ -32,6 +31,7 @@ function BoutiqueSettings() {
   const [logoActuel, setLogoActuel] = useState(null);
   const [nouveauLogo, setNouveauLogo] = useState(null);
   const [apercuNouveauLogo, setApercuNouveauLogo] = useState(null);
+  const [logoInaccessible, setLogoInaccessible] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -64,6 +64,9 @@ function BoutiqueSettings() {
 
     void loadParametres();
   }, []);
+
+  const logoAffiche = apercuNouveauLogo || resoudreUrlLogo(logoActuel);
+  const logoIndisponible = logoAffiche === logoInaccessible;
 
   const handleLogoChange = (e) => {
     const file = e.target.files[0];
@@ -106,83 +109,98 @@ function BoutiqueSettings() {
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement des paramètres...</div>;
 
-  const logoAffiche = apercuNouveauLogo || resoudreUrlLogo(logoActuel) || logoParDefaut;
-
   return (
-    <div className="max-w-2xl">
+    <div className="mx-auto w-full max-w-[60rem]">
       {successMessage && (
         <div className="p-4 mb-4 bg-green-100 text-green-700 rounded-lg">
           {successMessage}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 space-y-5">
-        {/* Logo */}
+      <form onSubmit={handleSubmit} className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Logo de la boutique</label>
-          <div className="flex items-center gap-4">
-            <div className="h-24 max-w-[200px] px-2 flex items-center justify-center bg-white border border-gray-200 rounded-lg overflow-hidden shrink-0">
-              <img src={logoAffiche} alt="Logo boutique" className="max-h-full max-w-full object-contain" />
+          <h3 className="text-lg font-semibold text-slate-900">Informations de la boutique</h3>
+          <p className="mt-1 text-sm text-slate-500">Personnalisez les informations utilisées dans votre espace de gestion.</p>
+        </div>
+
+        {/* Logo */}
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+          <label className="mb-3 block text-sm font-medium text-slate-700">Logo de la boutique</label>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex h-24 w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-white px-2 sm:w-48 sm:shrink-0">
+              {logoAffiche && !logoIndisponible ? (
+                <img
+                  src={logoAffiche}
+                  alt="Logo de la boutique"
+                  className="h-full max-w-full object-contain"
+                  onError={() => setLogoInaccessible(logoAffiche)}
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-1 text-slate-400">
+                  <Store className="h-6 w-6 text-blue-400" aria-hidden="true" />
+                  <span className="text-xs">Aucun logo</span>
+                </div>
+              )}
             </div>
-            <label className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 cursor-pointer text-sm">
-              <Upload className="w-4 h-4" /> Choisir une image
+            <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 sm:w-auto">
+              <Upload className="h-4 w-4" /> Choisir une image
               <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
             </label>
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700">Nom de la boutique</label>
+          <label className="block text-sm font-medium text-slate-700">Nom de la boutique</label>
           <input
             type="text"
             value={form.nom_boutique}
             onChange={(e) => updateForm('nom_boutique', e.target.value)}
-            className="mt-1 w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700">Adresse</label>
+          <label className="block text-sm font-medium text-slate-700">Adresse</label>
           <textarea
             value={form.adresse}
             onChange={(e) => updateForm('adresse', e.target.value)}
-            className="mt-1 w-full p-2 border rounded-md"
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             rows="2"
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700">Téléphone</label>
+          <label className="block text-sm font-medium text-slate-700">Téléphone</label>
           <input
             type="text"
             value={form.telephone}
             onChange={(e) => updateForm('telephone', e.target.value)}
-            className="mt-1 w-full p-2 border rounded-md"
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Devise</label>
+            <label className="block text-sm font-medium text-slate-700">Devise</label>
             <input
               type="text"
               value={form.devise}
               onChange={(e) => updateForm('devise', e.target.value)}
               placeholder="Ex: FCFA, EUR, USD..."
-              className="mt-1 w-full p-2 border rounded-md"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               required
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700">TVA (%)</label>
+            <label className="block text-sm font-medium text-slate-700">TVA (%)</label>
             <input
               type="number"
               step="0.01"
               min="0"
               value={form.tva}
               onChange={(e) => updateForm('tva', e.target.value)}
-              className="mt-1 w-full p-2 border rounded-md"
+              className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               required
             />
           </div>
@@ -191,9 +209,9 @@ function BoutiqueSettings() {
         <button
           type="submit"
           disabled={saving}
-          className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-blue-300"
         >
-          <Save className="w-4 h-4" /> {saving ? 'Enregistrement...' : 'Enregistrer les paramètres'}
+          <Save className="h-4 w-4" /> {saving ? 'Enregistrement...' : 'Enregistrer les paramètres'}
         </button>
       </form>
     </div>
@@ -206,36 +224,43 @@ export default function Settings() {
   const [sousOnglet, setSousOnglet] = useState('boutique');
 
   const boutonClasse = (val) =>
-    `flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition ${
-      sousOnglet === val ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+    `inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
+      sousOnglet === val ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
     }`;
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Paramètres</h2>
+    <div className="space-y-6 min-[1366px]:-mx-3">
+      <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Paramètres</h2>
+        <p className="mt-2 text-sm text-slate-600">Configurez votre boutique, votre compte et les préférences de gestion.</p>
+      </section>
 
-      <div className="flex flex-wrap gap-3">
-        <button className={boutonClasse('boutique')} onClick={() => setSousOnglet('boutique')}>
+      <nav aria-label="Sous-navigation des paramètres" className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+        <div className="overflow-x-auto">
+          <div className="flex min-w-max gap-1.5 sm:min-w-0 sm:flex-wrap sm:justify-between">
+        <button aria-pressed={sousOnglet === 'boutique'} className={boutonClasse('boutique')} onClick={() => setSousOnglet('boutique')}>
           <Store className="w-4 h-4" /> Boutique
         </button>
-        <button className={boutonClasse('compte')} onClick={() => setSousOnglet('compte')}>
+        <button aria-pressed={sousOnglet === 'compte'} className={boutonClasse('compte')} onClick={() => setSousOnglet('compte')}>
           <KeyRound className="w-4 h-4" /> Mon Compte
         </button>
         {estProprietaire && (
-          <button className={boutonClasse('employes')} onClick={() => setSousOnglet('employes')}>
+          <button aria-pressed={sousOnglet === 'employes'} className={boutonClasse('employes')} onClick={() => setSousOnglet('employes')}>
             <Users className="w-4 h-4" /> Employés
           </button>
         )}
-        <button className={boutonClasse('unites-vente')} onClick={() => setSousOnglet('unites-vente')}>
+        <button aria-pressed={sousOnglet === 'unites-vente'} className={boutonClasse('unites-vente')} onClick={() => setSousOnglet('unites-vente')}>
           <Ruler className="w-4 h-4" /> Unités de vente
         </button>
-        <button className={boutonClasse('acces-support')} onClick={() => setSousOnglet('acces-support')}>
+        <button aria-pressed={sousOnglet === 'acces-support'} className={boutonClasse('acces-support')} onClick={() => setSousOnglet('acces-support')}>
           <ShieldCheck className="w-4 h-4" /> Accès Support
         </button>
-        <button className={boutonClasse('abonnement')} onClick={() => setSousOnglet('abonnement')}>
+        <button aria-pressed={sousOnglet === 'abonnement'} className={boutonClasse('abonnement')} onClick={() => setSousOnglet('abonnement')}>
           <CreditCard className="w-4 h-4" /> Mon Abonnement
         </button>
-      </div>
+          </div>
+        </div>
+      </nav>
 
       {sousOnglet === 'boutique' && <BoutiqueSettings />}
       {sousOnglet === 'compte' && <Account />}

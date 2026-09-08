@@ -2,15 +2,16 @@ import { useState } from 'react';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
 import { useSettings } from '../context/settingsContextValue';
+import { useAuth } from '../context/AuthContext';
 import { Save, Store } from 'lucide-react';
 
 export default function Account() {
   const { utilisateur } = useSettings();
+  const { logout } = useAuth();
   const [ancienMotDePasse, setAncienMotDePasse] = useState('');
   const [nouveauMotDePasse, setNouveauMotDePasse] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [saving, setSaving] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,11 +27,10 @@ export default function Account() {
         ancien_mot_de_passe: ancienMotDePasse,
         nouveau_mot_de_passe: nouveauMotDePasse,
       });
-      setSuccessMessage("Mot de passe modifié avec succès !");
-      setAncienMotDePasse('');
-      setNouveauMotDePasse('');
-      setConfirmation('');
-      setTimeout(() => setSuccessMessage(''), 4000);
+      // Le changement révoque toutes les sessions ; déconnecter aussi cette
+      // session immédiatement évite de laisser un access token devenu invalide
+      // en mémoire jusqu'à la prochaine requête.
+      await logout();
     } catch (err) {
       alert(getErrorMessage(err, "Erreur lors du changement de mot de passe."));
     } finally {
@@ -39,16 +39,12 @@ export default function Account() {
   };
 
   return (
-    <div className="space-y-6 max-w-md">
-      {successMessage && (
-        <div className="p-4 bg-green-100 text-green-700 rounded-lg">
-          {successMessage}
-        </div>
-      )}
-
+    <div className="mx-auto w-full max-w-[60rem] space-y-5">
       {utilisateur && (
-        <div className="flex items-center gap-2 p-4 bg-gray-50 border border-gray-100 rounded-lg text-sm text-gray-600">
-          <Store className="w-4 h-4 text-gray-400" />
+        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm sm:p-5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50">
+            <Store className="h-5 w-5 text-blue-600" aria-hidden="true" />
+          </div>
           Connecté en tant que <span className="font-medium text-gray-800">{utilisateur.username}</span>
           {utilisateur.boutique_nom && (
             <> — <span className="font-medium text-gray-800">{utilisateur.boutique_nom}</span></>
@@ -56,38 +52,41 @@ export default function Account() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 space-y-4">
-        <h3 className="text-lg font-semibold text-gray-800">Changer mon mot de passe</h3>
+      <form onSubmit={handleSubmit} className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-900">Changer mon mot de passe</h3>
+          <p className="mt-1 text-sm text-slate-500">Utilisez un mot de passe sécurisé pour protéger votre compte.</p>
+        </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700">Mot de passe actuel</label>
+          <label className="block text-sm font-medium text-slate-700">Mot de passe actuel</label>
           <input
             type="password"
             value={ancienMotDePasse}
             onChange={(e) => setAncienMotDePasse(e.target.value)}
-            className="mt-1 w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700">Nouveau mot de passe</label>
+          <label className="block text-sm font-medium text-slate-700">Nouveau mot de passe</label>
           <input
             type="password"
             value={nouveauMotDePasse}
             onChange={(e) => setNouveauMotDePasse(e.target.value)}
-            className="mt-1 w-full p-2 border rounded-md"
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700">Confirmer le nouveau mot de passe</label>
+          <label className="block text-sm font-medium text-slate-700">Confirmer le nouveau mot de passe</label>
           <input
             type="password"
             value={confirmation}
             onChange={(e) => setConfirmation(e.target.value)}
-            className="mt-1 w-full p-2 border rounded-md"
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             required
           />
         </div>
@@ -95,9 +94,9 @@ export default function Account() {
         <button
           type="submit"
           disabled={saving}
-          className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:bg-blue-300"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-blue-300"
         >
-          <Save className="w-4 h-4" /> {saving ? 'Enregistrement...' : 'Changer le mot de passe'}
+          <Save className="h-4 w-4" /> {saving ? 'Enregistrement...' : 'Changer le mot de passe'}
         </button>
       </form>
     </div>

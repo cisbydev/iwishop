@@ -3,6 +3,7 @@ import api, { getAll } from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
+import { formatCurrency } from '../utils/formatters';
 import { ShoppingCart, Plus, Trash2, CheckCircle } from 'lucide-react';
 
 export default function Sales() {
@@ -19,7 +20,9 @@ export default function Sales() {
   const [montantPaye, setMontantPaye] = useState('');
   const [modePaiement, setModePaiement] = useState('ESPECES');
   const [loading, setLoading] = useState(true);
+  const [erreurChargement, setErreurChargement] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Recharge uniquement les produits (stock à jour après une vente) sans
   // retoucher aux prix/unités, qui ne changent pas en cours de session.
@@ -32,6 +35,7 @@ export default function Sales() {
       }
     } catch (err) {
       console.error("Erreur chargement produits", err);
+      setErreurChargement("Impossible de charger les données de vente. Vérifiez votre connexion puis réessayez.");
     }
   };
 
@@ -72,17 +76,24 @@ export default function Sales() {
       }
     } catch (err) {
       console.error("Erreur chargement catalogue", err);
-    } finally {
-      setLoading(false);
+      setErreurChargement("Impossible de charger les données de vente. Vérifiez votre connexion puis réessayez.");
     }
   };
 
+  const loadCatalogue = async () => {
+    setLoading(true);
+    setErreurChargement('');
+    await fetchCatalogue();
+    setLoading(false);
+  };
+
   useEffect(() => {
-    const loadCatalogue = async () => {
+    const chargerCatalogue = async () => {
       await fetchCatalogue();
+      setLoading(false);
     };
 
-    void loadCatalogue();
+    void chargerCatalogue();
   }, [modeSupport, boutiqueId]);
 
   const uniteOptions = prixParUnite[parseInt(selectedProduit)] || [];
@@ -148,7 +159,7 @@ export default function Sales() {
   const montantNet = totalBrut - (parseFloat(remise) || 0);
 
   const handleSubmitVente = async () => {
-    if (modeSupport) return;
+    if (isSubmitting || modeSupport) return;
     if (panier.length === 0) {
       alert("Le panier est vide.");
       return;
@@ -156,10 +167,11 @@ export default function Sales() {
 
     const paye = parseFloat(montantPaye);
     if (isNaN(paye) || paye < montantNet) {
-      alert(`Le montant payé (${montantPaye || 0} ${devise}) est inférieur au montant net à payer (${montantNet} ${devise}).`);
+      alert(`Le montant payé (${formatCurrency(montantPaye || 0, devise)}) est inférieur au montant net à payer (${formatCurrency(montantNet, devise)}).`);
       return;
     }
 
+    setIsSubmitting(true);
     try {
       await api.post('ventes/', {
         remise: parseFloat(remise) || 0,
@@ -181,14 +193,32 @@ export default function Sales() {
     } catch (err) {
       console.error("Erreur vente :", err.response?.data || err);
       alert(getErrorMessage(err, "Erreur lors de l'enregistrement de la vente."));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement...</div>;
 
+  if (erreurChargement) {
+    return (
+      <div className="p-6">
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800">
+          <p>{erreurChargement}</p>
+          <button onClick={loadCatalogue} className="mt-3 rounded-md bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2">
+            Réessayer
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Passation d'une Vente</h2>
+    <div className="space-y-6 min-[1366px]:-mx-3">
+      <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm sm:p-6">
+        <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Ventes</h2>
+        <p className="mt-2 text-sm text-slate-600">Préparez le panier, appliquez les remises et finalisez les ventes de votre boutique.</p>
+      </section>
 
       {successMessage && (
         <div className="p-4 bg-green-100 text-green-700 rounded-lg flex items-center gap-2">
@@ -196,17 +226,17 @@ export default function Sales() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,35fr)_minmax(0,65fr)]">
         {/* Formulaire d'ajout au panier */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 lg:col-span-1">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Ajouter un article</h3>
-          <form onSubmit={handleAddLigne} className="space-y-4">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <h3 className="mb-5 text-lg font-semibold text-slate-900">Ajouter un article</h3>
+          <form onSubmit={handleAddLigne} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-700">Produit</label>
               <select
                 value={selectedProduit}
                 onChange={(e) => setSelectedProduit(e.target.value)}
-                className="mt-1 w-full p-2 border rounded-md focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 {produits.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -222,11 +252,11 @@ export default function Sales() {
                 <select
                   value={uniteIdEffectif}
                   onChange={(e) => setSelectedUniteId(e.target.value)}
-                  className="mt-1 w-full p-2 border rounded-md"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 >
                   {uniteOptions.map((u) => (
                     <option key={u.unite_id} value={u.unite_id}>
-                      {u.unite_nom} ({u.prix} {devise})
+                      {u.unite_nom} ({formatCurrency(u.prix, devise)})
                     </option>
                   ))}
                 </select>
@@ -242,7 +272,7 @@ export default function Sales() {
                 min="1"
                 value={quantite}
                 onChange={(e) => setQuantite(e.target.value)}
-                className="mt-1 w-full p-2 border rounded-md"
+                className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 required
               />
             </div>
@@ -257,7 +287,7 @@ export default function Sales() {
                     ? "Aucun prix configuré pour ce produit"
                     : undefined
               }
-              className={`w-full flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg transition ${
+              className={`flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
                 modeSupport || uniteOptions.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'
               }`}
             >
@@ -267,14 +297,17 @@ export default function Sales() {
         </div>
 
         {/* Panier & Validation */}
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 lg:col-span-2 flex flex-col justify-between">
+        <div className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div>
-            <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <ShoppingCart className="w-5 h-5" /> Panier en cours
+            <h3 className="mb-5 flex items-center gap-2 text-lg font-semibold text-slate-900">
+              <ShoppingCart className="h-5 w-5 text-blue-600" /> Panier en cours
             </h3>
 
             {panier.length === 0 ? (
-              <p className="text-gray-500 text-sm py-8 text-center">Le panier est vide pour le moment.</p>
+              <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-8 text-center">
+                <p className="font-medium text-gray-800">Votre panier est vide.</p>
+                <p className="mt-1 text-sm text-gray-500">Choisissez un produit puis ajoutez-le au panier pour préparer la vente.</p>
+              </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
@@ -294,14 +327,15 @@ export default function Sales() {
                         <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.nom}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.unite_nom}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{item.quantite}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{item.prix_unitaire} {devise}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-800">{item.sous_total} {devise}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{formatCurrency(item.prix_unitaire, devise)}</td>
+                        <td className="px-4 py-3 text-sm font-semibold text-gray-800">{formatCurrency(item.sous_total, devise)}</td>
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => handleRemoveLigne(index)}
                             disabled={modeSupport}
                             title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
-                            className={modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}
+                            aria-label={`Retirer ${item.nom} du panier`}
+                            className={`inline-flex min-w-11 min-h-11 items-center justify-center rounded-md transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 ${modeSupport ? 'text-gray-300 cursor-not-allowed' : 'text-red-600 hover:text-red-800'}`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -315,32 +349,32 @@ export default function Sales() {
           </div>
 
           {/* Totaux et Validation */}
-          <div className="mt-6 border-t pt-4 space-y-4">
-            <div className="flex justify-between items-center text-sm text-gray-600">
+          <div className="mt-6 space-y-4 border-t border-slate-100 pt-5">
+            <div className="flex items-center justify-between text-sm text-slate-600">
               <span>Total Brut :</span>
-              <span className="font-semibold text-gray-800">{totalBrut} {devise}</span>
+              <span className="font-semibold text-gray-800">{formatCurrency(totalBrut, devise)}</span>
             </div>
-            <div className="flex justify-between items-center text-sm text-gray-600">
+            <div className="flex items-center justify-between text-sm text-slate-600">
               <span>Remise ({devise}) :</span>
               <input
                 type="number"
                 min="0"
                 value={remise}
                 onChange={(e) => setRemise(e.target.value)}
-                className="w-32 p-1 border rounded-md text-right"
+                className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-right text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
-            <div className="flex justify-between items-center text-lg font-bold text-gray-900 border-t pt-2">
+            <div className="flex items-center justify-between border-t border-slate-100 pt-4 text-lg font-bold text-slate-900">
               <span>Montant Net à Payer :</span>
-              <span className="text-blue-600">{montantNet >= 0 ? montantNet : 0} {devise}</span>
+              <span className="text-blue-600">{formatCurrency(montantNet >= 0 ? montantNet : 0, devise)}</span>
             </div>
 
-            <div className="flex justify-between items-center text-sm text-gray-600">
+            <div className="flex items-center justify-between text-sm text-slate-600">
               <span>Mode de paiement :</span>
               <select
                 value={modePaiement}
                 onChange={(e) => setModePaiement(e.target.value)}
-                className="w-40 p-1 border rounded-md"
+                className="w-40 rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="ESPECES">Espèces</option>
                 <option value="MOBILE_MONEY">Mobile Money</option>
@@ -349,7 +383,7 @@ export default function Sales() {
               </select>
             </div>
 
-            <div className="flex justify-between items-center text-sm text-gray-600">
+            <div className="flex items-center justify-between text-sm text-slate-600">
               <span>Montant payé par le client :</span>
               <input
                 type="number"
@@ -357,28 +391,29 @@ export default function Sales() {
                 value={montantPaye}
                 onChange={(e) => setMontantPaye(e.target.value)}
                 placeholder="0"
-                className="w-32 p-1 border rounded-md text-right"
+                className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-right text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
             {montantPaye !== '' && !isNaN(parseFloat(montantPaye)) && (
-              <div className="flex justify-between items-center text-sm text-gray-600">
+              <div className="flex items-center justify-between text-sm text-slate-600">
                 <span>Monnaie à rendre :</span>
                 <span className="font-semibold text-gray-800">
-                  {Math.max(parseFloat(montantPaye) - montantNet, 0)} {devise}
+                  {formatCurrency(Math.max(parseFloat(montantPaye) - montantNet, 0), devise)}
                 </span>
               </div>
             )}
 
             <button
               onClick={handleSubmitVente}
-              disabled={panier.length === 0 || modeSupport}
+              disabled={panier.length === 0 || modeSupport || isSubmitting}
               title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
-              className={`w-full py-3 rounded-lg text-white font-semibold transition ${
-                panier.length === 0 || modeSupport ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+              className={`w-full py-3 rounded-lg text-white text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 focus-visible:ring-offset-2 ${
+                panier.length === 0 || modeSupport || isSubmitting ? 'bg-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
               }`}
+              aria-busy={isSubmitting}
             >
-              Valider la Vente
+              {isSubmitting ? 'Validation...' : 'Valider la Vente'}
             </button>
           </div>
         </div>

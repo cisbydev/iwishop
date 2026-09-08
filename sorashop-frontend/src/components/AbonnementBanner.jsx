@@ -26,7 +26,7 @@ export default function AbonnementBanner() {
     : `dans ${info.jours_restants} jour${info.jours_restants > 1 ? 's' : ''}`;
 
   return (
-    <div className="bg-orange-500 text-white px-4 py-2 flex items-center gap-2 sticky top-0 z-50 shadow-md">
+    <div className="bg-orange-500 text-white px-4 py-2 flex items-center gap-2">
       <AlertTriangle className="w-4 h-4 flex-shrink-0" />
       <span className="text-sm font-medium">
         Votre abonnement expire {texteJours} — pensez à le renouveler.
