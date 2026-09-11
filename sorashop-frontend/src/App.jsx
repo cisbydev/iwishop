@@ -24,6 +24,7 @@ import SupportViewBanner from './components/SupportViewBanner';
 import AbonnementBanner from './components/AbonnementBanner';
 import VentesEnAttenteBanner from './components/VentesEnAttenteBanner';
 import GlobalBanners from './components/GlobalBanners';
+import InstallPwaModal from './components/InstallPwaModal';
 import MobileNavigation from './components/MobileNavigation';
 import { LayoutDashboard, Package, Tag, Warehouse, Truck, ShoppingBag, Wallet, FileBarChart, Settings as SettingsIcon, ShoppingCart, History, LogOut } from 'lucide-react';
 import logoParDefaut from './assets/iwishop-logo-removebg-preview.png';
@@ -102,6 +103,7 @@ function AppContent() {
 
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
+      <InstallPwaModal />
       <GlobalBanners>
         <SupportViewBanner />
         <AbonnementBanner />
