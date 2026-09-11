@@ -1,4 +1,5 @@
 import threading
+import uuid
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -675,3 +676,177 @@ class LigneVenteCoutHistoriqueTests(APITestCase):
         self.assertEqual(LigneVente.objects.count(), 0)
         self.produit_a.refresh_from_db()
         self.assertEqual(self.produit_a.quantite_en_stock, 10)  # inchangé
+
+
+class VenteSynchronisationDiffereeTests(APITestCase):
+    """PWA Niveau 2 - Étape 1 (backend) : une vente créée hors ligne sur le
+    téléphone doit pouvoir être rejouée sans risque de doublon (clé
+    d'idempotence par boutique) et doit pouvoir réussir même si le stock a
+    changé entre-temps (synchronisation_differee), sans jamais changer le
+    comportement d'une vente normale en direct."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-sync-differee")
+        self.user = User.objects.create_user(username="user_sync", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.autre_boutique = Boutique.objects.create(nom="Autre Boutique", slug="autre-boutique-sync-differee")
+        self.autre_user = User.objects.create_user(username="autre_user_sync", password="pass1234")
+        Profil.objects.create(user=self.autre_user, boutique=self.autre_boutique, est_proprietaire=True)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+
+        # Même référence de produit dans l'autre boutique, pour le test de
+        # non-collision de la clé d'idempotence entre boutiques.
+        self.unite_autre = UniteVente.objects.create(
+            boutique=self.autre_boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit_autre = Produit.objects.create(
+            boutique=self.autre_boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=self.produit_autre, unite=self.unite_autre, prix=Decimal("100"))
+
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('ventes-list')
+
+    def _payload(self, *, quantite=5, cle_idempotence=None, horodatage_client=None,
+                 synchronisation_differee=None, produit=None):
+        produit = produit or self.produit
+        payload = {
+            "montant_paye": str(Decimal(quantite) * Decimal("100.00")),
+            "lignes": [{
+                "produit": produit.id, "quantite": quantite,
+                "type_vente": "UNITE", "prix_applique": "100.00",
+            }],
+        }
+        if cle_idempotence is not None:
+            payload["cle_idempotence"] = str(cle_idempotence)
+        if horodatage_client is not None:
+            payload["horodatage_client"] = horodatage_client
+        if synchronisation_differee is not None:
+            payload["synchronisation_differee"] = synchronisation_differee
+        return payload
+
+    def test_meme_cle_idempotence_meme_boutique_ne_cree_qu_une_seule_vente(self):
+        """Deux requêtes identiques (même clé, même boutique) - une seule
+        Vente en base, stock décrémenté une seule fois. Reproduit le
+        scénario réel : accusé de réception perdu, le téléphone rejoue la
+        même requête de création."""
+        cle = uuid.uuid4()
+        stock_avant = self.produit.quantite_en_stock
+
+        premiere = self.client.post(self.url_list, self._payload(quantite=3, cle_idempotence=cle), format='json')
+        self.assertEqual(premiere.status_code, status.HTTP_201_CREATED, premiere.data)
+
+        self.produit.refresh_from_db()
+        stock_apres_premiere = self.produit.quantite_en_stock
+        self.assertEqual(stock_apres_premiere, stock_avant - 3)
+
+        seconde = self.client.post(self.url_list, self._payload(quantite=3, cle_idempotence=cle), format='json')
+        self.assertEqual(seconde.status_code, status.HTTP_201_CREATED, seconde.data)
+        self.assertEqual(seconde.data['id'], premiere.data['id'])
+
+        self.assertEqual(Vente.objects.filter(cle_idempotence=cle).count(), 1)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, stock_apres_premiere)  # inchangé par le rejeu
+
+    def test_meme_cle_idempotence_boutiques_differentes_cree_deux_ventes(self):
+        """La même UUID générée sur deux téléphones de deux boutiques
+        différentes ne doit jamais entrer en collision (contrainte
+        UniqueConstraint scoping par boutique)."""
+        cle = uuid.uuid4()
+
+        response_a = self.client.post(self.url_list, self._payload(cle_idempotence=cle), format='json')
+        self.assertEqual(response_a.status_code, status.HTTP_201_CREATED, response_a.data)
+
+        self.client.force_authenticate(user=self.autre_user)
+        response_b = self.client.post(
+            self.url_list,
+            self._payload(cle_idempotence=cle, produit=self.produit_autre),
+            format='json',
+        )
+        self.assertEqual(response_b.status_code, status.HTTP_201_CREATED, response_b.data)
+
+        self.assertNotEqual(response_a.data['id'], response_b.data['id'])
+        self.assertEqual(Vente.objects.filter(cle_idempotence=cle).count(), 2)
+
+    def test_vente_normale_stock_insuffisant_toujours_refusee(self):
+        """Non-régression : sans synchronisation_differee (absent ou
+        False), le contrôle de stock reste strictement identique."""
+        response = self.client.post(self.url_list, self._payload(quantite=50), format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_vente_normale_explicitement_non_differee_stock_insuffisant_refusee(self):
+        """Même vérification avec synchronisation_differee=False fourni
+        explicitement (pas seulement absent)."""
+        response = self.client.post(
+            self.url_list,
+            self._payload(quantite=50, synchronisation_differee=False),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+
+    def test_synchronisation_differee_avec_stock_insuffisant_est_acceptee_et_marquee(self):
+        """Cœur du chantier : une vente hors ligne dont le stock a
+        entre-temps changé doit quand même être acceptée, jamais perdue -
+        le stock devient négatif et les deux drapeaux sont positionnés."""
+        response = self.client.post(
+            self.url_list,
+            self._payload(quantite=50, synchronisation_differee=True),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertTrue(vente.creee_hors_ligne)
+        self.assertTrue(vente.stock_ajuste_manuellement)
+
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 10 - 50)  # négatif, assumé
+
+    def test_synchronisation_differee_avec_stock_suffisant_ne_marque_pas_lajustement(self):
+        """La synchronisation différée n'implique pas systématiquement un
+        stock négatif : si le stock est resté suffisant,
+        stock_ajuste_manuellement doit rester False."""
+        response = self.client.post(
+            self.url_list,
+            self._payload(quantite=3, synchronisation_differee=True),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertTrue(vente.creee_hors_ligne)
+        self.assertFalse(vente.stock_ajuste_manuellement)
+
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 7)
+
+    def test_horodatage_client_sauvegarde_tel_que_fourni(self):
+        horodatage = timezone.now().replace(microsecond=0) - timezone.timedelta(hours=6)
+
+        response = self.client.post(
+            self.url_list,
+            self._payload(quantite=1, horodatage_client=horodatage.isoformat()),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertEqual(vente.horodatage_client, horodatage)

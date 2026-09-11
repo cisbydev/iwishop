@@ -44,6 +44,26 @@ class Vente(models.Model):
     # ce statut, sans jamais effacer l'historique.
     statut = models.CharField(max_length=20, choices=STATUTS, default='VALIDEE')
 
+    # PWA Niveau 2 (synchronisation différée) - null=True : une vente créée
+    # en direct (chemin historique) n'a pas de clé côté client. Quand elle
+    # est fournie, l'unicité n'est imposée que PAR BOUTIQUE (cf. Meta ci-
+    # dessous) : deux boutiques différentes doivent pouvoir générer la même
+    # UUID côté deux téléphones sans se bloquer mutuellement, même principe
+    # que Produit.reference.
+    cle_idempotence = models.UUIDField(null=True, blank=True)
+    # Heure réelle de la vente selon l'horloge du téléphone, potentiellement
+    # très différente de date_vente (auto_now_add, horodatage serveur au
+    # moment de la synchronisation réelle) - date_vente reste la trace
+    # d'audit officielle, ce champ est purement informatif côté client.
+    horodatage_client = models.DateTimeField(null=True, blank=True)
+    creee_hors_ligne = models.BooleanField(default=False)
+    # Positionné uniquement si la synchronisation différée a dû décrémenter
+    # le stock au-delà de ce qui était disponible au moment de la synchro
+    # (vente acceptée quand même, cf. VenteSerializer.create()) - signale
+    # aux écrans stock/rapports qu'un rattrapage manuel est probablement
+    # nécessaire.
+    stock_ajuste_manuellement = models.BooleanField(default=False)
+
     def save(self, *args, **kwargs):
         if not self.numero:
             # Générer un numéro de vente unique basé sur l'UUID court
@@ -57,6 +77,13 @@ class Vente(models.Model):
         verbose_name = "Vente"
         verbose_name_plural = "Ventes"
         ordering = ['-date_vente']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['boutique', 'cle_idempotence'],
+                condition=models.Q(cle_idempotence__isnull=False),
+                name='unique_cle_idempotence_par_boutique',
+            ),
+        ]
 
 class LigneVente(models.Model):
     TYPES_VENTE = (

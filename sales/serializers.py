@@ -33,15 +33,30 @@ class LigneVenteSerializer(serializers.ModelSerializer):
 class VenteSerializer(serializers.ModelSerializer):
     lignes = LigneVenteSerializer(many=True)
     utilisateur_nom = serializers.ReadOnlyField(source='utilisateur.username')
+    # PWA Niveau 2 : optionnels en écriture, absents => chemin historique
+    # inchangé (vente en direct). synchronisation_differee ne persiste pas
+    # tel quel sur le modèle (le champ équivalent en base est
+    # creee_hors_ligne, positionné explicitement dans create() ci-dessous) :
+    # write_only pour ne jamais apparaître en lecture, où il n'aurait pas
+    # de sens (creee_hors_ligne est la valeur qui fait foi une fois la
+    # vente enregistrée).
+    cle_idempotence = serializers.UUIDField(required=False, allow_null=True)
+    horodatage_client = serializers.DateTimeField(required=False, allow_null=True)
+    synchronisation_differee = serializers.BooleanField(required=False, default=False, write_only=True)
 
     class Meta:
         model = Vente
         fields = [
             'id', 'numero', 'date_vente', 'client', 'montant_total',
             'remise', 'montant_net', 'montant_paye', 'monnaie_rendue',
-            'mode_paiement', 'utilisateur', 'utilisateur_nom', 'statut', 'lignes'
+            'mode_paiement', 'utilisateur', 'utilisateur_nom', 'statut', 'lignes',
+            'cle_idempotence', 'horodatage_client', 'creee_hors_ligne',
+            'stock_ajuste_manuellement', 'synchronisation_differee',
         ]
-        read_only_fields = ['numero', 'date_vente', 'montant_total', 'montant_net', 'monnaie_rendue', 'statut']
+        read_only_fields = [
+            'numero', 'date_vente', 'montant_total', 'montant_net', 'monnaie_rendue',
+            'statut', 'creee_hors_ligne', 'stock_ajuste_manuellement',
+        ]
 
     @transaction.atomic
     def create(self, validated_data):
@@ -49,12 +64,30 @@ class VenteSerializer(serializers.ModelSerializer):
         if not boutique.actif:
             raise serializers.ValidationError("Cette boutique a été désactivée.")
 
+        # Idempotence (PWA Niveau 2) : une même clé déjà enregistrée pour
+        # cette boutique renvoie la vente existante telle quelle - aucune
+        # nouvelle écriture, aucun stock touché, aucun MouvementStock créé.
+        # Doit être vérifié avant toute autre logique (verrouillage produit
+        # compris) pour qu'un rejeu réseau (vente déjà synchronisée avec
+        # succès mais accusé de réception perdu) reste un pur no-op.
+        cle_idempotence = validated_data.get('cle_idempotence')
+        if cle_idempotence is not None:
+            vente_existante = Vente.objects.filter(
+                boutique=boutique, cle_idempotence=cle_idempotence
+            ).first()
+            if vente_existante is not None:
+                return vente_existante
+
+        synchronisation_differee = validated_data.pop('synchronisation_differee', False)
         lignes_data = validated_data.pop('lignes')
 
         # Assigner l'utilisateur connecté si présent dans le contexte de la requête
         request = self.context.get('request')
         if request and hasattr(request, 'user'):
             validated_data['utilisateur'] = request.user
+
+        if synchronisation_differee:
+            validated_data['creee_hors_ligne'] = True
 
         vente = Vente.objects.create(boutique=boutique, **validated_data)
 
@@ -78,6 +111,15 @@ class VenteSerializer(serializers.ModelSerializer):
             produit.pk: produit
             for produit in Produit.objects.select_for_update().filter(pk__in=produit_ids).order_by('pk')
         }
+
+        # PWA Niveau 2 : une vente synchronisée en différé peut arriver
+        # après que le stock a déjà bougé sur l'appareil qui a créé la
+        # vente en premier - le stock disponible au moment de la synchro
+        # peut donc être inférieur à ce qu'il était au moment réel de la
+        # vente. Dans ce cas précis (et uniquement celui-là), on laisse le
+        # décrément se faire quand même plutôt que de perdre une vente déjà
+        # conclue en boutique, et on le signale via stock_ajuste_manuellement.
+        stock_negatif_detecte = False
 
         for ligne_data in lignes_data:
             produit = produits_par_id[ligne_data['produit'].pk]
@@ -132,12 +174,19 @@ class VenteSerializer(serializers.ModelSerializer):
                 )
             unites_a_deduire = int(unites_reelles)
 
-            # Règle métier : Vérification stricte du stock disponible
+            # Règle métier : Vérification stricte du stock disponible -
+            # comportement inchangé pour toute vente normale. Contournée
+            # uniquement pour une synchronisation différée explicite (PWA
+            # Niveau 2) : la vente a déjà eu lieu physiquement en boutique,
+            # la refuser ici ferait perdre une vente réelle pour une raison
+            # purement comptable côté serveur.
             if produit.quantite_en_stock < unites_a_deduire:
-                raise ValidationError(
-                    f"Stock insuffisant pour le produit '{produit.nom}'. "
-                    f"Demandé : {unites_a_deduire} unités, Disponible : {produit.quantite_en_stock} unités."
-                )
+                if not synchronisation_differee:
+                    raise ValidationError(
+                        f"Stock insuffisant pour le produit '{produit.nom}'. "
+                        f"Demandé : {unites_a_deduire} unités, Disponible : {produit.quantite_en_stock} unités."
+                    )
+                stock_negatif_detecte = True
 
             # Le prix et le facteur de conversion sont figés sur la ligne au
             # moment de la vente (comme prix_applique) : les rapports
@@ -190,6 +239,8 @@ class VenteSerializer(serializers.ModelSerializer):
         vente.montant_total = montant_total
         vente.montant_net = montant_net
         vente.monnaie_rendue = monnaie_rendue
+        if stock_negatif_detecte:
+            vente.stock_ajuste_manuellement = True
         vente.save()
 
         return vente
