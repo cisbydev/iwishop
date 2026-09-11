@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -27,6 +29,8 @@ from .serializers_auth import CustomTokenObtainPairSerializer
 from .permissions import IsOwner
 from .throttling import LoginIPRateThrottle, LoginUsernameRateThrottle
 
+logger = logging.getLogger(__name__)
+
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
@@ -40,6 +44,20 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     throttle_classes = [LoginIPRateThrottle, LoginUsernameRateThrottle]
 
     def post(self, request, *args, **kwargs):
+        # DIAGNOSTIC TEMPORAIRE - A SUPPRIMER APRES VERIFICATION
+        # Vérification empirique de la façon dont Render transmet l'IP
+        # réelle du client dans X-Forwarded-For (cf. accounts.throttling._ip_client,
+        # qui suppose - sans jamais l'avoir vérifié en prod - que Render place
+        # cette IP en première position). logger.warning volontaire (pas
+        # .debug) pour remonter même si le niveau de log en prod est réglé
+        # sur WARNING. Ne logue jamais username/password, uniquement ces
+        # deux valeurs réseau.
+        logger.warning(
+            "DIAG_XFF REMOTE_ADDR=%s HTTP_X_FORWARDED_FOR=%s",
+            request.META.get('REMOTE_ADDR'),
+            request.META.get('HTTP_X_FORWARDED_FOR'),
+        )
+        # FIN DIAGNOSTIC TEMPORAIRE - A SUPPRIMER APRES VERIFICATION
         response = super().post(request, *args, **kwargs)
         refresh = response.data.pop('refresh', None)
         if refresh:
