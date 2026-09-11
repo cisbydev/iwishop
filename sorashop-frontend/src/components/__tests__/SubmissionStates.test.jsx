@@ -6,11 +6,16 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   getAll: vi.fn(),
   post: vi.fn(),
+  ajouterVenteEnAttente: vi.fn(),
 }));
 
 vi.mock('../../services/api', () => ({
   default: { get: mocks.get, post: mocks.post },
   getAll: mocks.getAll,
+}));
+
+vi.mock('../../services/offlineQueue', () => ({
+  ajouterVenteEnAttente: mocks.ajouterVenteEnAttente,
 }));
 
 vi.mock('../../context/settingsContextValue', () => ({
@@ -64,6 +69,7 @@ describe('états de soumission', () => {
     mocks.get.mockReset();
     mocks.getAll.mockReset();
     mocks.post.mockReset();
+    mocks.ajouterVenteEnAttente.mockReset();
     vi.spyOn(window, 'alert').mockImplementation(() => {});
   });
 
@@ -93,10 +99,13 @@ describe('états de soumission', () => {
     expect(screen.getByRole('button', { name: 'Valider la Vente' })).toBeDisabled();
   });
 
-  it('réactive la validation de vente après une erreur et permet une nouvelle tentative', async () => {
+  it('réactive la validation de vente après une vraie erreur serveur et permet une nouvelle tentative', async () => {
+    // Erreur de validation réelle (le serveur a répondu, ex: 400) - distincte
+    // d'une panne réseau : ce chemin ne doit PAS mettre la vente en file
+    // d'attente hors ligne, il reste identique au comportement historique.
     configureSalesCatalogue();
     mocks.post
-      .mockRejectedValueOnce(new Error('Network error'))
+      .mockRejectedValueOnce({ response: { status: 400, data: { detail: 'Stock insuffisant.' } } })
       .mockResolvedValueOnce({ data: {} });
     const user = userEvent.setup();
 
@@ -104,10 +113,41 @@ describe('états de soumission', () => {
     await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
 
     expect(await screen.findByRole('button', { name: 'Valider la Vente' })).toBeEnabled();
+    expect(mocks.ajouterVenteEnAttente).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
 
     expect(mocks.post).toHaveBeenCalledTimes(2);
     expect(await screen.findByText(/Vente enregistrée avec succès/)).toBeInTheDocument();
+  });
+
+  it('met la vente en file d’attente hors ligne (PWA Niveau 2) sur une vraie panne réseau, sans bloquer l’utilisateur', async () => {
+    // Panne réseau réelle (axios ne reçoit aucune réponse serveur) : la
+    // vente ne doit jamais être perdue ni présentée comme une erreur - elle
+    // est mise en file d'attente locale et l'utilisateur voit une
+    // confirmation, pas un blocage.
+    configureSalesCatalogue();
+    mocks.post.mockRejectedValueOnce(new Error('Network Error'));
+    mocks.ajouterVenteEnAttente.mockResolvedValueOnce({ cle_idempotence: 'uuid-1' });
+    const user = userEvent.setup();
+
+    await preparerVente(user);
+    await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
+
+    expect(mocks.ajouterVenteEnAttente).toHaveBeenCalledTimes(1);
+    expect(mocks.ajouterVenteEnAttente).toHaveBeenCalledWith({
+      remise: 0,
+      montant_paye: 100,
+      mode_paiement: 'ESPECES',
+      lignes: [{ produit: 1, unite: 1, quantite: 1, prix_applique: 100 }],
+    });
+    expect(
+      await screen.findByText(/Vente enregistrée - sera envoyée dès que la connexion revient/)
+    ).toBeInTheDocument();
+    expect(window.alert).not.toHaveBeenCalled();
+    // Le panier est vidé comme pour une vente réussie en ligne (même
+    // comportement de fin de soumission) : le bouton redevient disabled
+    // faute d'articles, pas parce que la soumission serait bloquée.
+    expect(screen.getByRole('button', { name: 'Valider la Vente' })).toBeDisabled();
   });
 
   it('désactive l’enregistrement d’une catégorie modale pendant sa soumission', async () => {

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
+import { ajouterVenteEnAttente } from '../services/offlineQueue';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { formatCurrency } from '../utils/formatters';
-import { ShoppingCart, Plus, Trash2, CheckCircle } from 'lucide-react';
+import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff } from 'lucide-react';
 
 export default function Sales() {
   const { parametres } = useSettings();
@@ -22,6 +23,7 @@ export default function Sales() {
   const [loading, setLoading] = useState(true);
   const [erreurChargement, setErreurChargement] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [venteEnAttenteMessage, setVenteEnAttenteMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Recharge uniquement les produits (stock à jour après une vente) sans
@@ -171,19 +173,21 @@ export default function Sales() {
       return;
     }
 
+    const payload = {
+      remise: parseFloat(remise) || 0,
+      montant_paye: paye,
+      mode_paiement: modePaiement,
+      lignes: panier.map(item => ({
+        produit: item.produit_id,
+        unite: item.unite_id,
+        quantite: item.quantite,
+        prix_applique: item.prix_unitaire,
+      }))
+    };
+
     setIsSubmitting(true);
     try {
-      await api.post('ventes/', {
-        remise: parseFloat(remise) || 0,
-        montant_paye: paye,
-        mode_paiement: modePaiement,
-        lignes: panier.map(item => ({
-          produit: item.produit_id,
-          unite: item.unite_id,
-          quantite: item.quantite,
-          prix_applique: item.prix_unitaire,
-        }))
-      });
+      await api.post('ventes/', payload);
       setSuccessMessage("Vente enregistrée avec succès ! Stock mis à jour.");
       setPanier([]);
       setRemise(0);
@@ -191,8 +195,27 @@ export default function Sales() {
       fetchProduits(); // Recharger les produits pour actualiser les stocks affichés
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (err) {
-      console.error("Erreur vente :", err.response?.data || err);
-      alert(getErrorMessage(err, "Erreur lors de l'enregistrement de la vente."));
+      if (!err.response) {
+        // Aucune réponse serveur du tout (panne réseau réelle, distincte
+        // d'un 400/401 qui suppose que le serveur a été joint) : la vente
+        // a bien eu lieu physiquement en boutique, elle est mise en file
+        // d'attente locale (IndexedDB) plutôt que perdue - elle sera
+        // rejouée automatiquement dès le retour du réseau (cf. syncEngine).
+        try {
+          await ajouterVenteEnAttente(payload);
+          setVenteEnAttenteMessage("Vente enregistrée - sera envoyée dès que la connexion revient.");
+          setPanier([]);
+          setRemise(0);
+          setMontantPaye('');
+          setTimeout(() => setVenteEnAttenteMessage(''), 4000);
+        } catch (erreurFileAttente) {
+          console.error("Erreur mise en file d'attente hors ligne :", erreurFileAttente);
+          alert("Impossible d'enregistrer la vente, même hors ligne. Réessayez.");
+        }
+      } else {
+        console.error("Erreur vente :", err.response?.data || err);
+        alert(getErrorMessage(err, "Erreur lors de l'enregistrement de la vente."));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -223,6 +246,12 @@ export default function Sales() {
       {successMessage && (
         <div className="p-4 bg-green-100 text-green-700 rounded-lg flex items-center gap-2">
           <CheckCircle className="w-5 h-5" /> {successMessage}
+        </div>
+      )}
+
+      {venteEnAttenteMessage && (
+        <div className="p-4 bg-amber-100 text-amber-800 rounded-lg flex items-center gap-2">
+          <WifiOff className="w-5 h-5" /> {venteEnAttenteMessage}
         </div>
       )}
 

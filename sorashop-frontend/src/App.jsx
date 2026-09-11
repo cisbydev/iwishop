@@ -22,6 +22,7 @@ import { useSupportView } from './context/supportViewContextValue';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import SupportViewBanner from './components/SupportViewBanner';
 import AbonnementBanner from './components/AbonnementBanner';
+import VentesEnAttenteBanner from './components/VentesEnAttenteBanner';
 import GlobalBanners from './components/GlobalBanners';
 import MobileNavigation from './components/MobileNavigation';
 import { LayoutDashboard, Package, Tag, Warehouse, Truck, ShoppingBag, Wallet, FileBarChart, Settings as SettingsIcon, ShoppingCart, History, LogOut } from 'lucide-react';
@@ -104,6 +105,7 @@ function AppContent() {
       <GlobalBanners>
         <SupportViewBanner />
         <AbonnementBanner />
+        <VentesEnAttenteBanner />
       </GlobalBanners>
       <header className="flex min-h-16 items-center gap-3 border-b border-slate-200/70 bg-white px-4 sm:px-6 min-[1366px]:min-h-[104px] min-[1366px]:gap-4">
         <h1 className="flex min-w-0 flex-1 items-center gap-3 min-[1366px]:w-14 min-[1366px]:flex-none min-[1366px]:justify-center">
