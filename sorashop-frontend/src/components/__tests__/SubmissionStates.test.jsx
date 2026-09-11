@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   getAll: vi.fn(),
   post: vi.fn(),
   ajouterVenteEnAttente: vi.fn(),
+  sauvegarderCatalogue: vi.fn(),
+  chargerCatalogueCache: vi.fn(),
 }));
 
 vi.mock('../../services/api', () => ({
@@ -16,6 +18,11 @@ vi.mock('../../services/api', () => ({
 
 vi.mock('../../services/offlineQueue', () => ({
   ajouterVenteEnAttente: mocks.ajouterVenteEnAttente,
+}));
+
+vi.mock('../../services/catalogueCache', () => ({
+  sauvegarderCatalogue: mocks.sauvegarderCatalogue,
+  chargerCatalogueCache: mocks.chargerCatalogueCache,
 }));
 
 vi.mock('../../context/settingsContextValue', () => ({
@@ -70,6 +77,8 @@ describe('états de soumission', () => {
     mocks.getAll.mockReset();
     mocks.post.mockReset();
     mocks.ajouterVenteEnAttente.mockReset();
+    mocks.sauvegarderCatalogue.mockReset().mockResolvedValue(undefined);
+    mocks.chargerCatalogueCache.mockReset().mockResolvedValue(null);
     vi.spyOn(window, 'alert').mockImplementation(() => {});
   });
 

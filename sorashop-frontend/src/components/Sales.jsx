@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { ajouterVenteEnAttente } from '../services/offlineQueue';
+import { sauvegarderCatalogue, chargerCatalogueCache } from '../services/catalogueCache';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
-import { formatCurrency } from '../utils/formatters';
-import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff } from 'lucide-react';
+import { formatCurrency, formatDateTime } from '../utils/formatters';
+import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff, CloudOff } from 'lucide-react';
 
 export default function Sales() {
   const { parametres } = useSettings();
@@ -25,6 +26,11 @@ export default function Sales() {
   const [successMessage, setSuccessMessage] = useState('');
   const [venteEnAttenteMessage, setVenteEnAttenteMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Date de la dernière sauvegarde du catalogue utilisé (cf. catalogueCache) -
+  // non nul tant que l'écran affiche des données issues du cache plutôt que
+  // du dernier chargement réseau réussi. Reste affiché en permanence, pas
+  // seulement au moment du chargement.
+  const [catalogueHorsLigne, setCatalogueHorsLigne] = useState(null);
 
   // Recharge uniquement les produits (stock à jour après une vente) sans
   // retoucher aux prix/unités, qui ne changent pas en cours de session.
@@ -41,7 +47,45 @@ export default function Sales() {
     }
   };
 
-  const fetchCatalogue = async () => {
+  // Dérive prixParUnite des 3 tableaux bruts (produits, prix, unités) tels
+  // que renvoyés par l'API - réutilisé à l'identique que ces tableaux
+  // viennent d'un chargement réseau frais ou du cache hors ligne
+  // (catalogueCache), pour ne jamais dupliquer cette logique.
+  const appliquerCatalogue = useCallback((produitsRecus, prixRecus, unitesRecues) => {
+    const facteurParUnite = {};
+    unitesRecues.forEach((u) => {
+      facteurParUnite[u.id] = parseFloat(u.facteur_conversion);
+    });
+
+    const rangUnite = (nom) => (nom === 'Unité' ? 0 : nom === 'Douzaine' ? 1 : 2);
+    const map = {};
+    prixRecus.forEach((p) => {
+      const facteur = facteurParUnite[p.unite];
+      if (facteur === undefined) return; // unité inconnue : on ignore ce prix par sécurité
+      if (!map[p.produit]) map[p.produit] = [];
+      map[p.produit].push({
+        unite_id: p.unite,
+        unite_nom: p.unite_nom,
+        prix: parseFloat(p.prix),
+        facteur_conversion: facteur,
+      });
+    });
+    Object.values(map).forEach((options) => {
+      options.sort((a, b) => rangUnite(a.unite_nom) - rangUnite(b.unite_nom) || a.unite_nom.localeCompare(b.unite_nom));
+    });
+
+    setProduits(produitsRecus);
+    setPrixParUnite(map);
+    if (produitsRecus.length > 0) {
+      setSelectedProduit(produitsRecus[0].id);
+    }
+  }, []);
+
+  // useCallback (deps []) : aucune valeur réactive (state/props) n'est lue
+  // par cette fonction, seulement des setters stables et des paramètres -
+  // une référence stable permet de la lister honnêtement dans les deps de
+  // l'effet ci-dessous sans le faire re-déclencher à chaque rendu.
+  const fetchCatalogue = useCallback(async () => {
     try {
       const [produits, prix, unites] = await Promise.all([
         getAll('produits/'),
@@ -49,38 +93,44 @@ export default function Sales() {
         getAll('produits/unites-vente/'),
       ]);
 
-      const facteurParUnite = {};
-      unites.forEach((u) => {
-        facteurParUnite[u.id] = parseFloat(u.facteur_conversion);
-      });
+      appliquerCatalogue(produits, prix, unites);
+      // Un chargement réseau frais réussi rend le cache précédent obsolète
+      // du point de vue de l'affichage (le bandeau, s'il était visible,
+      // n'a plus lieu d'être) - le cache lui-même est mis à jour juste après.
+      setCatalogueHorsLigne(null);
 
-      const rangUnite = (nom) => (nom === 'Unité' ? 0 : nom === 'Douzaine' ? 1 : 2);
-      const map = {};
-      prix.forEach((p) => {
-        const facteur = facteurParUnite[p.unite];
-        if (facteur === undefined) return; // unité inconnue : on ignore ce prix par sécurité
-        if (!map[p.produit]) map[p.produit] = [];
-        map[p.produit].push({
-          unite_id: p.unite,
-          unite_nom: p.unite_nom,
-          prix: parseFloat(p.prix),
-          facteur_conversion: facteur,
-        });
+      // Sauvegarde silencieuse pour un futur démarrage hors ligne. Ne doit
+      // jamais faire échouer l'affichage du catalogue si elle échoue
+      // elle-même (ex: IndexedDB indisponible ou quota dépassé) : erreur
+      // avalée, uniquement tracée.
+      sauvegarderCatalogue({ produits, prix, unites }).catch((erreurCache) => {
+        console.error("Erreur sauvegarde du catalogue hors ligne :", erreurCache);
       });
-      Object.values(map).forEach((options) => {
-        options.sort((a, b) => rangUnite(a.unite_nom) - rangUnite(b.unite_nom) || a.unite_nom.localeCompare(b.unite_nom));
-      });
-
-      setProduits(produits);
-      setPrixParUnite(map);
-      if (produits.length > 0) {
-        setSelectedProduit(produits[0].id);
-      }
     } catch (err) {
+      if (!err.response) {
+        // Panne réseau réelle (pas une erreur serveur/validation) : on
+        // retombe sur le dernier catalogue connu plutôt que de bloquer
+        // tout l'écran, quitte à l'afficher avec des données possiblement
+        // périmées (bandeau permanent, cf. rendu ci-dessous).
+        try {
+          const cache = await chargerCatalogueCache();
+          if (cache) {
+            appliquerCatalogue(cache.produits, cache.prix, cache.unites);
+            setCatalogueHorsLigne(cache.derniere_maj);
+            return;
+          }
+        } catch (erreurCache) {
+          console.error("Erreur lecture du cache catalogue hors ligne :", erreurCache);
+        }
+      }
+
+      // Erreur serveur/validation, ou panne réseau sans aucun cache
+      // disponible (tout premier lancement de l'app sans jamais avoir été
+      // en ligne) : rien d'autre à faire que le message d'erreur actuel.
       console.error("Erreur chargement catalogue", err);
       setErreurChargement("Impossible de charger les données de vente. Vérifiez votre connexion puis réessayez.");
     }
-  };
+  }, [appliquerCatalogue]);
 
   const loadCatalogue = async () => {
     setLoading(true);
@@ -96,7 +146,7 @@ export default function Sales() {
     };
 
     void chargerCatalogue();
-  }, [modeSupport, boutiqueId]);
+  }, [modeSupport, boutiqueId, fetchCatalogue]);
 
   const uniteOptions = prixParUnite[parseInt(selectedProduit)] || [];
   // L'unité choisie par l'utilisateur peut ne plus s'appliquer au produit
@@ -242,6 +292,18 @@ export default function Sales() {
         <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Ventes</h2>
         <p className="mt-2 text-sm text-slate-600">Préparez le panier, appliquez les remises et finalisez les ventes de votre boutique.</p>
       </section>
+
+      {catalogueHorsLigne && (
+        <div
+          role="status"
+          className="rounded-lg bg-amber-500 px-4 py-2 flex items-center gap-2 text-white"
+        >
+          <CloudOff className="w-4 h-4 flex-shrink-0" />
+          <span className="text-sm font-medium">
+            Catalogue hors ligne - dernières données du {formatDateTime(catalogueHorsLigne)}. Le stock affiché peut être dépassé.
+          </span>
+        </div>
+      )}
 
       {successMessage && (
         <div className="p-4 bg-green-100 text-green-700 rounded-lg flex items-center gap-2">
