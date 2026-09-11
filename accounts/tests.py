@@ -5,7 +5,7 @@ from unittest import mock
 from django.contrib.auth.models import User
 from django.conf import settings
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -583,6 +583,114 @@ class EmployeAbonnementExpireTests(APITestCase):
         self.assertFalse(employe.is_active)
 
 
+class DatabaseCacheBackendTests(TestCase):
+    """Vérifie que CACHES['default'] pointe réellement sur la table
+    partagée django_cache_table (DatabaseCache) et pas sur un fallback en
+    mémoire - condition nécessaire pour que le throttling de connexion
+    (LoginThrottlingTests ci-dessous) soit fiable sur plusieurs workers
+    Gunicorn en prod, pas seulement dans ce process de test."""
+
+    def setUp(self):
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_backend_configure_est_bien_databasecache(self):
+        self.assertEqual(
+            settings.CACHES['default']['BACKEND'],
+            'django.core.cache.backends.db.DatabaseCache',
+        )
+        self.assertEqual(settings.CACHES['default']['LOCATION'], 'django_cache_table')
+
+    def test_set_get_fonctionne_reellement(self):
+        cache.set('verif_databasecache', {'ok': True, 'n': 42}, 60)
+
+        self.assertEqual(cache.get('verif_databasecache'), {'ok': True, 'n': 42})
+
+    def test_valeur_ecrite_est_persistee_dans_la_table_sql(self):
+        """Preuve directe (pas seulement via l'API cache) que cache.set()
+        écrit bien une ligne dans django_cache_table - élimine la
+        possibilité qu'un cache en mémoire réponde correctement sans
+        qu'aucune écriture en base n'ait eu lieu."""
+        from django.db import connection
+
+        cache.set('verif_databasecache_sql', 'valeur_test', 60)
+
+        with connection.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM django_cache_table WHERE cache_key LIKE %s",
+                ['%verif_databasecache_sql%'],
+            )
+            (nb_lignes,) = cur.fetchone()
+
+        self.assertEqual(nb_lignes, 1)
+
+    def test_clear_vide_bien_la_table(self):
+        cache.set('a_supprimer', 'x', 60)
+        cache.clear()
+
+        self.assertIsNone(cache.get('a_supprimer'))
+
+
+class IpClientResolutionTests(TestCase):
+    """Régression sur _ip_client (accounts.throttling) suite à la
+    correction critique du 2026-09-11 : l'ancienne hypothèse ("Render
+    place l'IP réelle en première position de X-Forwarded-For") s'est
+    avérée fausse et exploitable par un attaquant - vérifié empiriquement
+    par un test curl réel avec X-Forwarded-For falsifié, logs Render
+    capturés et analysés. La vraie IP est en réalité toujours à la
+    troisième position en partant de la fin (index -3) sur cette
+    infrastructure (edge Cloudflare + 2 sauts de confiance fixes avant
+    Django)."""
+
+    def _ip_pour(self, x_forwarded_for=None, remote_addr='127.0.0.1'):
+        from accounts.throttling import _ip_client
+
+        request = RequestFactory().post('/api/token/')
+        request.META['REMOTE_ADDR'] = remote_addr
+        if x_forwarded_for is not None:
+            request.META['HTTP_X_FORWARDED_FOR'] = x_forwarded_for
+        return _ip_client(request)
+
+    def test_ip_reelle_resolue_malgre_falsification_xff(self):
+        """Scénario d'attaque prouvé empiriquement : un client falsifie
+        X-Forwarded-For en y injectant "1.2.3.4" en tête. Reçu côté
+        serveur (falsification + insertion Cloudflare + 2 sauts de
+        confiance) : "1.2.3.4, 41.73.104.116, 104.23.243.244, 10.30.70.4".
+        La fausse valeur ("1.2.3.4", position 0) ne doit JAMAIS être
+        retenue - la vraie IP ("41.73.104.116", position -3) doit l'être."""
+        ip = self._ip_pour(
+            x_forwarded_for="1.2.3.4, 41.73.104.116, 104.23.243.244, 10.30.70.4",
+        )
+
+        self.assertEqual(ip, "41.73.104.116")
+        self.assertNotEqual(ip, "1.2.3.4")
+
+    def test_ip_reelle_resolue_sans_falsification(self):
+        """Cas normal, sans falsification : 3 entrées (vraie IP insérée
+        par Cloudflare + 2 sauts de confiance), la vraie IP est en
+        position 0, qui est aussi la position -3 sur une liste à 3
+        éléments."""
+        ip = self._ip_pour(
+            x_forwarded_for="41.73.104.116, 172.68.103.191, 10.30.70.4",
+        )
+
+        self.assertEqual(ip, "41.73.104.116")
+
+    def test_repli_sur_remote_addr_si_liste_trop_courte(self):
+        """Moins de 3 entrées (connexion directe sans passer par
+        Cloudflare, environnement de test/dev local) : la position -3
+        n'existe pas ou ne serait pas fiable - repli explicite sur
+        REMOTE_ADDR plutôt qu'une valeur incorrecte."""
+        ip = self._ip_pour(
+            x_forwarded_for="172.68.103.191, 10.30.70.4",
+            remote_addr='203.0.113.9',
+        )
+
+        self.assertEqual(ip, '203.0.113.9')
+
+
 class LoginThrottlingTests(APITestCase):
     """Durcissement pré-lancement (P2) : POST /api/token/ n'avait aucun
     throttling - un brute-force applicatif n'était limité par rien
@@ -635,7 +743,18 @@ class LoginThrottlingTests(APITestCase):
 
     def _login(self, username, password, ip=None, client=None):
         client = client or APIClient()
-        extra = {'HTTP_X_FORWARDED_FOR': ip} if ip else {}
+        if ip:
+            # _ip_client lit l'IP réelle à l'index -3 de X-Forwarded-For
+            # (cf. accounts.throttling._ip_client, corrigé suite à la
+            # vérification empirique du 2026-09-11 : edge Cloudflare +
+            # 2 sauts de confiance fixes avant Django). Un en-tête à une
+            # seule valeur ne reproduit plus la forme réelle de prod -
+            # on simule ici les 2 sauts internes qui suivent toujours
+            # l'IP réelle sur cette infrastructure.
+            xff = f'{ip}, cf-hop-interne-simule, 10.30.70.4'
+            extra = {'HTTP_X_FORWARDED_FOR': xff}
+        else:
+            extra = {}
         return client.post('/api/token/', {'username': username, 'password': password}, **extra)
 
     def test_tentatives_sous_la_limite_retournent_echec_normal(self):

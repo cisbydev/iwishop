@@ -4,38 +4,60 @@ from rest_framework.throttling import SimpleRateThrottle
 
 
 def _ip_client(request):
-    """Détermine l'IP réelle du client derrière le proxy Render.
+    """Détermine l'IP réelle du client derrière l'infrastructure Cloudflare
+    + Render.
 
-    Pas de NUM_PROXIES / get_ident() par défaut de DRF ici : ce mécanisme
-    suppose que chaque hop AJOUTE son adresse à la fin de
-    X-Forwarded-For (convention nginx classique), et prend donc une
-    entrée en partant de la droite. Render fonctionne à l'inverse :
-    l'équipe Render documente explicitement placer l'IP réelle du
-    client en PREMIÈRE position de X-Forwarded-For, quoi que le client
-    ait pu soumettre lui-même dans cet en-tête (cf.
-    feedback.render.com/features/p/send-the-correct-x-forwarded-for,
-    réponse Render : "we set the first IP in the list to the real
-    client IP"). Prendre la dernière entrée serait donc ici la valeur la
-    MOINS fiable, potentiellement contrôlée par le client.
+    CORRECTION CRITIQUE (vérification empirique) : l'hypothèse précédente
+    ("Render place l'IP réelle en première position de X-Forwarded-For")
+    reposait uniquement sur une réponse publique de l'équipe Render datant
+    de 2021, jamais re-testée. Un test empirique réel (curl depuis un
+    réseau externe, avec et sans en-tête X-Forwarded-For falsifié, logs
+    Render capturés et analysés) a prouvé cette hypothèse FAUSSE et
+    exploitable : la première position est exactement celle qu'un
+    attaquant contrôle en injectant sa propre valeur dans l'en-tête envoyé
+    au serveur.
 
-    Aucun autre proxy n'est configuré devant l'app (pas de render.yaml
-    ni de config proxy additionnelle trouvée dans ce repo) : Render est
-    le seul hop.
+    Preuve concrète recueillie :
+    - Sans falsification : X-Forwarded-For =
+      "41.73.104.116, 172.68.103.191, 10.30.70.4" -> vraie IP en
+      position 0 (= aussi en position -3 sur une liste à 3 éléments).
+    - Avec X-Forwarded-For falsifié à "1.2.3.4" envoyé par le client :
+      X-Forwarded-For reçu = "1.2.3.4, 41.73.104.116, 104.23.243.244,
+      10.30.70.4" -> la valeur falsifiée occupe la position 0, la vraie
+      IP est repoussée en position 1 (= position -3 sur une liste à 4
+      éléments).
 
-    Limite assumée et documentée : repose sur ce comportement déclaré
-    par Render (dernière confirmation publique datée de 2021, jamais
-    re-vérifiée empiriquement depuis dans ce projet). Si un doute
-    survient en prod, vérifier concrètement (ex. requêtes depuis deux
-    réseaux différents, ou contacter le support Render) plutôt que de
-    continuer à supposer.
+    Règle correcte identifiée empiriquement : la vraie IP client se
+    trouve TOUJOURS exactement à la TROISIÈME position en partant de la
+    FIN de la liste (index -3), quel que soit le nombre d'entrées
+    falsifiées ajoutées par le client au début. Explication par
+    l'infrastructure réelle : l'edge Cloudflare, qui termine la véritable
+    connexion TCP du client, insère la vraie IP à cet endroit précis (non
+    falsifiable par le client, qui ne contrôle que ce qui précède) ; puis
+    exactement DEUX sauts de confiance supplémentaires ajoutent chacun
+    leur propre entrée avant que la requête n'atteigne Django (un nœud
+    Cloudflare interne qui varie à chaque requête, puis le proxy interne
+    de Render en adresse privée 10.x). D'où : [.. falsifiable par le
+    client ..], IP_réelle, hop_interne_cloudflare, hop_interne_render.
 
-    Repli sur REMOTE_ADDR si l'en-tête est absent (dev local, tests).
+    Limite assumée et documentée : cette position fixe (-3) dépend de
+    cette topologie précise (2 sauts de confiance fixes après
+    l'insertion Cloudflare). Si l'infrastructure change (ajout/retrait
+    d'un hop entre Cloudflare et Django), cette règle devra être
+    revérifiée empiriquement de la même façon plutôt que supposée à
+    nouveau.
+
+    Repli sur REMOTE_ADDR si l'en-tête est absent, ou contient moins de 3
+    entrées (connexion directe sans passer par Cloudflare, environnement
+    de test/dev local) : dans ce cas la position -3 n'existe pas ou ne
+    serait pas fiable, mieux vaut se rabattre explicitement que de
+    retourner une valeur incorrecte.
     """
     xff = request.META.get('HTTP_X_FORWARDED_FOR')
     if xff:
-        premiere_ip = xff.split(',')[0].strip()
-        if premiere_ip:
-            return premiere_ip
+        entrees = [entree.strip() for entree in xff.split(',')]
+        if len(entrees) >= 3 and entrees[-3]:
+            return entrees[-3]
     return request.META.get('REMOTE_ADDR')
 
 
