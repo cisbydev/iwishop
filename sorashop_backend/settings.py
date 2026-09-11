@@ -168,14 +168,9 @@ REST_FRAMEWORK = {
     # (CustomTokenObtainPairView, cf. accounts.throttling) - aucune autre
     # route n'est limitée par ce biais.
     #
-    # Aucun CACHES n'est défini dans ce fichier -> Django retombe sur son
-    # défaut implicite, LocMemCache, propre à CHAQUE PROCESSUS. Avec
-    # plusieurs workers Gunicorn, le seuil ci-dessous est donc appliqué
-    # par worker, pas globalement (N workers ~= seuil réel multiplié par
-    # N) - ça réduit très largement le volume de brute-force possible par
-    # rapport à l'absence totale actuelle de throttling, mais ce n'est
-    # pas une garantie stricte tant qu'un cache partagé (Redis) n'est pas
-    # configuré. Non traité ici (hors périmètre de ce correctif).
+    # CACHES (cf. bloc défini près de DATABASES ci-dessous) utilise
+    # DatabaseCache, partagé par tous les workers Gunicorn - le seuil
+    # ci-dessous s'applique donc bien globalement, plus par worker.
     'DEFAULT_THROTTLE_RATES': {
         'login_ip': '10/min',
         'login_username': '5/min',
@@ -230,6 +225,23 @@ DATABASES = {
         ssl_require=config('DATABASE_SSL_REQUIRE', default=False, cast=bool),
     )
 }
+
+# Cache partagé entre TOUS les workers Gunicorn (contrairement au défaut
+# implicite de Django, LocMemCache, propre à chaque processus) - nécessaire
+# pour que le throttling de connexion (accounts.throttling, cf.
+# REST_FRAMEWORK ci-dessous) applique réellement le même seuil quel que soit
+# le worker qui répond, au lieu d'un seuil effectif multiplié par le nombre
+# de workers. Backend basé sur la base de données existante (pas de service
+# Redis séparé à opérer) : la table est créée automatiquement par la
+# migration accounts.0001_create_cache_table, exécutée par `migrate` à
+# chaque déploiement (build.sh) - aucune étape manuelle.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'django_cache_table',
+    }
+}
+
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
 
