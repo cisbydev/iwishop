@@ -25,8 +25,11 @@ import AbonnementBanner from './components/AbonnementBanner';
 import VentesEnAttenteBanner from './components/VentesEnAttenteBanner';
 import GlobalBanners from './components/GlobalBanners';
 import InstallPwaModal from './components/InstallPwaModal';
-import NavigationCompacte from './components/NavigationCompacte';
+import NavigationTablette from './components/NavigationTablette';
+import NavigationMobile from './components/NavigationMobile';
+import { NavigationPanneauProvider } from './context/NavigationPanneauContext';
 import { NAVIGATION_ITEMS } from './navigation';
+import { deriverIdentiteUtilisateur } from './utils/identiteUtilisateur';
 import { LogOut } from 'lucide-react';
 import logoParDefaut from './assets/iwishop-logo-removebg-preview.png';
 
@@ -85,77 +88,81 @@ function AppContent() {
 
   const nomBoutique = parametres?.nom_boutique || 'iwiShop';
   const logoUrl = resoudreUrlLogo(parametres?.logo) || logoParDefaut;
-  const nomUtilisateur = utilisateur?.username || 'Utilisateur';
-  const initialeUtilisateur = nomUtilisateur.trim().charAt(0).toUpperCase() || 'U';
+  const { nomUtilisateur, initialeUtilisateur } = deriverIdentiteUtilisateur(utilisateur);
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      <InstallPwaModal />
-      <GlobalBanners>
-        <SupportViewBanner />
-        <AbonnementBanner />
-        <VentesEnAttenteBanner />
-      </GlobalBanners>
-      <header className="flex min-h-16 items-center gap-3 border-b border-slate-200/70 bg-white px-4 sm:px-6 min-[1280px]:min-h-[104px] min-[1280px]:gap-4">
-        <h1 className="flex min-w-0 flex-1 items-center gap-3 min-[1280px]:w-14 min-[1280px]:flex-none min-[1280px]:justify-center">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-100 min-[1280px]:h-14 min-[1280px]:w-14 min-[1280px]:rounded-xl min-[1280px]:bg-white min-[1280px]:shadow-[0_3px_10px_rgba(15,23,42,0.10)] min-[1280px]:ring-slate-200/80">
-            <img
-              src={logoUrl}
-              alt="Logo IwiShop"
-              className="h-9 w-9 object-contain min-[1280px]:h-12 min-[1280px]:w-12"
-              onError={(event) => {
-                event.currentTarget.onerror = null;
-                event.currentTarget.src = logoParDefaut;
-              }}
-            />
+    <NavigationPanneauProvider
+      activeTab={activeTab}
+      onSelect={setActiveTab}
+      onLogout={handleLogout}
+      nomUtilisateur={nomUtilisateur}
+      initialeUtilisateur={initialeUtilisateur}
+    >
+      <div className="flex min-h-screen flex-col bg-slate-50">
+        <InstallPwaModal />
+        <GlobalBanners>
+          <SupportViewBanner />
+          <AbonnementBanner />
+          <VentesEnAttenteBanner />
+        </GlobalBanners>
+        <header className="flex min-h-16 items-center gap-3 border-b border-slate-200/70 bg-white px-4 sm:px-6 min-[1280px]:min-h-[104px] min-[1280px]:gap-4">
+          <h1 className="flex min-w-0 flex-1 items-center justify-center gap-3 min-[768px]:max-w-[13rem] min-[768px]:justify-start min-[1280px]:w-14 min-[1280px]:flex-none">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-100 min-[1280px]:h-14 min-[1280px]:w-14 min-[1280px]:rounded-xl min-[1280px]:bg-white min-[1280px]:shadow-[0_3px_10px_rgba(15,23,42,0.10)] min-[1280px]:ring-slate-200/80">
+              <img
+                src={logoUrl}
+                alt="Logo IwiShop"
+                className="h-9 w-9 object-contain min-[1280px]:h-12 min-[1280px]:w-12"
+                onError={(event) => {
+                  event.currentTarget.onerror = null;
+                  event.currentTarget.src = logoParDefaut;
+                }}
+              />
+            </div>
+            <span className="block min-w-0 truncate text-lg font-bold tracking-tight text-slate-900 min-[1280px]:hidden" title={nomBoutique}>{nomBoutique}</span>
+          </h1>
+
+          <DesktopNavigation activeTab={activeTab} onSelect={setActiveTab} />
+          <NavigationTablette />
+
+          <div className="hidden shrink-0 items-center gap-2 min-[1280px]:flex">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100 shadow-sm shadow-blue-100/70" aria-hidden="true">
+              {initialeUtilisateur}
+            </span>
+            <span className="max-w-20 truncate text-sm font-semibold text-slate-700 min-[1600px]:max-w-28" title={nomUtilisateur}>
+              {nomUtilisateur}
+            </span>
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Déconnexion"
+              aria-label="Déconnexion"
+              className="flex h-10 items-center justify-center gap-2 rounded-xl px-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 min-[1600px]:px-3"
+            >
+              <LogOut className="h-[18px] w-[18px]" aria-hidden="true" />
+              <span>Déconnexion</span>
+            </button>
           </div>
-          <span className="block min-w-0 truncate text-lg font-bold tracking-tight text-slate-900 min-[1280px]:hidden" title={nomBoutique}>{nomBoutique}</span>
-        </h1>
+        </header>
 
-        <DesktopNavigation activeTab={activeTab} onSelect={setActiveTab} />
+        <NavigationMobile />
 
-        <div className="hidden shrink-0 items-center gap-2 min-[1280px]:flex">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100 shadow-sm shadow-blue-100/70" aria-hidden="true">
-            {initialeUtilisateur}
-          </span>
-          <span className="max-w-20 truncate text-sm font-semibold text-slate-700 min-[1600px]:max-w-28" title={nomUtilisateur}>
-            {nomUtilisateur}
-          </span>
-          <button
-            type="button"
-            onClick={handleLogout}
-            title="Déconnexion"
-            aria-label="Déconnexion"
-            className="flex h-10 items-center justify-center gap-2 rounded-xl px-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 min-[1600px]:px-3"
-          >
-            <LogOut className="h-[18px] w-[18px]" aria-hidden="true" />
-            <span>Déconnexion</span>
-          </button>
-        </div>
-      </header>
-
-      <NavigationCompacte
-        activeTab={activeTab}
-        onSelect={setActiveTab}
-        onLogout={handleLogout}
-      />
-
-      <main className="flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-6">
-        <div className="mx-auto max-w-7xl">
-          {activeTab === 'dashboard' && <Dashboard onNouvelleVente={() => setActiveTab('sales')} />}
-          {activeTab === 'sales' && <Sales />}
-          {activeTab === 'products' && <Products />}
-          {activeTab === 'categories' && <Categories />}
-          {activeTab === 'stock' && <Stock />}
-          {activeTab === 'suppliers' && <Suppliers />}
-          {activeTab === 'purchases' && <Purchases />}
-          {activeTab === 'expenses' && <Expenses />}
-          {activeTab === 'reports' && <Reports />}
-          {activeTab === 'settings' && <Settings />}
-          {activeTab === 'history' && <SalesHistory />}
-        </div>
-      </main>
-    </div>
+        <main className="flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-6">
+          <div className="mx-auto max-w-7xl">
+            {activeTab === 'dashboard' && <Dashboard onNouvelleVente={() => setActiveTab('sales')} />}
+            {activeTab === 'sales' && <Sales />}
+            {activeTab === 'products' && <Products />}
+            {activeTab === 'categories' && <Categories />}
+            {activeTab === 'stock' && <Stock />}
+            {activeTab === 'suppliers' && <Suppliers />}
+            {activeTab === 'purchases' && <Purchases />}
+            {activeTab === 'expenses' && <Expenses />}
+            {activeTab === 'reports' && <Reports />}
+            {activeTab === 'settings' && <Settings />}
+            {activeTab === 'history' && <SalesHistory />}
+          </div>
+        </main>
+      </div>
+    </NavigationPanneauProvider>
   );
 }
 

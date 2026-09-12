@@ -13,6 +13,7 @@ import {
   Plus,
   ShoppingBag,
   TrendingUp,
+  Wallet,
 } from 'lucide-react';
 
 function KpiCard({ icon: Icon, label, value, detail, tone = 'blue' }) {
@@ -153,12 +154,22 @@ export default function Dashboard({ onNouvelleVente }) {
           </div>
           <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="rounded-lg bg-slate-50 p-4">
-              <p className="text-sm text-slate-600">CA du mois</p>
-              <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(kpis?.chiffre_affaires_mois, devise)}</p>
+              <div className="flex items-center gap-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700" aria-hidden="true">
+                  <Wallet className="h-4 w-4" />
+                </span>
+                <p className="text-sm text-slate-600">CA du mois</p>
+              </div>
+              <p className="mt-2 text-xl font-bold text-slate-900">{formatCurrency(kpis?.chiffre_affaires_mois, devise)}</p>
             </div>
             <div className="rounded-lg bg-emerald-50/70 p-4">
-              <p className="text-sm text-emerald-800">Bénéfice du mois</p>
-              <p className="mt-1 text-xl font-bold text-emerald-800">{formatCurrency(kpis?.benefice_mois, devise)}</p>
+              <div className="flex items-center gap-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700" aria-hidden="true">
+                  <TrendingUp className="h-4 w-4" />
+                </span>
+                <p className="text-sm text-emerald-800">Bénéfice du mois</p>
+              </div>
+              <p className="mt-2 text-xl font-bold text-emerald-800">{formatCurrency(kpis?.benefice_mois, devise)}</p>
             </div>
           </div>
         </article>

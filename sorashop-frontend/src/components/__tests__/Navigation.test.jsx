@@ -2,7 +2,9 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import NavigationCompacte from '../NavigationCompacte';
+import { NavigationPanneauProvider } from '../../context/NavigationPanneauContext';
+import NavigationTablette from '../NavigationTablette';
+import NavigationMobile from '../NavigationMobile';
 
 const TOUS_LES_MODULES = [
   'Tableau de Bord',
@@ -23,11 +25,14 @@ const PRIORITAIRES_MOBILE = ['Tableau de Bord', 'Ventes', 'Produits & Stocks', '
 
 function renderNavigation(props = {}) {
   return render(
-    <NavigationCompacte activeTab="dashboard" onSelect={vi.fn()} onLogout={vi.fn()} {...props} />
+    <NavigationPanneauProvider activeTab="dashboard" onSelect={vi.fn()} onLogout={vi.fn()} {...props}>
+      <NavigationTablette />
+      <NavigationMobile />
+    </NavigationPanneauProvider>
   );
 }
 
-describe('NavigationCompacte', () => {
+describe('Navigation (tablette + mobile, panneau Plus partagé)', () => {
   it('affiche directement les sections prioritaires, sans passer par "Plus"', () => {
     renderNavigation();
 
@@ -85,7 +90,7 @@ describe('NavigationCompacte', () => {
     expect(screen.queryByRole('button', { name: 'Employés' })).not.toBeInTheDocument();
   });
 
-  it('sélectionner une section dans le panneau "Plus" la transmet et ferme le panneau', async () => {
+  it('sélectionner une section dans le panneau "Plus" la transmet et ferme le panneau (état partagé)', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     renderNavigation({ onSelect });
@@ -98,6 +103,20 @@ describe('NavigationCompacte', () => {
 
     expect(onSelect).toHaveBeenCalledWith('settings');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('un seul panneau "Plus" est jamais ouvert à la fois entre tablette et mobile', async () => {
+    const user = userEvent.setup();
+    renderNavigation();
+
+    const navTablette = screen.getByRole('navigation', { name: 'Navigation tablette' });
+    const navMobile = screen.getByRole('navigation', { name: 'Navigation mobile' });
+
+    await user.click(within(navTablette).getByRole('button', { name: 'Plus' }));
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+
+    await user.click(within(navMobile).getByRole('button', { name: 'Plus' }));
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
   });
 
   it('la déconnexion depuis le panneau "Plus" fonctionne et referme le panneau', async () => {

@@ -1,7 +1,15 @@
 import { useEffect } from 'react';
 import { LogOut, X } from 'lucide-react';
 
-export default function PanneauPlusNavigation({ items, activeTab, onSelect, onLogout, onClose }) {
+export default function PanneauPlusNavigation({
+  items,
+  activeTab,
+  onSelect,
+  onLogout,
+  onClose,
+  nomUtilisateur,
+  initialeUtilisateur,
+}) {
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') onClose();
@@ -52,13 +60,28 @@ export default function PanneauPlusNavigation({ items, activeTab, onSelect, onLo
           })}
         </div>
 
-        <button
-          type="button"
-          onClick={onLogout}
-          className="mt-4 flex min-h-11 w-full items-center justify-center gap-2 border-t border-slate-100 pt-4 text-sm font-medium text-red-700 hover:bg-red-50"
-        >
-          <LogOut className="h-5 w-5" aria-hidden="true" /> Déconnexion
-        </button>
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          {nomUtilisateur && (
+            <div className="mb-3 flex items-center gap-3 px-1">
+              <span
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100"
+                aria-hidden="true"
+              >
+                {initialeUtilisateur}
+              </span>
+              <span className="truncate text-sm font-semibold text-slate-700" title={nomUtilisateur}>
+                {nomUtilisateur}
+              </span>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onLogout}
+            className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg text-sm font-medium text-red-700 hover:bg-red-50"
+          >
+            <LogOut className="h-5 w-5" aria-hidden="true" /> Déconnexion
+          </button>
+        </div>
       </div>
     </div>
   );
