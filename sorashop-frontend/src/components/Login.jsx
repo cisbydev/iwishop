@@ -12,8 +12,18 @@ export default function Login() {
     e.preventDefault();
     try {
       await login(username, password);
-    } catch {
-      setError('Identifiants incorrects. Veuillez réessayer.');
+    } catch (err) {
+      // axios ne renseigne pas `response` quand la requête n'a jamais atteint
+      // le serveur (pas de réseau, timeout, serveur injoignable) : dans ce
+      // cas, ce n'est pas l'identifiant/mot de passe qui est en cause, donc
+      // on ne doit pas l'affirmer à l'utilisateur.
+      if (!err?.response) {
+        setError('Pas de connexion internet. Vérifiez votre réseau et réessayez.');
+      } else if (err.response.status === 401 || err.response.status === 400) {
+        setError('Identifiants incorrects. Veuillez réessayer.');
+      } else {
+        setError('Une erreur est survenue. Veuillez réessayer.');
+      }
     }
   };
 
