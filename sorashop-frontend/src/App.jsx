@@ -25,26 +25,13 @@ import AbonnementBanner from './components/AbonnementBanner';
 import VentesEnAttenteBanner from './components/VentesEnAttenteBanner';
 import GlobalBanners from './components/GlobalBanners';
 import InstallPwaModal from './components/InstallPwaModal';
-import MobileNavigation from './components/MobileNavigation';
-import { LayoutDashboard, Package, Tag, Warehouse, Truck, ShoppingBag, Wallet, FileBarChart, Settings as SettingsIcon, ShoppingCart, History, LogOut } from 'lucide-react';
+import NavigationCompacte from './components/NavigationCompacte';
+import { NAVIGATION_ITEMS } from './navigation';
+import { LogOut } from 'lucide-react';
 import logoParDefaut from './assets/iwishop-logo-removebg-preview.png';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
 const SERVER_BASE_URL = API_URL.replace(/api\/?$/, '');
-
-const NAVIGATION_ITEMS = [
-  { id: 'dashboard', label: 'Tableau de Bord', Icon: LayoutDashboard },
-  { id: 'products', label: 'Produits & Stocks', Icon: Package },
-  { id: 'categories', label: 'Catégories', Icon: Tag },
-  { id: 'stock', label: 'Stock', Icon: Warehouse },
-  { id: 'suppliers', label: 'Fournisseurs', Icon: Truck },
-  { id: 'purchases', label: 'Achats', Icon: ShoppingBag },
-  { id: 'expenses', label: 'Dépenses', Icon: Wallet },
-  { id: 'reports', label: 'Rapports', Icon: FileBarChart },
-  { id: 'settings', label: 'Paramètres', Icon: SettingsIcon },
-  { id: 'sales', label: 'Ventes', Icon: ShoppingCart },
-  { id: 'history', label: 'Historique', Icon: History },
-];
 
 function resoudreUrlLogo(logo) {
   if (!logo) return null;
@@ -147,13 +134,13 @@ function AppContent() {
         </div>
       </header>
 
-      <MobileNavigation
+      <NavigationCompacte
         activeTab={activeTab}
         onSelect={setActiveTab}
         onLogout={handleLogout}
       />
 
-      <main className="flex-1 p-4 sm:p-6">
+      <main className="flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-6">
         <div className="mx-auto max-w-7xl">
           {activeTab === 'dashboard' && <Dashboard onNouvelleVente={() => setActiveTab('sales')} />}
           {activeTab === 'sales' && <Sales />}
