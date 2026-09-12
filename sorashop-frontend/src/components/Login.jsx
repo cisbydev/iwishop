@@ -14,6 +14,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
+    setError('');
     try {
       await login(username, password);
     } catch (err) {
