@@ -287,7 +287,7 @@ export default function Sales() {
   }
 
   return (
-    <div className="space-y-6 min-[1366px]:-mx-3">
+    <div className="space-y-6 min-[1280px]:-mx-3">
       <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm sm:p-6">
         <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Ventes</h2>
         <p className="mt-2 text-sm text-slate-600">Préparez le panier, appliquez les remises et finalisez les ventes de votre boutique.</p>

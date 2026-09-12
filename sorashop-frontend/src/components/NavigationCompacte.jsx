@@ -45,7 +45,7 @@ export default function NavigationCompacte({ activeTab, onSelect, onLogout }) {
     <>
       <nav
         aria-label="Navigation tablette"
-        className="hidden items-stretch gap-1 overflow-x-auto border-b border-slate-100 bg-white px-2 py-2 md:flex min-[1366px]:hidden"
+        className="hidden items-stretch gap-1 overflow-x-auto border-b border-slate-100 bg-white px-2 py-2 min-[768px]:max-[1280px]:flex"
       >
         {prioritairesTablette.map((item) => (
           <BoutonSection

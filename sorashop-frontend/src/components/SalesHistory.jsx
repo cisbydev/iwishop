@@ -60,7 +60,7 @@ export default function SalesHistory() {
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement de l'historique...</div>;
 
   return (
-    <div className="space-y-6 min-[1366px]:-mx-3">
+    <div className="space-y-6 min-[1280px]:-mx-3">
       <section className="flex flex-col gap-4 rounded-xl border border-blue-100 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
           <h2 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">

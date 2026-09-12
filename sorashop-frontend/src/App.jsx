@@ -41,7 +41,7 @@ function resoudreUrlLogo(logo) {
 
 function DesktopNavigation({ activeTab, onSelect }) {
   return (
-    <nav aria-label="Navigation principale" className="hidden min-w-0 flex-1 items-stretch justify-center gap-1 min-[1366px]:flex">
+    <nav aria-label="Navigation principale" className="hidden min-w-0 flex-1 items-stretch justify-center gap-1 min-[1280px]:flex">
       {NAVIGATION_ITEMS.map(({ id, label, Icon }) => {
         const isActive = activeTab === id;
 
@@ -96,25 +96,25 @@ function AppContent() {
         <AbonnementBanner />
         <VentesEnAttenteBanner />
       </GlobalBanners>
-      <header className="flex min-h-16 items-center gap-3 border-b border-slate-200/70 bg-white px-4 sm:px-6 min-[1366px]:min-h-[104px] min-[1366px]:gap-4">
-        <h1 className="flex min-w-0 flex-1 items-center gap-3 min-[1366px]:w-14 min-[1366px]:flex-none min-[1366px]:justify-center">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-100 min-[1366px]:h-14 min-[1366px]:w-14 min-[1366px]:rounded-xl min-[1366px]:bg-white min-[1366px]:shadow-[0_3px_10px_rgba(15,23,42,0.10)] min-[1366px]:ring-slate-200/80">
+      <header className="flex min-h-16 items-center gap-3 border-b border-slate-200/70 bg-white px-4 sm:px-6 min-[1280px]:min-h-[104px] min-[1280px]:gap-4">
+        <h1 className="flex min-w-0 flex-1 items-center gap-3 min-[1280px]:w-14 min-[1280px]:flex-none min-[1280px]:justify-center">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-100 min-[1280px]:h-14 min-[1280px]:w-14 min-[1280px]:rounded-xl min-[1280px]:bg-white min-[1280px]:shadow-[0_3px_10px_rgba(15,23,42,0.10)] min-[1280px]:ring-slate-200/80">
             <img
               src={logoUrl}
               alt="Logo IwiShop"
-              className="h-9 w-9 object-contain min-[1366px]:h-12 min-[1366px]:w-12"
+              className="h-9 w-9 object-contain min-[1280px]:h-12 min-[1280px]:w-12"
               onError={(event) => {
                 event.currentTarget.onerror = null;
                 event.currentTarget.src = logoParDefaut;
               }}
             />
           </div>
-          <span className="block min-w-0 truncate text-lg font-bold tracking-tight text-slate-900 min-[1366px]:hidden" title={nomBoutique}>{nomBoutique}</span>
+          <span className="block min-w-0 truncate text-lg font-bold tracking-tight text-slate-900 min-[1280px]:hidden" title={nomBoutique}>{nomBoutique}</span>
         </h1>
 
         <DesktopNavigation activeTab={activeTab} onSelect={setActiveTab} />
 
-        <div className="hidden shrink-0 items-center gap-2 min-[1366px]:flex">
+        <div className="hidden shrink-0 items-center gap-2 min-[1280px]:flex">
           <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100 shadow-sm shadow-blue-100/70" aria-hidden="true">
             {initialeUtilisateur}
           </span>

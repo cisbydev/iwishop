@@ -115,7 +115,7 @@ export default function Expenses() {
   if (loading) return <div className="p-6 text-center text-gray-600">Chargement des dépenses...</div>;
 
   return (
-    <div className="space-y-6 min-[1366px]:-mx-3">
+    <div className="space-y-6 min-[1280px]:-mx-3">
       <section className="rounded-xl border border-blue-100 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
