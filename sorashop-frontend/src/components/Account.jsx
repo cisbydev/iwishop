@@ -4,6 +4,7 @@ import { getErrorMessage } from '../services/errorUtils';
 import { useSettings } from '../context/settingsContextValue';
 import { useAuth } from '../context/AuthContext';
 import { Save, Store } from 'lucide-react';
+import PasswordInput from './PasswordInput';
 
 export default function Account() {
   const { utilisateur } = useSettings();
@@ -58,38 +59,29 @@ export default function Account() {
           <p className="mt-1 text-sm text-slate-500">Utilisez un mot de passe sécurisé pour protéger votre compte.</p>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Mot de passe actuel</label>
-          <input
-            type="password"
-            value={ancienMotDePasse}
-            onChange={(e) => setAncienMotDePasse(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            required
-          />
-        </div>
+        <PasswordInput
+          label="Mot de passe actuel"
+          value={ancienMotDePasse}
+          onChange={(e) => setAncienMotDePasse(e.target.value)}
+          autoComplete="current-password"
+          required
+        />
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Nouveau mot de passe</label>
-          <input
-            type="password"
-            value={nouveauMotDePasse}
-            onChange={(e) => setNouveauMotDePasse(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            required
-          />
-        </div>
+        <PasswordInput
+          label="Nouveau mot de passe"
+          value={nouveauMotDePasse}
+          onChange={(e) => setNouveauMotDePasse(e.target.value)}
+          autoComplete="new-password"
+          required
+        />
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700">Confirmer le nouveau mot de passe</label>
-          <input
-            type="password"
-            value={confirmation}
-            onChange={(e) => setConfirmation(e.target.value)}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            required
-          />
-        </div>
+        <PasswordInput
+          label="Confirmer le nouveau mot de passe"
+          value={confirmation}
+          onChange={(e) => setConfirmation(e.target.value)}
+          autoComplete="new-password"
+          required
+        />
 
         <button
           type="submit"
