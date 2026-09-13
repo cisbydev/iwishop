@@ -1,10 +1,32 @@
 from decimal import Decimal
+from django.conf import settings
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
 from products.models import Produit
 from inventory.models import MouvementStock
 import uuid
+
+class Client(models.Model):
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE, related_name='clients')
+    nom = models.CharField(max_length=150)
+    telephone = models.CharField(max_length=20)
+    adresse = models.CharField(max_length=255, blank=True)
+    plafond_credit = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    date_creation = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['boutique', 'telephone'], name='unique_telephone_par_boutique')
+        ]
+
+    def __str__(self):
+        return f"{self.nom} ({self.telephone})"
+
+class StatutPaiement(models.TextChoices):
+    PAYE = 'paye', 'Payé intégralement'
+    PARTIEL = 'partiel', 'Partiellement payé'
+    EN_ATTENTE = 'en_attente', 'En attente (crédit)'
 
 class Vente(models.Model):
     MODES_PAIEMENT = (
@@ -63,6 +85,17 @@ class Vente(models.Model):
     # aux écrans stock/rapports qu'un rattrapage manuel est probablement
     # nécessaire.
     stock_ajuste_manuellement = models.BooleanField(default=False)
+
+    # Vente à crédit (V2) : relation optionnelle distincte du champ `client`
+    # existant ci-dessus (nom libre du client comptoir) - ne pas confondre
+    # les deux, `client` reste inchangé pour tout le code qui le lit déjà.
+    client_credit = models.ForeignKey(
+        'Client', on_delete=models.PROTECT, null=True, blank=True, related_name='ventes'
+    )
+    statut_paiement = models.CharField(
+        max_length=20, choices=StatutPaiement.choices, default=StatutPaiement.PAYE
+    )
+    montant_du = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
         if not self.numero:
@@ -135,3 +168,12 @@ class LigneVente(models.Model):
 
     def __str__(self):
         return f"{self.quantite} {self.type_vente}(s) de {self.produit.nom} (Vente {self.vente.numero})"
+
+class Remboursement(models.Model):
+    vente = models.ForeignKey(Vente, on_delete=models.PROTECT, related_name='remboursements')
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    date_remboursement = models.DateTimeField(auto_now_add=True)
+    enregistre_par = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+
+    def __str__(self):
+        return f"Remboursement {self.montant} sur {self.vente.numero}"
