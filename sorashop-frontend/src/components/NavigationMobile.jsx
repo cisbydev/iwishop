@@ -17,12 +17,12 @@ export default function NavigationMobile() {
             type="button"
             aria-current={isActive ? 'page' : undefined}
             onClick={() => onSelect(id)}
-            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium transition ${
+            className={`flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[9px] font-medium leading-[1.05] transition ${
               isActive ? 'text-blue-700' : 'text-slate-600'
             }`}
           >
             <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-            <span className="truncate">{label}</span>
+            <span className="max-w-full">{label}</span>
           </button>
         );
       })}
@@ -31,7 +31,7 @@ export default function NavigationMobile() {
         onClick={() => ouvrirPanneau('mobile')}
         aria-haspopup="dialog"
         aria-expanded={panneauOuvert === 'mobile'}
-        className="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px] font-medium text-slate-600"
+        className="flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[9px] font-medium leading-[1.05] text-slate-600"
       >
         <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
         <span>Plus</span>
