@@ -21,7 +21,7 @@ const TOUS_LES_MODULES = [
 ];
 
 const PRIORITAIRES_TABLETTE = ['Tableau de Bord', 'Ventes', 'Produits & Stocks', 'Stock', 'Achats', 'Historique'];
-const PRIORITAIRES_MOBILE = ['Tableau de Bord', 'Ventes', 'Produits & Stocks', 'Historique'];
+const PRIORITAIRES_MOBILE = ['Tableau de Bord', 'Ventes', 'Produits & Stocks'];
 
 function renderNavigation(props = {}) {
   return render(

@@ -28,7 +28,7 @@ export const NAVIGATION_ITEMS = [
 
 export const SECTIONS_PRIORITAIRES_TABLETTE = ['dashboard', 'sales', 'products', 'stock', 'purchases', 'history'];
 
-export const SECTIONS_PRIORITAIRES_MOBILE = ['dashboard', 'sales', 'products', 'history'];
+export const SECTIONS_PRIORITAIRES_MOBILE = ['dashboard', 'sales', 'products'];
 
 export function partitionnerNavigation(idsPrioritaires) {
   const itemsParId = new Map(NAVIGATION_ITEMS.map((item) => [item.id, item]));
