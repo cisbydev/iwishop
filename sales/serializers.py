@@ -1,12 +1,75 @@
 from rest_framework import serializers
 from django.db import transaction
-from .models import Vente, LigneVente
+from .models import Vente, LigneVente, Client, Remboursement, StatutPaiement
 from inventory.models import MouvementStock
 from products.models import Produit, UniteVente, ProduitPrix
 from rest_framework.exceptions import ValidationError
 from tenants.profil import boutique_de
 
 NOM_UNITE_PAR_TYPE = {'UNITE': 'Unité', 'DOUZAINE': 'Douzaine'}
+
+class ClientSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Client
+        fields = ['id', 'nom', 'telephone', 'adresse', 'plafond_credit', 'date_creation']
+        read_only_fields = ['date_creation']
+
+    def validate_telephone(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Le téléphone est obligatoire.")
+        return value
+
+class RemboursementSerializer(serializers.ModelSerializer):
+    # enregistre_par n'est jamais accepté depuis la requête : il est résolu
+    # côté vue à partir de request.user et passé directement au service
+    # (cf. RemboursementViewSet.perform_create), jamais depuis le payload.
+    enregistre_par = serializers.PrimaryKeyRelatedField(read_only=True)
+
+    class Meta:
+        model = Remboursement
+        fields = ['id', 'vente', 'montant', 'date_remboursement', 'enregistre_par']
+        read_only_fields = ['date_remboursement']
+
+    def validate(self, attrs):
+        montant = attrs.get('montant')
+        vente = attrs.get('vente')
+        if montant is not None and montant <= 0:
+            raise serializers.ValidationError({"montant": "Le montant doit être strictement positif."})
+        if vente is not None and montant is not None and montant > vente.montant_du:
+            raise serializers.ValidationError(
+                {"montant": "Le montant dépasse le montant dû sur cette vente."}
+            )
+        return attrs
+
+class ClientAvecDetteSerializer(serializers.ModelSerializer):
+    # Annoté par ClientViewSet.avec_dette() (Sum agrégé en base, pas un
+    # champ du modèle) : doit être déclaré explicitement, un ModelSerializer
+    # ne peut pas déduire le type d'une annotation.
+    dette_totale = serializers.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        model = Client
+        fields = ['id', 'nom', 'telephone', 'adresse', 'plafond_credit', 'date_creation', 'dette_totale']
+
+class RemboursementHistoriqueSerializer(serializers.ModelSerializer):
+    enregistre_par_nom = serializers.ReadOnlyField(source='enregistre_par.username')
+
+    class Meta:
+        model = Remboursement
+        fields = ['id', 'montant', 'date_remboursement', 'enregistre_par_nom']
+
+class HistoriqueClientSerializer(serializers.ModelSerializer):
+    # Serializer dédié à ClientViewSet.historique() : n'expose que ce dont
+    # cet écran a besoin (jamais VenteSerializer tel quel, qui inclut les
+    # lignes/produits/stock - hors sujet ici).
+    remboursements = RemboursementHistoriqueSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Vente
+        fields = [
+            'id', 'numero', 'date_vente', 'statut', 'montant_net', 'montant_paye',
+            'montant_du', 'statut_paiement', 'remboursements',
+        ]
 
 class LigneVenteSerializer(serializers.ModelSerializer):
     produit_nom = serializers.ReadOnlyField(source='produit.nom')
@@ -43,19 +106,28 @@ class VenteSerializer(serializers.ModelSerializer):
     cle_idempotence = serializers.UUIDField(required=False, allow_null=True)
     horodatage_client = serializers.DateTimeField(required=False, allow_null=True)
     synchronisation_differee = serializers.BooleanField(required=False, default=False, write_only=True)
+    # Vente à crédit (V2) : absent => comportement historique inchangé
+    # (vente comptant, statut_paiement/montant_du restent à leurs défauts
+    # modèle PAYE/0). Fourni => statut_paiement/montant_du sont recalculés
+    # dans create() ci-dessous, jamais soumis directement par le client.
+    client_credit = serializers.PrimaryKeyRelatedField(
+        queryset=Client.objects.all(), required=False, allow_null=True
+    )
 
     class Meta:
         model = Vente
         fields = [
-            'id', 'numero', 'date_vente', 'client', 'montant_total',
+            'id', 'numero', 'date_vente', 'client', 'client_credit', 'montant_total',
             'remise', 'montant_net', 'montant_paye', 'monnaie_rendue',
             'mode_paiement', 'utilisateur', 'utilisateur_nom', 'statut', 'lignes',
             'cle_idempotence', 'horodatage_client', 'creee_hors_ligne',
             'stock_ajuste_manuellement', 'synchronisation_differee',
+            'statut_paiement', 'montant_du',
         ]
         read_only_fields = [
             'numero', 'date_vente', 'montant_total', 'montant_net', 'monnaie_rendue',
             'statut', 'creee_hors_ligne', 'stock_ajuste_manuellement',
+            'statut_paiement', 'montant_du',
         ]
 
     @transaction.atomic
@@ -88,6 +160,14 @@ class VenteSerializer(serializers.ModelSerializer):
 
         if synchronisation_differee:
             validated_data['creee_hors_ligne'] = True
+
+        # Vente à crédit (V2) : ne jamais supposer qu'un client_credit
+        # soumis appartient à la boutique de l'appelant (même principe que
+        # produit/unite ci-dessous, faille déjà trouvée et corrigée sur ces
+        # deux champs en Phase 4A/étape 1).
+        client_credit = validated_data.get('client_credit')
+        if client_credit is not None and client_credit.boutique_id != boutique.id:
+            raise ValidationError("Ce client n'appartient pas à votre boutique.")
 
         vente = Vente.objects.create(boutique=boutique, **validated_data)
 
@@ -231,14 +311,42 @@ class VenteSerializer(serializers.ModelSerializer):
             raise ValidationError("La remise ne peut pas dépasser le montant total de la vente.")
         montant_net = montant_total - remise
 
-        if vente.montant_paye < montant_net:
-            raise ValidationError("Le montant payé est inférieur au montant net de la vente.")
-
-        monnaie_rendue = vente.montant_paye - montant_net
+        # Vente à crédit (V2) : un acompte à la vente est courant (comptoir,
+        # "il donne 2000 sur 5000, le reste plus tard") - montant_paye reste
+        # tel que soumis, borné à [0, montant_net] (un acompte ne peut pas
+        # dépasser le montant de la vente). Le garde-fou normal ci-dessous
+        # (montant_paye >= montant_net, audit point 3) ne s'applique qu'à la
+        # vente comptant classique : à crédit, payer moins que le net est
+        # précisément le principe, et monnaie_rendue reste à 0 (jamais de
+        # dépassement possible ici, donc jamais de monnaie à rendre).
+        est_vente_a_credit = vente.client_credit_id is not None
+        if est_vente_a_credit:
+            if vente.montant_paye < 0 or vente.montant_paye > montant_net:
+                raise ValidationError(
+                    "L'acompte d'une vente à crédit doit être compris entre 0 et le montant net de la vente."
+                )
+            monnaie_rendue = 0
+        else:
+            if vente.montant_paye < montant_net:
+                raise ValidationError("Le montant payé est inférieur au montant net de la vente.")
+            monnaie_rendue = vente.montant_paye - montant_net
 
         vente.montant_total = montant_total
         vente.montant_net = montant_net
         vente.monnaie_rendue = monnaie_rendue
+        if est_vente_a_credit:
+            montant_du = montant_net - vente.montant_paye
+            vente.montant_du = montant_du
+            if montant_du <= 0:
+                # Le vendeur avait prévu du crédit mais le client a
+                # finalement tout payé sur place : pas une erreur, une
+                # vente normale au final.
+                vente.montant_du = 0
+                vente.statut_paiement = StatutPaiement.PAYE
+            elif vente.montant_paye > 0:
+                vente.statut_paiement = StatutPaiement.PARTIEL
+            else:
+                vente.statut_paiement = StatutPaiement.EN_ATTENTE
         if stock_negatif_detecte:
             vente.stock_ajuste_manuellement = True
         vente.save()

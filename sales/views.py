@@ -1,17 +1,21 @@
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Q, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from tenants.mixins import BoutiqueScopedMixin
 from inventory.models import MouvementStock
 from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
-from .models import Vente, LigneVente
-from .serializers import VenteSerializer
+from .models import Vente, LigneVente, Client, Remboursement
+from .serializers import (
+    VenteSerializer, ClientSerializer, RemboursementSerializer,
+    ClientAvecDetteSerializer, HistoriqueClientSerializer,
+)
+from .services.credit import avertissement_plafond_credit, enregistrer_remboursement
 
 class VenteViewSet(
     BoutiqueScopedMixin,
@@ -54,6 +58,22 @@ class VenteViewSet(
         boutique = self._boutique_effective()
         self._verifier_acces(boutique)
         serializer.save()
+
+    def create(self, request, *args, **kwargs):
+        # Avertissement non bloquant (plafond de crédit dépassé) : la vente
+        # est déjà créée à ce stade, on ne fait qu'enrichir la réponse -
+        # même principe que ApprouverDemandeView (tenants/views.py), qui
+        # ajoute un champ "avertissement" à côté des données sans jamais
+        # bloquer la création par une erreur.
+        response = super().create(request, *args, **kwargs)
+        # Court-circuite la requête supplémentaire pour l'immense majorité
+        # des ventes (comptant, sans client_credit).
+        if response.status_code == status.HTTP_201_CREATED and response.data.get('client_credit'):
+            vente = Vente.objects.select_related('client_credit').get(pk=response.data['id'])
+            avertissement = avertissement_plafond_credit(vente)
+            if avertissement:
+                response.data['avertissement'] = avertissement
+        return response
 
     @action(detail=True, methods=['post'])
     def annuler(self, request, pk=None):
@@ -106,3 +126,85 @@ class VenteViewSet(
 
         serializer = self.get_serializer(vente)
         return Response(serializer.data)
+
+
+class ClientViewSet(
+    BoutiqueScopedMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
+    # Pas de suppression (données de crédit/historique client) : un client
+    # à crédit reste rattaché à ses ventes/remboursements indéfiniment,
+    # même principe que Vente (jamais supprimée, seulement annulée).
+    queryset = Client.objects.all()
+    serializer_class = ClientSerializer
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def avec_dette(self, request):
+        # Sum agrégé en base (annotate), pas de boucle Python : reste
+        # performant même avec beaucoup de clients. Une vente ANNULEE ne
+        # compte plus dans la dette (même filtre que
+        # sales.services.credit.dette_totale_client) - sans ce filtre, un
+        # crédit annulé resterait compté indéfiniment.
+        queryset = self.get_queryset().annotate(
+            dette_totale=Sum(
+                'ventes__montant_du',
+                filter=Q(ventes__montant_du__gt=0, ventes__statut='VALIDEE'),
+            )
+        ).filter(dette_totale__gt=0).order_by('-dette_totale')
+
+        page = self.paginate_queryset(queryset)
+        serializer = ClientAvecDetteSerializer(page if page is not None else queryset, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['get'])
+    def historique(self, request, pk=None):
+        # get_object() passe par get_queryset() (BoutiqueScopedMixin) :
+        # un client d'une autre boutique renvoie 404, jamais son historique,
+        # même en devinant son id.
+        client = self.get_object()
+
+        ventes = client.ventes.prefetch_related(
+            Prefetch('remboursements', queryset=Remboursement.objects.select_related('enregistre_par'))
+        ).order_by('-date_vente')
+        serializer = HistoriqueClientSerializer(ventes, many=True)
+        return Response(serializer.data)
+
+
+class RemboursementViewSet(
+    BoutiqueScopedMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    # Immutable : ni update ni destroy, un remboursement déjà enregistré ne
+    # se corrige pas (même principe comptable que Vente/annuler).
+    queryset = Remboursement.objects.select_related('vente', 'enregistre_par')
+    serializer_class = RemboursementSerializer
+    permission_classes = [IsAuthenticated]
+    # Remboursement n'a pas de champ `boutique` direct : l'isolation passe
+    # par la vente qu'il rembourse (même principe que ProduitPrixViewSet,
+    # boutique_lookup = 'produit__boutique').
+    boutique_lookup = 'vente__boutique'
+
+    def perform_create(self, serializer):
+        # BoutiqueScopedMixin.perform_create ferait serializer.save(boutique=...) :
+        # Remboursement n'a pas ce champ, on ne l'appelle donc pas ici.
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
+
+        vente = serializer.validated_data['vente']
+        if vente.boutique_id != boutique.id:
+            raise PermissionDenied("Cette vente n'appartient pas à votre boutique.")
+
+        # La logique de recalcul (dette, statut_paiement) vit uniquement
+        # dans le service : jamais de serializer.save() direct ici.
+        remboursement = enregistrer_remboursement(
+            vente=vente, montant=serializer.validated_data['montant'], utilisateur=self.request.user
+        )
+        serializer.instance = remboursement

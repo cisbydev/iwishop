@@ -13,7 +13,7 @@ from rest_framework.test import APITestCase, APITransactionTestCase, APIClient
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from products.models import Produit, UniteVente, ProduitPrix
 from inventory.models import MouvementStock
-from .models import Vente, LigneVente
+from .models import Vente, LigneVente, Client, Remboursement, StatutPaiement
 
 
 class VenteAnnulationTests(APITestCase):
@@ -850,3 +850,443 @@ class VenteSynchronisationDiffereeTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         vente = Vente.objects.get(pk=response.data['id'])
         self.assertEqual(vente.horodatage_client, horodatage)
+
+
+class ClientCreditTests(APITestCase):
+    """V2 étape 2/N : serializers/vues/permissions DRF pour Client et
+    Remboursement (isolation multi-tenant, immutabilité, recalcul de la
+    dette via le service sales.services.credit)."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique Crédit A", slug="boutique-credit-a")
+        self.boutique_b = Boutique.objects.create(nom="Boutique Crédit B", slug="boutique-credit-b")
+
+        self.user_a = User.objects.create_user(username="credit_user_a", password="pass1234")
+        Profil.objects.create(user=self.user_a, boutique=self.boutique_a, est_proprietaire=True)
+
+        self.user_b = User.objects.create_user(username="credit_user_b", password="pass1234")
+        Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
+
+        self.client_a = Client.objects.create(
+            boutique=self.boutique_a, nom="Client A", telephone="0100000001"
+        )
+        self.client_b = Client.objects.create(
+            boutique=self.boutique_b, nom="Client B", telephone="0100000002"
+        )
+
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user_a)
+
+        self.url_clients = reverse('clients-list')
+        self.url_remboursements = reverse('remboursements-list')
+
+    def _creer_vente_credit(self, boutique, client_credit, montant, statut_paiement=StatutPaiement.EN_ATTENTE):
+        return Vente.objects.create(
+            boutique=boutique,
+            client_credit=client_credit,
+            montant_paye=0,
+            montant_total=montant,
+            montant_net=montant,
+            montant_du=montant,
+            statut_paiement=statut_paiement,
+        )
+
+    # --- Isolation multi-tenant : Client ---
+
+    def test_client_boutique_a_invisible_pour_boutique_b(self):
+        self.api_client.force_authenticate(user=self.user_b)
+
+        response = self.api_client.get(self.url_clients)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [c['id'] for c in response.data.get('results', response.data)]
+        self.assertNotIn(self.client_a.id, ids)
+        self.assertIn(self.client_b.id, ids)
+
+    # --- Remboursement : validations de montant ---
+
+    def test_remboursement_rejette_si_montant_superieur_au_du(self):
+        vente = self._creer_vente_credit(self.boutique_a, self.client_a, montant=Decimal("1000.00"))
+
+        response = self.api_client.post(
+            self.url_remboursements, {"vente": vente.id, "montant": "1500.00"}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Remboursement.objects.count(), 0)
+        vente.refresh_from_db()
+        self.assertEqual(vente.montant_du, Decimal("1000.00"))
+
+    def test_remboursement_rejette_si_montant_negatif_ou_nul(self):
+        vente = self._creer_vente_credit(self.boutique_a, self.client_a, montant=Decimal("1000.00"))
+
+        for montant in ("0", "-100.00"):
+            response = self.api_client.post(
+                self.url_remboursements, {"vente": vente.id, "montant": montant}, format='json'
+            )
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.assertEqual(Remboursement.objects.count(), 0)
+
+    # --- Recalcul du statut de paiement ---
+
+    def test_remboursement_partiel_puis_total_recalcule_statut_paiement(self):
+        vente = self._creer_vente_credit(self.boutique_a, self.client_a, montant=Decimal("1000.00"))
+
+        reponse_partielle = self.api_client.post(
+            self.url_remboursements, {"vente": vente.id, "montant": "400.00"}, format='json'
+        )
+        self.assertEqual(reponse_partielle.status_code, status.HTTP_201_CREATED, reponse_partielle.data)
+        vente.refresh_from_db()
+        self.assertEqual(vente.montant_du, Decimal("600.00"))
+        self.assertEqual(vente.statut_paiement, StatutPaiement.PARTIEL)
+
+        reponse_totale = self.api_client.post(
+            self.url_remboursements, {"vente": vente.id, "montant": "600.00"}, format='json'
+        )
+        self.assertEqual(reponse_totale.status_code, status.HTTP_201_CREATED, reponse_totale.data)
+        vente.refresh_from_db()
+        self.assertEqual(vente.montant_du, Decimal("0.00"))
+        self.assertEqual(vente.statut_paiement, StatutPaiement.PAYE)
+
+        self.assertEqual(Remboursement.objects.filter(vente=vente).count(), 2)
+
+    # --- Isolation multi-tenant : Remboursement ---
+
+    def test_remboursement_refuse_sur_vente_dune_autre_boutique(self):
+        vente = self._creer_vente_credit(self.boutique_a, self.client_a, montant=Decimal("1000.00"))
+        self.api_client.force_authenticate(user=self.user_b)
+
+        response = self.api_client.post(
+            self.url_remboursements, {"vente": vente.id, "montant": "100.00"}, format='json'
+        )
+
+        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        self.assertEqual(Remboursement.objects.count(), 0)
+
+    # --- enregistre_par toujours issu de l'utilisateur authentifié ---
+
+    def test_enregistre_par_toujours_issu_de_lutilisateur_authentifie(self):
+        vente = self._creer_vente_credit(self.boutique_a, self.client_a, montant=Decimal("1000.00"))
+        autre_user = User.objects.create_user(username="usurpateur", password="pass1234")
+
+        response = self.api_client.post(
+            self.url_remboursements,
+            {"vente": vente.id, "montant": "100.00", "enregistre_par": autre_user.id},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        remboursement = Remboursement.objects.get(pk=response.data['id'])
+        self.assertEqual(remboursement.enregistre_par_id, self.user_a.id)
+        self.assertNotEqual(remboursement.enregistre_par_id, autre_user.id)
+
+
+class VenteACreditCreationTests(APITestCase):
+    """V2 étape 2bis : câblage de la création d'une vente à crédit dans
+    VenteSerializer/VenteViewSet (statut_paiement/montant_du initiaux,
+    isolation multi-tenant sur client_credit, non-régression du flux
+    comptant existant, avertissement de plafond non bloquant, intégration
+    avec le service de remboursement de l'étape 2)."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique Crédit Vente A", slug="boutique-credit-vente-a")
+        self.boutique_b = Boutique.objects.create(nom="Boutique Crédit Vente B", slug="boutique-credit-vente-b")
+
+        self.user_a = User.objects.create_user(username="credit_vente_user_a", password="pass1234")
+        Profil.objects.create(user=self.user_a, boutique=self.boutique_a, est_proprietaire=True)
+
+        self.user_b = User.objects.create_user(username="credit_vente_user_b", password="pass1234")
+        Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
+
+        self.unite_a = UniteVente.objects.create(
+            boutique=self.boutique_a, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit_a = Produit.objects.create(
+            boutique=self.boutique_a, nom="Produit Crédit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=100,
+        )
+        ProduitPrix.objects.create(produit=self.produit_a, unite=self.unite_a, prix=Decimal("100"))
+
+        self.client_credit_a = Client.objects.create(
+            boutique=self.boutique_a, nom="Client Crédit A", telephone="0200000001"
+        )
+        self.client_credit_b = Client.objects.create(
+            boutique=self.boutique_b, nom="Client Crédit B", telephone="0200000002"
+        )
+
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user_a)
+        self.url_list = reverse('ventes-list')
+
+    def _payload(self, quantite=5, client_credit=None, montant_paye="0.00"):
+        payload = {
+            "montant_paye": montant_paye,
+            "lignes": [
+                {"produit": self.produit_a.id, "quantite": quantite, "type_vente": "UNITE", "prix_applique": "100.00"}
+            ],
+        }
+        if client_credit is not None:
+            payload["client_credit"] = client_credit.id
+        return payload
+
+    # --- Initialisation statut_paiement/montant_du ---
+
+    def test_vente_a_credit_sans_acompte_initialise_en_attente(self):
+        response = self.api_client.post(
+            self.url_list, self._payload(quantite=5, client_credit=self.client_credit_a), format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertEqual(vente.statut_paiement, StatutPaiement.EN_ATTENTE)
+        self.assertEqual(vente.montant_du, Decimal("500.00"))
+        self.assertEqual(vente.montant_net, Decimal("500.00"))
+        self.assertEqual(vente.monnaie_rendue, Decimal("0.00"))
+
+    # --- Acompte à la création d'une vente à crédit ---
+
+    def test_vente_a_credit_avec_acompte_partiel_initialise_partiel(self):
+        response = self.api_client.post(
+            self.url_list,
+            self._payload(quantite=5, client_credit=self.client_credit_a, montant_paye="200.00"),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertEqual(vente.statut_paiement, StatutPaiement.PARTIEL)
+        self.assertEqual(vente.montant_du, Decimal("300.00"))  # 500 - 200
+        self.assertEqual(vente.montant_paye, Decimal("200.00"))
+        self.assertEqual(vente.monnaie_rendue, Decimal("0.00"))
+
+    def test_vente_a_credit_acompte_egal_au_net_devient_payee(self):
+        response = self.api_client.post(
+            self.url_list,
+            self._payload(quantite=5, client_credit=self.client_credit_a, montant_paye="500.00"),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertEqual(vente.statut_paiement, StatutPaiement.PAYE)
+        self.assertEqual(vente.montant_du, Decimal("0.00"))
+        self.assertEqual(vente.monnaie_rendue, Decimal("0.00"))
+
+    def test_vente_a_credit_acompte_superieur_au_net_refuse(self):
+        response = self.api_client.post(
+            self.url_list,
+            self._payload(quantite=5, client_credit=self.client_credit_a, montant_paye="600.00"),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Vente.objects.filter(client_credit=self.client_credit_a, montant_paye="600.00").exists())
+
+    # --- Non-régression du flux comptant existant ---
+
+    def test_vente_comptant_sans_client_credit_reste_inchangee(self):
+        response = self.api_client.post(
+            self.url_list, self._payload(quantite=3, montant_paye="300.00"), format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertIsNone(vente.client_credit_id)
+        self.assertEqual(vente.statut_paiement, StatutPaiement.PAYE)
+        self.assertEqual(vente.montant_du, Decimal("0.00"))
+        self.assertEqual(vente.monnaie_rendue, Decimal("0.00"))
+
+    def test_vente_comptant_montant_paye_insuffisant_toujours_refusee(self):
+        """Le garde-fou anti-monnaie-négative (audit point 3) ne doit
+        s'effacer que devant une vente à crédit explicite : sans
+        client_credit, payer moins que le net reste bloqué."""
+        response = self.api_client.post(
+            self.url_list, self._payload(quantite=5, montant_paye="100.00"), format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.filter(client_credit__isnull=True, montant_paye="100.00").count(), 0)
+
+    # --- Isolation multi-tenant sur client_credit ---
+
+    def test_client_credit_dune_autre_boutique_refuse(self):
+        response = self.api_client.post(
+            self.url_list, self._payload(quantite=2, client_credit=self.client_credit_b), format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.filter(client_credit=self.client_credit_b).count(), 0)
+
+    # --- Avertissement de plafond, non bloquant ---
+
+    def test_avertissement_plafond_credit_depasse_sans_bloquer_la_creation(self):
+        self.client_credit_a.plafond_credit = Decimal("300.00")
+        self.client_credit_a.save()
+
+        response = self.api_client.post(
+            self.url_list, self._payload(quantite=5, client_credit=self.client_credit_a), format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertIn('avertissement', response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertEqual(vente.montant_du, Decimal("500.00"))
+
+    def test_pas_davertissement_sous_le_plafond_credit(self):
+        self.client_credit_a.plafond_credit = Decimal("1000.00")
+        self.client_credit_a.save()
+
+        response = self.api_client.post(
+            self.url_list, self._payload(quantite=5, client_credit=self.client_credit_a), format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertNotIn('avertissement', response.data)
+
+    # --- Intégration : vente à crédit puis remboursements (étapes 2 + 2bis) ---
+
+    def test_flux_complet_vente_a_credit_puis_remboursements_jusqua_paye(self):
+        response = self.api_client.post(
+            self.url_list, self._payload(quantite=10, client_credit=self.client_credit_a), format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente = Vente.objects.get(pk=response.data['id'])
+        self.assertEqual(vente.montant_du, Decimal("1000.00"))
+        self.assertEqual(vente.statut_paiement, StatutPaiement.EN_ATTENTE)
+
+        url_remboursements = reverse('remboursements-list')
+
+        reponse_partielle = self.api_client.post(
+            url_remboursements, {"vente": vente.id, "montant": "400.00"}, format='json'
+        )
+        self.assertEqual(reponse_partielle.status_code, status.HTTP_201_CREATED, reponse_partielle.data)
+        vente.refresh_from_db()
+        self.assertEqual(vente.montant_du, Decimal("600.00"))
+        self.assertEqual(vente.statut_paiement, StatutPaiement.PARTIEL)
+
+        reponse_totale = self.api_client.post(
+            url_remboursements, {"vente": vente.id, "montant": "600.00"}, format='json'
+        )
+        self.assertEqual(reponse_totale.status_code, status.HTTP_201_CREATED, reponse_totale.data)
+        vente.refresh_from_db()
+        self.assertEqual(vente.montant_du, Decimal("0.00"))
+        self.assertEqual(vente.statut_paiement, StatutPaiement.PAYE)
+        self.assertEqual(Remboursement.objects.filter(vente=vente).count(), 2)
+
+
+class ClientConsultationTests(APITestCase):
+    """V2 étape 3 : endpoints de consultation des dettes sur ClientViewSet
+    (avec_dette agrégé en base, historique dédié, isolation multi-tenant
+    sur les deux)."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique Consult A", slug="boutique-consult-a")
+        self.boutique_b = Boutique.objects.create(nom="Boutique Consult B", slug="boutique-consult-b")
+
+        self.user_a = User.objects.create_user(username="consult_user_a", password="pass1234")
+        Profil.objects.create(user=self.user_a, boutique=self.boutique_a, est_proprietaire=True)
+
+        self.user_b = User.objects.create_user(username="consult_user_b", password="pass1234")
+        Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
+
+        self.client_avec_dette = Client.objects.create(
+            boutique=self.boutique_a, nom="Client Avec Dette", telephone="0300000001"
+        )
+        self.client_sans_dette = Client.objects.create(
+            boutique=self.boutique_a, nom="Client Sans Dette", telephone="0300000002"
+        )
+        self.client_b = Client.objects.create(
+            boutique=self.boutique_b, nom="Client Boutique B", telephone="0300000003"
+        )
+
+        # Deux ventes à crédit non soldées pour client_avec_dette : la dette
+        # totale doit être la somme des deux (vraie agrégation, pas juste
+        # la dernière vente).
+        self.vente_1 = Vente.objects.create(
+            boutique=self.boutique_a, client_credit=self.client_avec_dette,
+            montant_paye=0, montant_total=1000, montant_net=1000,
+            montant_du=1000, statut_paiement=StatutPaiement.EN_ATTENTE,
+        )
+        self.vente_2 = Vente.objects.create(
+            boutique=self.boutique_a, client_credit=self.client_avec_dette,
+            montant_paye=200, montant_total=500, montant_net=500,
+            montant_du=300, statut_paiement=StatutPaiement.PARTIEL,
+        )
+        # Vente soldée : ne doit pas compter dans la dette (montant_du = 0).
+        self.vente_soldee = Vente.objects.create(
+            boutique=self.boutique_a, client_credit=self.client_sans_dette,
+            montant_paye=400, montant_total=400, montant_net=400,
+            montant_du=0, statut_paiement=StatutPaiement.PAYE,
+        )
+        # Vente ANNULEE avec montant_du > 0 : ne doit pas compter (même
+        # filtre que sales.services.credit.dette_totale_client).
+        self.vente_annulee = Vente.objects.create(
+            boutique=self.boutique_a, client_credit=self.client_avec_dette,
+            montant_paye=0, montant_total=999, montant_net=999,
+            montant_du=999, statut_paiement=StatutPaiement.EN_ATTENTE, statut='ANNULEE',
+        )
+
+        self.remboursement_1 = Remboursement.objects.create(
+            vente=self.vente_2, montant=Decimal("200.00"), enregistre_par=self.user_a
+        )
+
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user_a)
+
+    # --- avec_dette ---
+
+    def test_avec_dette_ne_retourne_que_les_clients_avec_montant_du_positif(self):
+        response = self.api_client.get(reverse('clients-avec-dette'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resultats = response.data.get('results', response.data)
+        ids = {c['id'] for c in resultats}
+        self.assertIn(self.client_avec_dette.id, ids)
+        self.assertNotIn(self.client_sans_dette.id, ids)
+
+    def test_avec_dette_agrege_correctement_plusieurs_ventes(self):
+        response = self.api_client.get(reverse('clients-avec-dette'))
+
+        resultats = response.data.get('results', response.data)
+        entree = next(c for c in resultats if c['id'] == self.client_avec_dette.id)
+        # 1000 (vente_1) + 300 (vente_2) ; vente_annulee (999) exclue.
+        self.assertEqual(Decimal(entree['dette_totale']), Decimal("1300.00"))
+
+    def test_avec_dette_isolation_multi_tenant(self):
+        Vente.objects.create(
+            boutique=self.boutique_b, client_credit=self.client_b,
+            montant_paye=0, montant_total=100, montant_net=100,
+            montant_du=100, statut_paiement=StatutPaiement.EN_ATTENTE,
+        )
+
+        response = self.api_client.get(reverse('clients-avec-dette'))
+
+        resultats = response.data.get('results', response.data)
+        ids = {c['id'] for c in resultats}
+        self.assertNotIn(self.client_b.id, ids)
+
+    # --- historique ---
+
+    def test_historique_retourne_ventes_et_remboursements(self):
+        url = reverse('clients-historique', args=[self.client_avec_dette.id])
+
+        response = self.api_client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ventes_par_id = {v['id']: v for v in response.data}
+        self.assertIn(self.vente_1.id, ventes_par_id)
+        self.assertIn(self.vente_2.id, ventes_par_id)
+
+        vente_2_data = ventes_par_id[self.vente_2.id]
+        self.assertEqual(len(vente_2_data['remboursements']), 1)
+        self.assertEqual(Decimal(vente_2_data['remboursements'][0]['montant']), Decimal("200.00"))
+        self.assertEqual(vente_2_data['remboursements'][0]['enregistre_par_nom'], self.user_a.username)
+
+    def test_historique_refuse_client_dune_autre_boutique(self):
+        url = reverse('clients-historique', args=[self.client_b.id])
+
+        response = self.api_client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

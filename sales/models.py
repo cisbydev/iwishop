@@ -16,6 +16,7 @@ class Client(models.Model):
     date_creation = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        ordering = ['-date_creation']
         constraints = [
             models.UniqueConstraint(fields=['boutique', 'telephone'], name='unique_telephone_par_boutique')
         ]
