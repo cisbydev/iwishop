@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { ajouterVenteEnAttente } from '../services/offlineQueue';
 import { sauvegarderCatalogue, chargerCatalogueCache } from '../services/catalogueCache';
+import { listerClients, creerClient } from '../services/clients';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
-import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff, CloudOff } from 'lucide-react';
+import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff, CloudOff, X } from 'lucide-react';
 
 export default function Sales() {
   const { parametres } = useSettings();
@@ -21,6 +22,19 @@ export default function Sales() {
   const [remise, setRemise] = useState(0);
   const [montantPaye, setMontantPaye] = useState('');
   const [modePaiement, setModePaiement] = useState('ESPECES');
+  // Vente à crédit (V2) : décochée par défaut, le flux comptant ci-dessus
+  // reste inchangé tant qu'elle n'est pas activée.
+  const [venteACredit, setVenteACredit] = useState(false);
+  const [clientCreditMode, setClientCreditMode] = useState('existant'); // 'existant' | 'nouveau'
+  const [clientCreditId, setClientCreditId] = useState('');
+  const [clientsCredit, setClientsCredit] = useState([]);
+  const [clientsCreditCharges, setClientsCreditCharges] = useState(false);
+  const [chargementClientsCredit, setChargementClientsCredit] = useState(false);
+  const [rechercheClient, setRechercheClient] = useState('');
+  const [nouveauClientNom, setNouveauClientNom] = useState('');
+  const [nouveauClientTelephone, setNouveauClientTelephone] = useState('');
+  const [acompte, setAcompte] = useState('');
+  const [avertissementCredit, setAvertissementCredit] = useState('');
   const [loading, setLoading] = useState(true);
   const [erreurChargement, setErreurChargement] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -148,6 +162,45 @@ export default function Sales() {
     void chargerCatalogue();
   }, [modeSupport, boutiqueId, fetchCatalogue]);
 
+  // Chargé une seule fois, à la demande (pas au montage de l'écran) : la
+  // grande majorité des ventes restent au comptant et n'ont jamais besoin
+  // de cette liste.
+  useEffect(() => {
+    if (!venteACredit || clientsCreditCharges) return;
+
+    const chargerClientsCredit = async () => {
+      setChargementClientsCredit(true);
+      try {
+        const liste = await listerClients();
+        setClientsCredit(liste);
+        setClientsCreditCharges(true);
+      } catch (err) {
+        console.error("Erreur chargement clients", err);
+      } finally {
+        setChargementClientsCredit(false);
+      }
+    };
+
+    void chargerClientsCredit();
+  }, [venteACredit, clientsCreditCharges]);
+
+  const resetFormulaireCredit = () => {
+    setClientCreditMode('existant');
+    setClientCreditId('');
+    setNouveauClientNom('');
+    setNouveauClientTelephone('');
+    setRechercheClient('');
+    setAcompte('');
+  };
+
+  const handleToggleCredit = (checked) => {
+    setVenteACredit(checked);
+    setAvertissementCredit('');
+    if (!checked) {
+      resetFormulaireCredit();
+    }
+  };
+
   const uniteOptions = prixParUnite[parseInt(selectedProduit)] || [];
   // L'unité choisie par l'utilisateur peut ne plus s'appliquer au produit
   // qui vient d'être sélectionné (ex: elle n'existe pas pour ce produit) :
@@ -156,6 +209,11 @@ export default function Sales() {
   const uniteIdEffectif = uniteOptions.some(u => u.unite_id === parseInt(selectedUniteId))
     ? parseInt(selectedUniteId)
     : (uniteOptions[0]?.unite_id ?? '');
+
+  const clientsCreditFiltres = clientsCredit.filter((c) =>
+    c.nom.toLowerCase().includes(rechercheClient.toLowerCase()) ||
+    (c.telephone || '').includes(rechercheClient)
+  );
 
   const handleAddLigne = (e) => {
     e.preventDefault();
@@ -217,31 +275,76 @@ export default function Sales() {
       return;
     }
 
-    const paye = parseFloat(montantPaye);
-    if (isNaN(paye) || paye < montantNet) {
-      alert(`Le montant payé (${formatCurrency(montantPaye || 0, devise)}) est inférieur au montant net à payer (${formatCurrency(montantNet, devise)}).`);
-      return;
+    let clientCreditIdEffectif = clientCreditId;
+    const acompteNum = acompte === '' ? 0 : parseFloat(acompte);
+
+    if (venteACredit) {
+      // Le sélecteur de client est obligatoire pour une vente à crédit -
+      // impossible de créer une dette sans savoir à qui elle appartient.
+      if (clientCreditMode === 'existant' && !clientCreditId) {
+        alert("Sélectionnez un client pour une vente à crédit.");
+        return;
+      }
+      if (clientCreditMode === 'nouveau' && (!nouveauClientNom.trim() || !nouveauClientTelephone.trim())) {
+        alert("Le nom et le téléphone du nouveau client sont obligatoires.");
+        return;
+      }
+      // Même règle que VenteSerializer.create() côté backend (0 <= acompte
+      // <= montant net) : validée ici aussi pour un retour immédiat.
+      if (isNaN(acompteNum) || acompteNum < 0 || acompteNum > montantNet) {
+        alert(`L'acompte doit être compris entre 0 et le montant net (${formatCurrency(montantNet, devise)}).`);
+        return;
+      }
+    } else {
+      const paye = parseFloat(montantPaye);
+      if (isNaN(paye) || paye < montantNet) {
+        alert(`Le montant payé (${formatCurrency(montantPaye || 0, devise)}) est inférieur au montant net à payer (${formatCurrency(montantNet, devise)}).`);
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
+
+    if (venteACredit && clientCreditMode === 'nouveau') {
+      try {
+        const nouveauClient = await creerClient({
+          nom: nouveauClientNom.trim(),
+          telephone: nouveauClientTelephone.trim(),
+        });
+        clientCreditIdEffectif = nouveauClient.id;
+      } catch (err) {
+        alert(getErrorMessage(err, "Erreur lors de la création du nouveau client."));
+        setIsSubmitting(false);
+        return;
+      }
     }
 
     const payload = {
       remise: parseFloat(remise) || 0,
-      montant_paye: paye,
+      montant_paye: venteACredit ? acompteNum : parseFloat(montantPaye),
       mode_paiement: modePaiement,
       lignes: panier.map(item => ({
         produit: item.produit_id,
         unite: item.unite_id,
         quantite: item.quantite,
         prix_applique: item.prix_unitaire,
-      }))
+      })),
+      ...(venteACredit ? { client_credit: Number(clientCreditIdEffectif) } : {}),
     };
 
-    setIsSubmitting(true);
     try {
-      await api.post('ventes/', payload);
+      const response = await api.post('ventes/', payload);
       setSuccessMessage("Vente enregistrée avec succès ! Stock mis à jour.");
+      // Avertissement non bloquant (plafond de crédit dépassé, cf.
+      // VenteViewSet.create()) : la vente est déjà créée à ce stade.
+      if (response.data?.avertissement) {
+        setAvertissementCredit(response.data.avertissement);
+      }
       setPanier([]);
       setRemise(0);
       setMontantPaye('');
+      setVenteACredit(false);
+      resetFormulaireCredit();
       fetchProduits(); // Recharger les produits pour actualiser les stocks affichés
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (err) {
@@ -314,6 +417,20 @@ export default function Sales() {
       {venteEnAttenteMessage && (
         <div className="p-4 bg-amber-100 text-amber-800 rounded-lg flex items-center gap-2">
           <WifiOff className="w-5 h-5" /> {venteEnAttenteMessage}
+        </div>
+      )}
+
+      {avertissementCredit && (
+        <div className="p-4 bg-orange-100 text-orange-800 rounded-lg flex items-start justify-between gap-3">
+          <span className="text-sm">{avertissementCredit}</span>
+          <button
+            type="button"
+            onClick={() => setAvertissementCredit('')}
+            aria-label="Fermer l'avertissement"
+            className="shrink-0 text-orange-700 hover:text-orange-900"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -474,25 +591,156 @@ export default function Sales() {
               </select>
             </div>
 
-            <div className="flex items-center justify-between text-sm text-slate-600">
-              <span>Montant payé par le client :</span>
-              <input
-                type="number"
-                min="0"
-                value={montantPaye}
-                onChange={(e) => setMontantPaye(e.target.value)}
-                placeholder="0"
-                className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-right text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              />
+            <div className="rounded-lg border border-slate-200 p-4">
+              <label className="flex items-center gap-3 text-sm font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={venteACredit}
+                  onChange={(e) => handleToggleCredit(e.target.checked)}
+                  disabled={modeSupport}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                Vente à crédit
+              </label>
+
+              {venteACredit && (
+                <div className="mt-4 space-y-4">
+                  {clientCreditMode === 'nouveau' ? (
+                    <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Nouveau client</p>
+                        <button
+                          type="button"
+                          onClick={() => setClientCreditMode('existant')}
+                          className="text-xs font-medium text-blue-600 hover:underline"
+                        >
+                          Choisir un client existant
+                        </button>
+                      </div>
+                      <div>
+                        <label htmlFor="credit-nouveau-nom" className="block text-xs font-medium text-slate-700">Nom</label>
+                        <input
+                          id="credit-nouveau-nom"
+                          type="text"
+                          value={nouveauClientNom}
+                          onChange={(e) => setNouveauClientNom(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="credit-nouveau-telephone" className="block text-xs font-medium text-slate-700">Téléphone</label>
+                        <input
+                          id="credit-nouveau-telephone"
+                          type="text"
+                          value={nouveauClientTelephone}
+                          onChange={(e) => setNouveauClientTelephone(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        />
+                      </div>
+                    </div>
+                  ) : clientCreditId ? (
+                    <div className="flex items-center justify-between rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+                      <span className="text-sm font-medium text-blue-900">
+                        {clientsCredit.find((c) => c.id === Number(clientCreditId))?.nom || 'Client sélectionné'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setClientCreditId('')}
+                        className="text-xs font-medium text-blue-700 hover:underline"
+                      >
+                        Changer
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <label htmlFor="credit-recherche-client" className="block text-xs font-medium text-slate-700">Client</label>
+                      <input
+                        id="credit-recherche-client"
+                        type="text"
+                        value={rechercheClient}
+                        onChange={(e) => setRechercheClient(e.target.value)}
+                        placeholder="Rechercher par nom ou téléphone..."
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                      <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-slate-100">
+                        {chargementClientsCredit ? (
+                          <p className="p-3 text-sm text-slate-500">Chargement des clients...</p>
+                        ) : (
+                          <>
+                            {clientsCreditFiltres.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => setClientCreditId(String(c.id))}
+                                className="block w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                              >
+                                {c.nom} {c.telephone && <span className="text-slate-400">· {c.telephone}</span>}
+                              </button>
+                            ))}
+                            {clientsCreditFiltres.length === 0 && (
+                              <p className="p-3 text-sm text-slate-500">Aucun client ne correspond à cette recherche.</p>
+                            )}
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setClientCreditMode('nouveau')}
+                          className="block w-full border-t border-slate-100 px-3 py-2 text-left text-sm font-medium text-blue-600 hover:bg-blue-50"
+                        >
+                          + Nouveau client
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label htmlFor="credit-acompte" className="block text-xs font-medium text-slate-700">Acompte (optionnel)</label>
+                    <input
+                      id="credit-acompte"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={acompte}
+                      onChange={(e) => setAcompte(e.target.value)}
+                      placeholder="0"
+                      className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm text-slate-600">
+                    <span>Restera dû :</span>
+                    <span className="font-semibold text-red-700">
+                      {formatCurrency(Math.max(montantNet - (parseFloat(acompte) || 0), 0), devise)}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {montantPaye !== '' && !isNaN(parseFloat(montantPaye)) && (
-              <div className="flex items-center justify-between text-sm text-slate-600">
-                <span>Monnaie à rendre :</span>
-                <span className="font-semibold text-gray-800">
-                  {formatCurrency(Math.max(parseFloat(montantPaye) - montantNet, 0), devise)}
-                </span>
-              </div>
+            {!venteACredit && (
+              <>
+                <div className="flex items-center justify-between text-sm text-slate-600">
+                  <span id="montant-paye-label">Montant payé par le client :</span>
+                  <input
+                    type="number"
+                    min="0"
+                    aria-labelledby="montant-paye-label"
+                    value={montantPaye}
+                    onChange={(e) => setMontantPaye(e.target.value)}
+                    placeholder="0"
+                    className="w-32 rounded-lg border border-slate-200 px-3 py-2 text-right text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+                </div>
+
+                {montantPaye !== '' && !isNaN(parseFloat(montantPaye)) && (
+                  <div className="flex items-center justify-between text-sm text-slate-600">
+                    <span>Monnaie à rendre :</span>
+                    <span className="font-semibold text-gray-800">
+                      {formatCurrency(Math.max(parseFloat(montantPaye) - montantNet, 0), devise)}
+                    </span>
+                  </div>
+                )}
+              </>
             )}
 
             <button
