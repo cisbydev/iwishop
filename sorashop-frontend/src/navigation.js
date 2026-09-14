@@ -10,6 +10,7 @@ import {
   Settings as SettingsIcon,
   ShoppingCart,
   History,
+  Users,
 } from 'lucide-react';
 
 export const NAVIGATION_ITEMS = [
@@ -24,6 +25,7 @@ export const NAVIGATION_ITEMS = [
   { id: 'settings', label: 'Paramètres', Icon: SettingsIcon },
   { id: 'sales', label: 'Ventes', Icon: ShoppingCart },
   { id: 'history', label: 'Historique', Icon: History },
+  { id: 'clients', label: 'Clients', Icon: Users },
 ];
 
 export const SECTIONS_PRIORITAIRES_TABLETTE = ['dashboard', 'sales', 'products', 'stock', 'purchases', 'history'];

@@ -15,6 +15,7 @@ import Reports from './components/Reports';
 import Settings from './components/Settings';
 import Sales from './components/Sales';
 import SalesHistory from './components/SalesHistory';
+import Clients from './components/Clients';
 import { SettingsProvider } from './context/SettingsContext';
 import { useSettings } from './context/settingsContextValue';
 import { SupportViewProvider } from './context/SupportViewContext';
@@ -159,6 +160,7 @@ function AppContent() {
             {activeTab === 'reports' && <Reports />}
             {activeTab === 'settings' && <Settings />}
             {activeTab === 'history' && <SalesHistory />}
+            {activeTab === 'clients' && <Clients />}
           </div>
         </main>
       </div>
