@@ -8,6 +8,7 @@ from django.db.models import Prefetch, Q, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from tenants.mixins import BoutiqueScopedMixin
 from tenants.premium import verifier_acces_premium
+from notifications.services import verifier_stock_bas
 from inventory.models import MouvementStock
 from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
@@ -114,6 +115,7 @@ class VenteViewSet(
                 produit = produits_par_id[ligne.produit_id]
                 produit.quantite_en_stock += unites_a_restaurer
                 produit.save()
+                verifier_stock_bas(produit)
                 MouvementStock.objects.create(
                     boutique=vente.boutique,
                     produit=produit,

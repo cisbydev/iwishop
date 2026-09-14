@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from django.db import transaction
 from django.db.models import Prefetch
 from tenants.mixins import BoutiqueScopedMixin
+from notifications.services import verifier_stock_bas
 from inventory.models import MouvementStock
 from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
@@ -145,6 +146,7 @@ class AchatViewSet(
                 produit = produits_par_id[ligne.produit_id]
                 produit.quantite_en_stock -= unites_a_retirer
                 produit.save()
+                verifier_stock_bas(produit)
                 MouvementStock.objects.create(
                     boutique=achat.boutique,
                     produit=produit,

@@ -6,6 +6,7 @@ from products.models import Produit, UniteVente
 from rest_framework.exceptions import ValidationError
 from django.db import transaction
 from tenants.profil import boutique_de
+from notifications.services import verifier_stock_bas
 
 class LigneAchatSerializer(serializers.ModelSerializer):
     produit_nom = serializers.ReadOnlyField(source='produit.nom')
@@ -155,6 +156,7 @@ class AchatSerializer(serializers.ModelSerializer):
             )
 
             produit.save()
+            verifier_stock_bas(produit)
 
             # Enregistrer le mouvement de stock correspondant
             MouvementStock.objects.create(

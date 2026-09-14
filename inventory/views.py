@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db import transaction
 from tenants.mixins import BoutiqueScopedMixin
+from notifications.services import verifier_stock_bas
 from products.models import Produit
 from .models import MouvementStock
 from .serializers import MouvementStockSerializer
@@ -70,3 +71,4 @@ class MouvementStockViewSet(
             produit.quantite_en_stock = mouvement.quantite
 
         produit.save()
+        verifier_stock_bas(produit)

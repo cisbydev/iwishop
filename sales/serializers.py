@@ -6,6 +6,7 @@ from products.models import Produit, UniteVente, ProduitPrix
 from rest_framework.exceptions import ValidationError
 from tenants.profil import boutique_de
 from tenants.premium import verifier_acces_premium
+from notifications.services import verifier_stock_bas
 
 NOM_UNITE_PAR_TYPE = {'UNITE': 'Unité', 'DOUZAINE': 'Douzaine'}
 
@@ -294,6 +295,7 @@ class VenteSerializer(serializers.ModelSerializer):
             # Mettre à jour le stock du produit
             produit.quantite_en_stock -= unites_a_deduire
             produit.save()
+            verifier_stock_bas(produit)
 
             # Enregistrer le mouvement de stock (SORTIE)
             MouvementStock.objects.create(
