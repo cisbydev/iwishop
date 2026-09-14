@@ -239,6 +239,65 @@ class AbonnementValideTests(TestCase):
         self.assertFalse(boutique.abonnement_valide())
 
 
+class AccesPremiumTests(TestCase):
+    """Boutique.a_acces_premium() : le crédit client (V2 étape 7) ne dépend
+    pas seulement de la validité de l'abonnement (abonnement_valide(),
+    inchangé) mais aussi du palier de la formule active."""
+
+    def setUp(self):
+        self.aujourdhui = timezone.localdate()
+
+    def _boutique_avec_formule(self, suffixe, palier, statut='ACTIF'):
+        boutique = Boutique.objects.create(
+            nom=f'Boutique palier {suffixe}', slug=f'boutique-palier-{suffixe}'
+        )
+        formule = FormuleAbonnement.objects.create(
+            nom=f'Formule {suffixe}', duree_jours=30, prix=5000, actif=True, palier=palier
+        )
+        Abonnement.objects.create(
+            boutique=boutique, formule=formule, statut=statut,
+            date_debut=self.aujourdhui, date_fin=self.aujourdhui + timezone.timedelta(days=30),
+        )
+        return boutique
+
+    def test_essai_gratuit_premium_a_acces_premium(self):
+        boutique = self._boutique_avec_formule('essai', palier='PREMIUM')
+
+        self.assertTrue(boutique.a_acces_premium())
+
+    def test_formule_essentiel_na_pas_acces_premium(self):
+        boutique = self._boutique_avec_formule('essentiel', palier='ESSENTIEL')
+
+        self.assertFalse(boutique.a_acces_premium())
+
+    def test_sans_abonnement_du_tout_na_pas_acces_premium_sans_planter(self):
+        boutique = Boutique.objects.create(nom='Boutique sans abonnement palier', slug='boutique-sans-abonnement-palier')
+
+        self.assertFalse(boutique.a_acces_premium())
+
+    def test_premium_payant_hors_essai_gratuit_a_acces_premium(self):
+        boutique = self._boutique_avec_formule('premium-payant', palier='PREMIUM')
+
+        self.assertTrue(boutique.a_acces_premium())
+
+    def test_premium_expire_na_plus_acces_premium(self):
+        """a_acces_premium() dépend d'abonnement_valide() : un palier
+        Premium expiré ne doit pas rester Premium indéfiniment."""
+        boutique = Boutique.objects.create(
+            nom='Boutique palier premium expiré', slug='boutique-palier-premium-expire'
+        )
+        formule = FormuleAbonnement.objects.create(
+            nom='Formule premium expirée', duree_jours=30, prix=5000, actif=True, palier='PREMIUM'
+        )
+        Abonnement.objects.create(
+            boutique=boutique, formule=formule, statut='ACTIF',
+            date_debut=self.aujourdhui - timezone.timedelta(days=60),
+            date_fin=self.aujourdhui - timezone.timedelta(days=1),
+        )
+
+        self.assertFalse(boutique.a_acces_premium())
+
+
 class EssaiGratuitApprouverDemandeTests(TestCase):
     """Point 8 de l'audit : une boutique créée via le flux client normal
     (DemandeAcces -> ApprouverDemandeView) doit démarrer avec un essai

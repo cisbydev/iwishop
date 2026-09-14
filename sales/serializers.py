@@ -5,6 +5,7 @@ from inventory.models import MouvementStock
 from products.models import Produit, UniteVente, ProduitPrix
 from rest_framework.exceptions import ValidationError
 from tenants.profil import boutique_de
+from tenants.premium import verifier_acces_premium
 
 NOM_UNITE_PAR_TYPE = {'UNITE': 'Unité', 'DOUZAINE': 'Douzaine'}
 
@@ -166,8 +167,13 @@ class VenteSerializer(serializers.ModelSerializer):
         # produit/unite ci-dessous, faille déjà trouvée et corrigée sur ces
         # deux champs en Phase 4A/étape 1).
         client_credit = validated_data.get('client_credit')
-        if client_credit is not None and client_credit.boutique_id != boutique.id:
-            raise ValidationError("Ce client n'appartient pas à votre boutique.")
+        if client_credit is not None:
+            if client_credit.boutique_id != boutique.id:
+                raise ValidationError("Ce client n'appartient pas à votre boutique.")
+            # Vente à crédit réservée au palier Premium - une vente comptant
+            # normale (sans client_credit) reste toujours autorisée, quel
+            # que soit le palier.
+            verifier_acces_premium(boutique)
 
         vente = Vente.objects.create(boutique=boutique, **validated_data)
 

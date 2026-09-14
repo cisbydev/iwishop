@@ -16,6 +16,24 @@ from inventory.models import MouvementStock
 from .models import Vente, LigneVente, Client, Remboursement, StatutPaiement
 
 
+def _donner_acces_premium(boutique):
+    """Le crédit client (Client/Remboursement/vente avec client_credit) est
+    réservé au palier Premium (V2 étape 7) : les tests qui exercent ces
+    fonctionnalités sur une boutique de test doivent lui donner un
+    abonnement Premium actif, sinon perform_create() les rejette en 403 -
+    la gestion du palier lui-même est testée séparément
+    (tenants.tests.AccesPremiumTests, sales.tests.AccesPremiumCreditTests)."""
+    formule = FormuleAbonnement.objects.create(
+        nom=f"Formule Premium Test {boutique.pk}", duree_jours=30, prix=1000, actif=True, palier='PREMIUM'
+    )
+    aujourdhui = timezone.localdate()
+    Abonnement.objects.create(
+        boutique=boutique, formule=formule,
+        date_debut=aujourdhui, date_fin=aujourdhui + timezone.timedelta(days=30),
+        statut='ACTIF',
+    )
+
+
 class VenteAnnulationTests(APITestCase):
     """P0 n°3 : une vente validée ne se modifie ni ne se supprime ; elle
     s'annule via une écriture inverse qui restaure le stock exactement."""
@@ -867,6 +885,9 @@ class ClientCreditTests(APITestCase):
         self.user_b = User.objects.create_user(username="credit_user_b", password="pass1234")
         Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
 
+        _donner_acces_premium(self.boutique_a)
+        _donner_acces_premium(self.boutique_b)
+
         self.client_a = Client.objects.create(
             boutique=self.boutique_a, nom="Client A", telephone="0100000001"
         )
@@ -998,6 +1019,9 @@ class VenteACreditCreationTests(APITestCase):
 
         self.user_b = User.objects.create_user(username="credit_vente_user_b", password="pass1234")
         Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
+
+        _donner_acces_premium(self.boutique_a)
+        _donner_acces_premium(self.boutique_b)
 
         self.unite_a = UniteVente.objects.create(
             boutique=self.boutique_a, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
@@ -1290,3 +1314,142 @@ class ClientConsultationTests(APITestCase):
         response = self.api_client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class AccesPremiumCreditTests(APITestCase):
+    """V2 étape 7 : le crédit client (Client, vente à crédit, Remboursement)
+    est réservé au palier Premium (FormuleAbonnement.palier) - la lecture
+    (liste clients, historique) reste toujours autorisée, seules les
+    écritures sont bloquées."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Premium Test", slug="boutique-premium-test")
+        self.user = User.objects.create_user(username="premium_user", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit Premium Test",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=100,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user)
+
+        self.url_ventes = reverse('ventes-list')
+        self.url_clients = reverse('clients-list')
+        self.url_remboursements = reverse('remboursements-list')
+
+    def _configurer_abonnement(self, nom, palier):
+        formule = FormuleAbonnement.objects.create(nom=nom, duree_jours=30, prix=1000, actif=True, palier=palier)
+        aujourdhui = timezone.localdate()
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=aujourdhui, date_fin=aujourdhui + timezone.timedelta(days=30),
+            statut='ACTIF',
+        )
+
+    def _payload_vente_credit(self, client_credit_id):
+        return {
+            "client_credit": client_credit_id,
+            "montant_paye": "0",
+            "lignes": [
+                {"produit": self.produit.id, "quantite": 1, "type_vente": "UNITE", "prix_applique": "100.00"}
+            ],
+        }
+
+    # --- Essai gratuit : accès complet au crédit client ---
+
+    def test_essai_gratuit_peut_creer_client_vente_credit_et_remboursement(self):
+        self._configurer_abonnement(nom='Essai gratuit', palier='PREMIUM')
+
+        reponse_client = self.api_client.post(
+            self.url_clients, {"nom": "Client Test", "telephone": "0100000000"}, format='json'
+        )
+        self.assertEqual(reponse_client.status_code, status.HTTP_201_CREATED, reponse_client.data)
+        client_id = reponse_client.data['id']
+
+        reponse_vente = self.api_client.post(
+            self.url_ventes, self._payload_vente_credit(client_id), format='json'
+        )
+        self.assertEqual(reponse_vente.status_code, status.HTTP_201_CREATED, reponse_vente.data)
+        vente_id = reponse_vente.data['id']
+
+        reponse_remb = self.api_client.post(
+            self.url_remboursements, {"vente": vente_id, "montant": "50.00"}, format='json'
+        )
+        self.assertEqual(reponse_remb.status_code, status.HTTP_201_CREATED, reponse_remb.data)
+
+    # --- Formule payante Essentiel : lecture OK, écritures refusées ---
+
+    def test_essentiel_lit_mais_ne_peut_pas_creer_client_vente_credit_ou_remboursement(self):
+        self._configurer_abonnement(nom='Formule Essentiel', palier='ESSENTIEL')
+        client_existant = Client.objects.create(
+            boutique=self.boutique, nom="Client Existant", telephone="0100000001"
+        )
+        vente_existante = Vente.objects.create(
+            boutique=self.boutique, client_credit=client_existant,
+            montant_paye=0, montant_total=1000, montant_net=1000, montant_du=1000,
+            statut_paiement=StatutPaiement.EN_ATTENTE,
+        )
+
+        # Lecture toujours permise, quel que soit le palier.
+        reponse_liste = self.api_client.get(self.url_clients)
+        self.assertEqual(reponse_liste.status_code, status.HTTP_200_OK)
+        reponse_historique = self.api_client.get(reverse('clients-historique', args=[client_existant.id]))
+        self.assertEqual(reponse_historique.status_code, status.HTTP_200_OK)
+
+        # Écritures refusées avec un message clair.
+        reponse_client = self.api_client.post(
+            self.url_clients, {"nom": "Nouveau", "telephone": "0100000002"}, format='json'
+        )
+        self.assertEqual(reponse_client.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('Premium', reponse_client.data.get('detail', ''))
+
+        reponse_vente = self.api_client.post(
+            self.url_ventes, self._payload_vente_credit(client_existant.id), format='json'
+        )
+        self.assertEqual(reponse_vente.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('Premium', reponse_vente.data.get('detail', ''))
+
+        reponse_remb = self.api_client.post(
+            self.url_remboursements, {"vente": vente_existante.id, "montant": "100.00"}, format='json'
+        )
+        self.assertEqual(reponse_remb.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn('Premium', reponse_remb.data.get('detail', ''))
+
+    def test_essentiel_peut_toujours_creer_une_vente_comptant_normale(self):
+        """Une vente sans client_credit n'est jamais bloquée, quel que soit
+        le palier - seul le crédit client est une fonctionnalité Premium."""
+        self._configurer_abonnement(nom='Formule Essentiel', palier='ESSENTIEL')
+
+        payload = {
+            "montant_paye": "100.00",
+            "lignes": [
+                {"produit": self.produit.id, "quantite": 1, "type_vente": "UNITE", "prix_applique": "100.00"}
+            ],
+        }
+        reponse = self.api_client.post(self.url_ventes, payload, format='json')
+        self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
+
+    # --- Sans abonnement du tout : traité comme non-Premium, sans planter ---
+
+    def test_sans_abonnement_du_tout_traite_comme_non_premium_sans_planter(self):
+        reponse_client = self.api_client.post(
+            self.url_clients, {"nom": "Nouveau", "telephone": "0100000003"}, format='json'
+        )
+        self.assertEqual(reponse_client.status_code, status.HTTP_403_FORBIDDEN)
+
+    # --- Palier Premium payant, hors essai gratuit : accès complet ---
+
+    def test_premium_payant_hors_essai_gratuit_a_acces_complet(self):
+        self._configurer_abonnement(nom='Formule Premium Payante', palier='PREMIUM')
+
+        reponse_client = self.api_client.post(
+            self.url_clients, {"nom": "Client Test", "telephone": "0100000004"}, format='json'
+        )
+        self.assertEqual(reponse_client.status_code, status.HTTP_201_CREATED, reponse_client.data)

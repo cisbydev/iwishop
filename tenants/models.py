@@ -43,6 +43,15 @@ class Boutique(models.Model):
     def est_accessible(self):
         return self.actif and self.abonnement_valide()
 
+    def a_acces_premium(self):
+        """Fonctionnalités Premium (crédit client) : contrairement à
+        abonnement_valide(), l'absence totale d'abonnement n'est PAS un
+        fallback d'accès ici - sans formule connue, impossible de savoir si
+        le palier est Premium, donc refusé plutôt que supposé."""
+        if not hasattr(self, 'abonnement'):
+            return False
+        return self.abonnement_valide() and self.abonnement.formule.palier == 'PREMIUM'
+
 class Profil(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profil')
     boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name='membres')
@@ -80,10 +89,15 @@ class AccesSupport(models.Model):
         ordering = ['-date_acces']
 
 class FormuleAbonnement(models.Model):
+    class Palier(models.TextChoices):
+        ESSENTIEL = 'ESSENTIEL', 'Essentiel'
+        PREMIUM = 'PREMIUM', 'Premium'
+
     nom = models.CharField(max_length=100)
     duree_jours = models.PositiveIntegerField()
     prix = models.DecimalField(max_digits=10, decimal_places=2)
     actif = models.BooleanField(default=True)
+    palier = models.CharField(max_length=20, choices=Palier.choices)
 
     def __str__(self):
         return f"{self.nom} ({self.prix} FCFA)"
