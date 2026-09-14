@@ -175,4 +175,24 @@ describe('Sales - vente à crédit (V2 étape 5)', () => {
     expect(await screen.findByText('Plafond de crédit dépassé pour ce client.')).toBeInTheDocument();
     expect(await screen.findByText(/Vente enregistrée avec succès/)).toBeInTheDocument();
   });
+
+  it("affiche le blocage Premium (pas le message d'erreur générique) si la création échoue avec code PALIER_INSUFFISANT, sans vider le panier", async () => {
+    mocks.post.mockRejectedValue({
+      response: { status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' } },
+    });
+    const user = userEvent.setup();
+
+    render(<Sales />);
+    await ajouterUnArticleAuPanier(user);
+
+    await user.click(screen.getByRole('checkbox', { name: 'Vente à crédit' }));
+    await screen.findByText('Aïcha', { exact: false });
+    await user.click(screen.getByText(/Aïcha/));
+    await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
+
+    expect(await screen.findByText(/palier Premium/)).toBeInTheDocument();
+    expect(window.alert).not.toHaveBeenCalled();
+    // Rien de saisi n'est perdu : la ligne ajoutée au panier reste visible.
+    expect(screen.getByText('Savon')).toBeInTheDocument();
+  });
 });

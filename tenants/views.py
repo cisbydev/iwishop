@@ -226,6 +226,10 @@ class MonAbonnementView(APIView):
                 "statut": None,
                 "abonnement_valide": True,
                 "jours_restants": None,
+                # Pas d'abonnement du tout => jamais Premium (cf.
+                # Boutique.a_acces_premium(), qui ne fait PAS le même
+                # fallback que abonnement_valide() ci-dessus).
+                "a_acces_premium": False,
             })
 
         abonnement = boutique.abonnement
@@ -254,6 +258,7 @@ class MonAbonnementView(APIView):
             "statut": info["statut"],
             "abonnement_valide": boutique.abonnement_valide(),
             "jours_restants": jours_restants,
+            "a_acces_premium": boutique.a_acces_premium(),
         })
 
 FENETRE_REUTILISATION_PAIEMENT = timezone.timedelta(minutes=15)

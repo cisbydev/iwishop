@@ -297,6 +297,39 @@ class AccesPremiumTests(TestCase):
 
         self.assertFalse(boutique.a_acces_premium())
 
+    # --- Exposition côté API (MonAbonnementView), pour l'affichage frontend ---
+
+    def _authentifier(self, boutique):
+        user = User.objects.create_user(username=f'user-{boutique.pk}', password='x')
+        Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
+        api_client = APIClient()
+        api_client.force_authenticate(user=user)
+        return api_client
+
+    def test_mon_abonnement_expose_a_acces_premium_true_pour_le_palier_premium(self):
+        boutique = self._boutique_avec_formule('api-premium', palier='PREMIUM')
+
+        response = self._authentifier(boutique).get('/api/tenants/mon-abonnement/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['a_acces_premium'])
+
+    def test_mon_abonnement_expose_a_acces_premium_false_pour_le_palier_essentiel(self):
+        boutique = self._boutique_avec_formule('api-essentiel', palier='ESSENTIEL')
+
+        response = self._authentifier(boutique).get('/api/tenants/mon-abonnement/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['a_acces_premium'])
+
+    def test_mon_abonnement_expose_a_acces_premium_false_sans_abonnement_du_tout(self):
+        boutique = Boutique.objects.create(nom='Boutique API sans abonnement', slug='boutique-api-sans-abonnement')
+
+        response = self._authentifier(boutique).get('/api/tenants/mon-abonnement/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['a_acces_premium'])
+
 
 class EssaiGratuitApprouverDemandeTests(TestCase):
     """Point 8 de l'audit : une boutique créée via le flux client normal

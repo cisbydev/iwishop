@@ -1408,18 +1408,21 @@ class AccesPremiumCreditTests(APITestCase):
             self.url_clients, {"nom": "Nouveau", "telephone": "0100000002"}, format='json'
         )
         self.assertEqual(reponse_client.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(reponse_client.data.get('code'), 'PALIER_INSUFFISANT')
         self.assertIn('Premium', reponse_client.data.get('detail', ''))
 
         reponse_vente = self.api_client.post(
             self.url_ventes, self._payload_vente_credit(client_existant.id), format='json'
         )
         self.assertEqual(reponse_vente.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(reponse_vente.data.get('code'), 'PALIER_INSUFFISANT')
         self.assertIn('Premium', reponse_vente.data.get('detail', ''))
 
         reponse_remb = self.api_client.post(
             self.url_remboursements, {"vente": vente_existante.id, "montant": "100.00"}, format='json'
         )
         self.assertEqual(reponse_remb.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(reponse_remb.data.get('code'), 'PALIER_INSUFFISANT')
         self.assertIn('Premium', reponse_remb.data.get('detail', ''))
 
     def test_essentiel_peut_toujours_creer_une_vente_comptant_normale(self):

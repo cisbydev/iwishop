@@ -78,9 +78,19 @@ function DesktopNavigation({ activeTab, onSelect }) {
 
 function AppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  // Sous-onglet à ouvrir la prochaine fois que Settings est monté (cf.
+  // aller vers "Mon abonnement" depuis un blocage Premium ailleurs) -
+  // Settings se démonte/remonte à chaque changement d'activeTab, donc lu
+  // une seule fois par Settings à son montage, jamais réactif après coup.
+  const [ongletParametresInitial, setOngletParametresInitial] = useState('boutique');
   const { parametres, utilisateur } = useSettings();
   const { quitter: quitterVueSupport } = useSupportView();
   const { logout } = useAuth();
+
+  const allerVersAbonnement = () => {
+    setOngletParametresInitial('abonnement');
+    setActiveTab('settings');
+  };
 
   const handleLogout = async () => {
     quitterVueSupport();
@@ -150,7 +160,7 @@ function AppContent() {
         <main className="flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-6">
           <div className="mx-auto max-w-7xl">
             {activeTab === 'dashboard' && <Dashboard onNouvelleVente={() => setActiveTab('sales')} />}
-            {activeTab === 'sales' && <Sales />}
+            {activeTab === 'sales' && <Sales onNaviguerVersAbonnement={allerVersAbonnement} />}
             {activeTab === 'products' && <Products />}
             {activeTab === 'categories' && <Categories />}
             {activeTab === 'stock' && <Stock />}
@@ -158,9 +168,9 @@ function AppContent() {
             {activeTab === 'purchases' && <Purchases />}
             {activeTab === 'expenses' && <Expenses />}
             {activeTab === 'reports' && <Reports />}
-            {activeTab === 'settings' && <Settings />}
+            {activeTab === 'settings' && <Settings ongletInitial={ongletParametresInitial} />}
             {activeTab === 'history' && <SalesHistory />}
-            {activeTab === 'clients' && <Clients />}
+            {activeTab === 'clients' && <Clients onNaviguerVersAbonnement={allerVersAbonnement} />}
           </div>
         </main>
       </div>

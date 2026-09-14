@@ -1,3 +1,5 @@
+export const CODE_PALIER_INSUFFISANT = 'PALIER_INSUFFISANT';
+
 // Extrait un message d'erreur lisible à partir d'une réponse Axios/DRF.
 // DRF peut renvoyer les erreurs sous plusieurs formes :
 // - {"detail": "message"}
@@ -31,4 +33,12 @@ export function getErrorMessage(err, fallback = "Une erreur est survenue.") {
   }
 
   return messages.length > 0 ? messages.join('\n') : fallback;
+}
+
+// Code machine-readable optionnel à côté du detail (ex. { detail: "...",
+// code: "PALIER_INSUFFISANT" }, cf. tenants.premium.verifier_acces_premium
+// côté backend) - jamais besoin de parser le texte français du detail
+// pour distinguer un refus précis des autres 403/400 possibles.
+export function getErrorCode(err) {
+  return err?.response?.data?.code;
 }

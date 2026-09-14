@@ -218,10 +218,10 @@ function BoutiqueSettings() {
   );
 }
 
-export default function Settings() {
+export default function Settings({ ongletInitial = 'boutique' }) {
   const { utilisateur } = useSettings();
   const estProprietaire = utilisateur?.est_proprietaire;
-  const [sousOnglet, setSousOnglet] = useState('boutique');
+  const [sousOnglet, setSousOnglet] = useState(ongletInitial);
 
   const boutonClasse = (val) =>
     `inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
