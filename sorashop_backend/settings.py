@@ -88,6 +88,7 @@ INSTALLED_APPS = [
     'expenses',
     'reports',
     'dashboard',
+    'notifications',
 ]
 
 INSTALLED_APPS += [
