@@ -870,6 +870,64 @@ class VenteSynchronisationDiffereeTests(APITestCase):
         self.assertEqual(vente.horodatage_client, horodatage)
 
 
+class VenteAnnulationAvecRemboursementTests(APITestCase):
+    """Un remboursement déjà enregistré sur une vente à crédit doit bloquer
+    l'annulation : sans cette vérification, l'annulation restaurerait le
+    stock alors même que Remboursement (immutable, cf. RemboursementViewSet)
+    ne peut plus être défait, rendant la comptabilité incohérente."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Crédit Annul", slug="boutique-credit-annul")
+        self.user = User.objects.create_user(username="proprio_credit_annul", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        _donner_acces_premium(self.boutique)
+
+        self.client_credit = Client.objects.create(
+            boutique=self.boutique, nom="Client Crédit Annul", telephone="0100000099"
+        )
+
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user)
+        self.url_remboursements = reverse('remboursements-list')
+
+    def _creer_vente_credit(self, montant):
+        return Vente.objects.create(
+            boutique=self.boutique,
+            client_credit=self.client_credit,
+            montant_paye=0,
+            montant_total=montant,
+            montant_net=montant,
+            montant_du=montant,
+            statut_paiement=StatutPaiement.EN_ATTENTE,
+        )
+
+    def test_annulation_refusee_si_remboursement_deja_enregistre(self):
+        vente = self._creer_vente_credit(Decimal("1000.00"))
+        reponse_remboursement = self.api_client.post(
+            self.url_remboursements, {"vente": vente.id, "montant": "400.00"}, format='json'
+        )
+        self.assertEqual(reponse_remboursement.status_code, status.HTTP_201_CREATED, reponse_remboursement.data)
+
+        response = self.api_client.post(reverse('ventes-annuler', args=[vente.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.data[0],
+            "Impossible d'annuler une vente à crédit ayant déjà reçu un remboursement.",
+        )
+        vente.refresh_from_db()
+        self.assertEqual(vente.statut, 'VALIDEE')
+
+    def test_annulation_normale_toujours_possible_sans_remboursement(self):
+        vente = self._creer_vente_credit(Decimal("1000.00"))
+
+        response = self.api_client.post(reverse('ventes-annuler', args=[vente.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        vente.refresh_from_db()
+        self.assertEqual(vente.statut, 'ANNULEE')
+
+
 class ClientCreditTests(APITestCase):
     """V2 étape 2/N : serializers/vues/permissions DRF pour Client et
     Remboursement (isolation multi-tenant, immutabilité, recalcul de la

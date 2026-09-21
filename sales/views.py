@@ -96,6 +96,10 @@ class VenteViewSet(
             vente = Vente.objects.select_for_update().get(pk=vente_verifiee.pk)
             if vente.statut == 'ANNULEE':
                 raise ValidationError("Cette vente est déjà annulée.")
+            if vente.remboursements.exists():
+                raise ValidationError(
+                    "Impossible d'annuler une vente à crédit ayant déjà reçu un remboursement."
+                )
 
             lignes = list(vente.lignes.all())
 
