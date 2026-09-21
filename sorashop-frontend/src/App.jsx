@@ -28,6 +28,7 @@ import GlobalBanners from './components/GlobalBanners';
 import InstallPwaModal from './components/InstallPwaModal';
 import NavigationTablette from './components/NavigationTablette';
 import NavigationMobile from './components/NavigationMobile';
+import NotificationBell from './components/NotificationBell';
 import { NavigationPanneauProvider } from './context/NavigationPanneauContext';
 import { NAVIGATION_ITEMS } from './navigation';
 import { deriverIdentiteUtilisateur } from './utils/identiteUtilisateur';
@@ -134,6 +135,8 @@ function AppContent() {
 
           <DesktopNavigation activeTab={activeTab} onSelect={setActiveTab} />
           <NavigationTablette />
+
+          <NotificationBell />
 
           <div className="hidden shrink-0 items-center gap-2 min-[1280px]:flex">
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100 shadow-sm shadow-blue-100/70" aria-hidden="true">

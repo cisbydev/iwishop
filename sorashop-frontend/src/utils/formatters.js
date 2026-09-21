@@ -59,3 +59,26 @@ export function formatDateTime(value) {
     minute: '2-digit',
   }).format(date);
 }
+
+export function formatDateRelative(value) {
+  const date = toValidDate(value);
+  if (!date) return EMPTY_VALUE;
+
+  const diffSec = Math.round((Date.now() - date.getTime()) / 1000);
+  if (diffSec < 60) return "à l'instant";
+
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `il y a ${diffMin} min`;
+
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `il y a ${diffH} h`;
+
+  const diffJ = Math.round(diffH / 24);
+  if (diffJ < 30) return `il y a ${diffJ} j`;
+
+  const diffMois = Math.round(diffJ / 30);
+  if (diffMois < 12) return `il y a ${diffMois} mois`;
+
+  const diffAn = Math.round(diffMois / 12);
+  return `il y a ${diffAn} an${diffAn > 1 ? 's' : ''}`;
+}
