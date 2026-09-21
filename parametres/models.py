@@ -15,6 +15,10 @@ class ParametresBoutique(models.Model):
     telephone = models.CharField(max_length=30, blank=True, null=True)
     devise = models.CharField(max_length=10, default="FCFA")
     tva = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    # default=7 : préserve le comportement de l'ancienne constante globale
+    # notifications.services.SEUIL_DETTE_RETARD_JOURS pour toutes les
+    # boutiques existantes, sans backfill nécessaire.
+    seuil_dette_retard_jours = models.PositiveIntegerField(default=7)
 
     def __str__(self):
         return self.nom_boutique

@@ -10,12 +10,18 @@ from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase, APIClient
 
+from parametres.models import ParametresBoutique
 from tenants.models import Boutique, Profil
 from products.models import Produit, ProduitPrix, UniteVente
 from suppliers.models import Fournisseur
 from sales.models import Client as ClientCredit, StatutPaiement, Vente
 from .models import DestinataireNotification, Notification, TypeNotification
-from .services import SEUIL_DETTE_RETARD_JOURS, verifier_dettes_en_retard
+from .services import verifier_dettes_en_retard
+
+# Valeur du default= du champ ParametresBoutique.seuil_dette_retard_jours -
+# remplace l'ancienne constante globale notifications.services.
+# SEUIL_DETTE_RETARD_JOURS, supprimée au profit du seuil par boutique.
+SEUIL_PAR_DEFAUT = 7
 
 
 class NotificationConsultationTests(APITestCase):
@@ -295,7 +301,7 @@ class VerificationDettesEnRetardTests(TestCase):
         return Notification.objects.filter(vente=vente, type_notification=TypeNotification.DETTE_RETARD)
 
     def test_vente_en_retard_avec_dette_cree_une_notification(self):
-        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_DETTE_RETARD_JOURS + 1)
+        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_PAR_DEFAUT + 1)
 
         resultat = verifier_dettes_en_retard()
 
@@ -306,7 +312,7 @@ class VerificationDettesEnRetardTests(TestCase):
         self.assertIn('Client Retard', notif.message)
 
     def test_reexecution_sans_changement_ne_cree_pas_de_deuxieme_notification(self):
-        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_DETTE_RETARD_JOURS + 1)
+        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_PAR_DEFAUT + 1)
 
         verifier_dettes_en_retard()
         resultat = verifier_dettes_en_retard()  # "le lendemain", rien n'a changé
@@ -315,7 +321,7 @@ class VerificationDettesEnRetardTests(TestCase):
         self.assertEqual(self._notifications_dette_retard(vente).filter(lue=False).count(), 1)
 
     def test_vente_soldee_entre_temps_marque_la_notification_lue(self):
-        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_DETTE_RETARD_JOURS + 1)
+        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_PAR_DEFAUT + 1)
         verifier_dettes_en_retard()
         notif = self._notifications_dette_retard(vente).get()
         self.assertFalse(notif.lue)
@@ -331,7 +337,7 @@ class VerificationDettesEnRetardTests(TestCase):
         self.assertTrue(notif.lue)
 
     def test_vente_recente_ne_cree_pas_de_notification(self):
-        self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_DETTE_RETARD_JOURS - 1)
+        self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_PAR_DEFAUT - 1)
 
         resultat = verifier_dettes_en_retard()
 
@@ -347,10 +353,74 @@ class VerificationDettesEnRetardTests(TestCase):
         self.assertIn('0 notification(s) résolue(s)', sortie.getvalue())
 
     def test_command_cree_bien_les_notifications_via_le_service(self):
-        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_DETTE_RETARD_JOURS + 1)
+        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_PAR_DEFAUT + 1)
         sortie = StringIO()
 
         call_command('verifier_dettes_en_retard', stdout=sortie)
 
         self.assertIn('1 notification(s) créée(s)', sortie.getvalue())
         self.assertEqual(self._notifications_dette_retard(vente).count(), 1)
+
+
+class VerificationDettesEnRetardSeuilParBoutiqueTests(TestCase):
+    """seuil_dette_retard_jours (ParametresBoutique) remplace l'ancienne
+    constante globale : chaque boutique applique désormais son propre
+    seuil de retard."""
+
+    def _vente_credit(self, boutique, client, anciennete_jours):
+        vente = Vente.objects.create(
+            boutique=boutique, client_credit=client,
+            montant_paye=0, montant_total=1000, montant_net=1000,
+            montant_du=1000, statut_paiement=StatutPaiement.EN_ATTENTE,
+        )
+        Vente.objects.filter(pk=vente.pk).update(
+            date_vente=timezone.now() - timedelta(days=anciennete_jours)
+        )
+        vente.refresh_from_db()
+        return vente
+
+    def test_deux_boutiques_a_seuils_differents_notifient_chacune_a_son_propre_seuil(self):
+        boutique_seuil_court = Boutique.objects.create(nom="Boutique Seuil Court", slug="boutique-seuil-court")
+        boutique_seuil_long = Boutique.objects.create(nom="Boutique Seuil Long", slug="boutique-seuil-long")
+        ParametresBoutique.objects.create(boutique=boutique_seuil_court, seuil_dette_retard_jours=3)
+        ParametresBoutique.objects.create(boutique=boutique_seuil_long, seuil_dette_retard_jours=15)
+
+        client_court = ClientCredit.objects.create(
+            boutique=boutique_seuil_court, nom="Client Seuil Court", telephone="0200000001"
+        )
+        client_long = ClientCredit.objects.create(
+            boutique=boutique_seuil_long, nom="Client Seuil Long", telephone="0200000002"
+        )
+
+        # 5 jours de retard : dépasse le seuil de 3j (boutique_seuil_court)
+        # mais pas celui de 15j (boutique_seuil_long).
+        vente_court = self._vente_credit(boutique_seuil_court, client_court, anciennete_jours=5)
+        vente_long = self._vente_credit(boutique_seuil_long, client_long, anciennete_jours=5)
+
+        resultat = verifier_dettes_en_retard()
+
+        self.assertEqual(resultat['creees'], 1)
+        self.assertTrue(
+            Notification.objects.filter(vente=vente_court, type_notification=TypeNotification.DETTE_RETARD).exists()
+        )
+        self.assertFalse(
+            Notification.objects.filter(vente=vente_long, type_notification=TypeNotification.DETTE_RETARD).exists()
+        )
+
+    def test_boutique_sans_parametresboutique_utilise_le_seuil_par_defaut_de_7_jours(self):
+        boutique = Boutique.objects.create(nom="Boutique Sans Parametres", slug="boutique-sans-parametres")
+        self.assertFalse(ParametresBoutique.objects.filter(boutique=boutique).exists())
+        client = ClientCredit.objects.create(
+            boutique=boutique, nom="Client Sans Parametres", telephone="0200000003"
+        )
+        vente = self._vente_credit(boutique, client, anciennete_jours=SEUIL_PAR_DEFAUT + 1)
+
+        resultat = verifier_dettes_en_retard()
+
+        self.assertEqual(resultat['creees'], 1)
+        self.assertTrue(
+            Notification.objects.filter(vente=vente, type_notification=TypeNotification.DETTE_RETARD).exists()
+        )
+        # get_or_create() a bien créé l'objet manquant, avec le default=7.
+        parametres = ParametresBoutique.objects.get(boutique=boutique)
+        self.assertEqual(parametres.seuil_dette_retard_jours, SEUIL_PAR_DEFAUT)

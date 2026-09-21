@@ -105,6 +105,21 @@ class ParametresBoutiqueModificationPermissionTests(APITestCase):
         self.parametres.refresh_from_db()
         self.assertEqual(self.parametres.nom_boutique, "Nouveau nom")
 
+    def test_seuil_dette_retard_jours_expose_en_lecture_avec_defaut_de_7(self):
+        self.client.force_authenticate(user=self.employe)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['seuil_dette_retard_jours'], 7)
+
+    def test_proprietaire_peut_modifier_le_seuil_dette_retard_jours(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.patch(self.url, {"seuil_dette_retard_jours": 15}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.parametres.refresh_from_db()
+        self.assertEqual(self.parametres.seuil_dette_retard_jours, 15)
+
 
 class ParametresBoutiqueAbonnementExpireTests(APITestCase):
     """Audit complémentaire point 1 : une boutique dont l'abonnement a

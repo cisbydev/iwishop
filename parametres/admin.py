@@ -1,3 +1,8 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import ParametresBoutique
+
+
+@admin.register(ParametresBoutique)
+class ParametresBoutiqueAdmin(admin.ModelAdmin):
+    list_display = ('boutique', 'nom_boutique', 'devise', 'seuil_dette_retard_jours')
