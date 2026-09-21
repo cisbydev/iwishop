@@ -27,6 +27,7 @@ function BoutiqueSettings() {
     telephone: '',
     devise: 'FCFA',
     tva: '0.00',
+    seuil_dette_retard_jours: 7,
   });
   const [logoActuel, setLogoActuel] = useState(null);
   const [nouveauLogo, setNouveauLogo] = useState(null);
@@ -48,6 +49,7 @@ function BoutiqueSettings() {
         telephone: data.telephone || '',
         devise: data.devise || 'FCFA',
         tva: data.tva ?? '0.00',
+        seuil_dette_retard_jours: data.seuil_dette_retard_jours ?? 7,
       });
       setLogoActuel(data.logo);
       setLoading(false);
@@ -85,6 +87,7 @@ function BoutiqueSettings() {
     formData.append('telephone', form.telephone || '');
     formData.append('devise', form.devise);
     formData.append('tva', form.tva);
+    formData.append('seuil_dette_retard_jours', form.seuil_dette_retard_jours);
     if (nouveauLogo) {
       formData.append('logo', nouveauLogo);
     }
@@ -204,6 +207,21 @@ function BoutiqueSettings() {
               required
             />
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700">Délai avant alerte de retard (jours)</label>
+          <input
+            type="number"
+            min={1}
+            value={form.seuil_dette_retard_jours}
+            onChange={(e) => updateForm('seuil_dette_retard_jours', e.target.value)}
+            className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            required
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Nombre de jours après une vente à crédit non soldée avant qu'une notification de retard soit créée.
+          </p>
         </div>
 
         <button
