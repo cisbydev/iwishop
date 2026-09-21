@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
 import { getErrorMessage, getErrorCode, CODE_PALIER_INSUFFISANT } from '../services/errorUtils';
-import { formatCurrency, formatDate } from '../utils/formatters';
+import { formatCurrency, formatDate, couleurBadgeDette } from '../utils/formatters';
 import {
   listerClients,
   listerClientsAvecDette,
@@ -267,7 +267,9 @@ export default function Clients({ onNaviguerVersAbonnement }) {
         listerClientsAvecDette(),
       ]);
       setClients(listeClients);
-      setDettesParClientId(new Map(listeAvecDette.map((c) => [c.id, c.dette_totale])));
+      setDettesParClientId(new Map(listeAvecDette.map((c) => [
+        c.id, { total: c.dette_totale, plusAncienneDette: c.plus_ancienne_dette },
+      ])));
     } catch (err) {
       console.error("Erreur chargement clients", err);
       setErreurChargement("Impossible de charger les clients. Vérifiez votre connexion puis réessayez.");
@@ -415,7 +417,8 @@ export default function Clients({ onNaviguerVersAbonnement }) {
               : 'md:grid-cols-2 xl:grid-cols-3'
         }`}>
           {clientsFiltres.map((c) => {
-            const detteTotale = Number(dettesParClientId.get(c.id) || 0);
+            const infoDette = dettesParClientId.get(c.id);
+            const detteTotale = Number(infoDette?.total || 0);
             return (
               <button
                 key={c.id}
@@ -431,7 +434,7 @@ export default function Clients({ onNaviguerVersAbonnement }) {
                     <h3 className="truncate font-semibold text-slate-900">{c.nom}</h3>
                   </div>
                   {detteTotale > 0 && (
-                    <span className="shrink-0 rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-800">
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-semibold ${couleurBadgeDette(infoDette?.plusAncienneDette)}`}>
                       Doit {formatCurrency(detteTotale, devise)}
                     </span>
                   )}

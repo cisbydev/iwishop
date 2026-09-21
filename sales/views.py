@@ -4,7 +4,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
-from django.db.models import Prefetch, Q, Sum
+from django.db.models import Min, Prefetch, Q, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from tenants.mixins import BoutiqueScopedMixin
 from tenants.premium import verifier_acces_premium
@@ -170,7 +170,14 @@ class ClientViewSet(
             dette_totale=Sum(
                 'ventes__montant_du',
                 filter=Q(ventes__montant_du__gt=0, ventes__statut='VALIDEE'),
-            )
+            ),
+            # Même filtre que dette_totale ci-dessus : sert au frontend pour
+            # colorer l'alerte selon l'ancienneté de la dette la plus vieille
+            # du client (V2 étape 14).
+            plus_ancienne_dette=Min(
+                'ventes__date_vente',
+                filter=Q(ventes__montant_du__gt=0, ventes__statut='VALIDEE'),
+            ),
         ).filter(dette_totale__gt=0).order_by('-dette_totale')
 
         page = self.paginate_queryset(queryset)

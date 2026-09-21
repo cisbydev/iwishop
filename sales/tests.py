@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase, APITransactionTestCase, APIClient
@@ -1327,6 +1328,29 @@ class ClientConsultationTests(APITestCase):
         ids = {c['id'] for c in resultats}
         self.assertIn(self.client_avec_dette.id, ids)
         self.assertNotIn(self.client_sans_dette.id, ids)
+
+    def test_avec_dette_expose_plus_ancienne_dette_en_excluant_les_ventes_annulees(self):
+        # vente_1 (la plus ancienne vente à crédit non soldée de
+        # client_avec_dette dans ce setUp) doit ressortir comme
+        # plus_ancienne_dette. On ajoute ici une vente ANNULEE encore plus
+        # ancienne : si le filtre statut='VALIDEE' n'était pas appliqué à
+        # cette annotation (même filtre que dette_totale), elle ressortirait
+        # à sa place à tort.
+        vente_annulee_plus_ancienne = Vente.objects.create(
+            boutique=self.boutique_a, client_credit=self.client_avec_dette,
+            montant_paye=0, montant_total=500, montant_net=500,
+            montant_du=500, statut_paiement=StatutPaiement.EN_ATTENTE, statut='ANNULEE',
+        )
+        Vente.objects.filter(pk=vente_annulee_plus_ancienne.pk).update(
+            date_vente=self.vente_1.date_vente - timezone.timedelta(days=10)
+        )
+
+        response = self.api_client.get(reverse('clients-avec-dette'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resultats = response.data.get('results', response.data)
+        resultat_client = next(c for c in resultats if c['id'] == self.client_avec_dette.id)
+        self.assertEqual(parse_datetime(resultat_client['plus_ancienne_dette']), self.vente_1.date_vente)
 
     def test_avec_dette_agrege_correctement_plusieurs_ventes(self):
         response = self.api_client.get(reverse('clients-avec-dette'))

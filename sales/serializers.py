@@ -48,10 +48,14 @@ class ClientAvecDetteSerializer(serializers.ModelSerializer):
     # champ du modèle) : doit être déclaré explicitement, un ModelSerializer
     # ne peut pas déduire le type d'une annotation.
     dette_totale = serializers.DecimalField(max_digits=12, decimal_places=2)
+    plus_ancienne_dette = serializers.DateTimeField()
 
     class Meta:
         model = Client
-        fields = ['id', 'nom', 'telephone', 'adresse', 'plafond_credit', 'date_creation', 'dette_totale']
+        fields = [
+            'id', 'nom', 'telephone', 'adresse', 'plafond_credit', 'date_creation',
+            'dette_totale', 'plus_ancienne_dette',
+        ]
 
 class RemboursementHistoriqueSerializer(serializers.ModelSerializer):
     enregistre_par_nom = serializers.ReadOnlyField(source='enregistre_par.username')

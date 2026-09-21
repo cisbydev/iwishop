@@ -82,3 +82,16 @@ export function formatDateRelative(value) {
   const diffAn = Math.round(diffMois / 12);
   return `il y a ${diffAn} an${diffAn > 1 ? 's' : ''}`;
 }
+
+export function couleurBadgeDette(plusAncienneDette) {
+  const date = toValidDate(plusAncienneDette);
+  // Pas de date connue : ne devrait pas arriver pour un client avec une
+  // dette réelle, mais mieux vaut alerter (rouge) que sous-alerter en
+  // silence si l'API renvoie un jour un cas incomplet.
+  if (!date) return 'bg-red-100 text-red-800';
+
+  const jours = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (jours < 7) return 'bg-green-100 text-green-800';
+  if (jours <= 30) return 'bg-orange-100 text-orange-800';
+  return 'bg-red-100 text-red-800';
+}
