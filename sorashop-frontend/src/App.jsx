@@ -175,9 +175,10 @@ function AppContent() {
             {activeTab === 'settings' && <Settings ongletInitial={ongletParametresInitial} />}
             {activeTab === 'history' && <SalesHistory />}
             {activeTab === 'clients' && <Clients onNaviguerVersAbonnement={allerVersAbonnement} />}
-            {activeTab === 'assistant' && <Assistant />}
           </div>
         </main>
+        {/* Bouton flottant, visible sur tous les écrans plutôt que dans un onglet. */}
+        <Assistant />
       </div>
     </NavigationPanneauProvider>
   );

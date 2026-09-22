@@ -11,7 +11,6 @@ import {
   ShoppingCart,
   History,
   Users,
-  Sparkles,
 } from 'lucide-react';
 
 export const NAVIGATION_ITEMS = [
@@ -27,8 +26,11 @@ export const NAVIGATION_ITEMS = [
   { id: 'sales', label: 'Ventes', Icon: ShoppingCart },
   { id: 'history', label: 'Historique', Icon: History },
   { id: 'clients', label: 'Clients', Icon: Users },
-  { id: 'assistant', label: 'Assistant', Icon: Sparkles },
 ];
+
+// L'Assistant IA n'est pas dans la navigation principale : il est accessible
+// via un bouton flottant (voir components/Assistant.jsx), affiché sur tous
+// les écrans plutôt qu'onglet par onglet.
 
 export const SECTIONS_PRIORITAIRES_TABLETTE = ['dashboard', 'sales', 'products', 'stock', 'purchases', 'history'];
 
