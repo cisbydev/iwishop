@@ -100,6 +100,45 @@ class AssistantReponseNormaleTests(APITestCase):
         response = self.client.post(self.url, {"question": "   "}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @override_settings(ANTHROPIC_API_KEY='cle-de-test-factice')
+    @patch('assistant.views.anthropic.Anthropic')
+    def test_date_mal_formee_ne_fait_pas_echouer_toute_la_requete(self, mock_anthropic_class):
+        """Une exception Django brute ici remonterait au `except Exception`
+        générique de la vue -> 502 pour toute la conversation. tools.py doit
+        l'intercepter en amont et renvoyer un dict d'erreur exploitable par
+        le modèle à la place."""
+        mock_client = mock_anthropic_class.return_value
+        completion_avec_outil = SimpleNamespace(
+            stop_reason="tool_use",
+            content=[
+                SimpleNamespace(
+                    type="tool_use", id="toolu_01", name="obtenir_resume_financier",
+                    input={"date_debut": "pas-une-date", "date_fin": "2026-09-22"},
+                ),
+            ],
+        )
+        completion_finale = SimpleNamespace(
+            stop_reason="end_turn",
+            content=[SimpleNamespace(type="text", text="La date fournie n'est pas valide.")],
+        )
+        mock_client.messages.create.side_effect = [completion_avec_outil, completion_finale]
+
+        response = self.client.post(
+            self.url, {"question": "Quel est mon CA depuis 'pas-une-date' ?"}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(mock_client.messages.create.call_count, 2)
+
+        # Même remarque que AssistantIsolationMultiTenantTests : `messages`
+        # est mutée en place, index 2 = le tool_result (pas -1, qui pointe
+        # sur la réponse finale ajoutée après coup au même objet).
+        deuxieme_appel = mock_client.messages.create.call_args_list[1]
+        message_tool_result = deuxieme_appel.kwargs['messages'][2]
+        contenu_outil = json.loads(message_tool_result['content'][0]['content'])
+
+        self.assertEqual(contenu_outil, {"erreur": "Date invalide, format attendu YYYY-MM-DD"})
+
 
 class AssistantPermissionTests(APITestCase):
     """Réservé au propriétaire (P1 point 6, RBAC), même principe que les

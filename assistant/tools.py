@@ -1,14 +1,43 @@
+import re
+from datetime import datetime
+
 from django.db.models import F, Q, Sum
 
 from products.models import Produit
 from reports.views import calculer_resume_financier
 from sales.models import Client
 
+FORMAT_DATE_REGEX = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+
+
+def _date_valide(valeur):
+    """None (date omise par le modèle) est valide - seule une valeur
+    fournie mais mal formée est rejetée. La regex filtre la forme, strptime
+    filtre les valeurs impossibles qu'elle laisserait passer (ex. mois 13)."""
+    if valeur is None:
+        return True
+    if not FORMAT_DATE_REGEX.match(valeur):
+        return False
+    try:
+        datetime.strptime(valeur, '%Y-%m-%d')
+    except ValueError:
+        return False
+    return True
+
 
 def obtenir_resume_financier(boutique, date_debut=None, date_fin=None):
     """Réutilise reports.views.calculer_resume_financier() telle quelle -
     une seule source de vérité pour ce calcul, partagée avec les vues
-    JSON/PDF/Excel des rapports."""
+    JSON/PDF/Excel des rapports.
+
+    Valide le format des dates AVANT l'appel : une date mal formée envoyée
+    par le modèle lèverait sinon une exception Django brute, remontée
+    jusqu'au `except Exception` générique d'AssistantView et transformée en
+    502 pour toute la conversation. Un dict d'erreur exploitable permet au
+    modèle de reformuler proprement plutôt que de faire échouer la requête
+    entière."""
+    if not _date_valide(date_debut) or not _date_valide(date_fin):
+        return {"erreur": "Date invalide, format attendu YYYY-MM-DD"}
     return calculer_resume_financier(boutique, date_debut, date_fin)
 
 
