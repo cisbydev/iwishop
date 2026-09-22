@@ -10,6 +10,8 @@ from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from suppliers.models import Fournisseur
 from products.models import Produit, UniteVente, ProduitPrix
 from sales.models import Vente, LigneVente
+from parametres.models import ParametresBoutique
+from .views import calculer_resume_financier
 
 
 class ResumeFinancierAccesTests(APITestCase):
@@ -289,3 +291,106 @@ class ResumeFinancierRemiseBeneficeTests(APITestCase):
         resume = self._resume()
         self.assertEqual(Decimal(str(resume['chiffre_affaires'])), Decimal("0.00"))
         self.assertEqual(Decimal(str(resume['benefice_brut'])), Decimal("0.00"))
+
+
+class CalculerResumeFinancierFonctionTests(APITestCase):
+    """Non-régression de l'extraction de la logique de calcul hors de
+    ResumeFinancierView.get() (V2 étape 15, export PDF) :
+    calculer_resume_financier() doit retourner exactement les mêmes
+    valeurs que la vue JSON, réutilisée telle quelle par celle-ci."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Fonction", slug="boutique-fonction-resume")
+        self.user = User.objects.create_user(username="user_fonction_resume", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("500.00"), prix_unitaire=Decimal("800.00"), prix_douzaine=Decimal("9600.00"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("800.00"))
+
+        vente = Vente.objects.create(
+            boutique=self.boutique, montant_paye=Decimal("800.00"),
+            montant_total=Decimal("800.00"), montant_net=Decimal("800.00"),
+        )
+        LigneVente.objects.create(
+            boutique=self.boutique, vente=vente, produit=self.produit, quantite=1,
+            type_vente='UNITE', unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("800.00"), prix_achat_unitaire=Decimal("500.00"),
+        )
+
+    def test_fonction_retourne_les_memes_valeurs_que_la_vue_json(self):
+        resultat_fonction = calculer_resume_financier(self.boutique, None, None)
+
+        response = self.client.get('/api/reports/resume-financier/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        for cle in (
+            'chiffre_affaires', 'total_achats', 'total_depenses', 'benefice_brut',
+            'benefice_net', 'nombre_ventes', 'nombre_achats', 'nombre_depenses',
+        ):
+            self.assertEqual(Decimal(str(resultat_fonction[cle])), Decimal(str(response.data[cle])))
+
+
+class ResumeFinancierExportPDFTests(APITestCase):
+    """V2 étape 15 : export PDF du résumé financier, réservé au propriétaire
+    et isolé par boutique (même résolution _boutique_effective que
+    ResumeFinancierView - aucun paramètre ne permet de cibler une autre
+    boutique que la sienne)."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique Export A", slug="boutique-export-a")
+        self.proprietaire_a = User.objects.create_user(username="export_proprio_a", password="pass1234")
+        Profil.objects.create(user=self.proprietaire_a, boutique=self.boutique_a, est_proprietaire=True)
+
+        self.employe_a = User.objects.create_user(username="export_employe_a", password="pass1234")
+        Profil.objects.create(user=self.employe_a, boutique=self.boutique_a, est_proprietaire=False)
+
+        self.boutique_b = Boutique.objects.create(nom="Boutique Export B", slug="boutique-export-b")
+        self.proprietaire_b = User.objects.create_user(username="export_proprio_b", password="pass1234")
+        Profil.objects.create(user=self.proprietaire_b, boutique=self.boutique_b, est_proprietaire=True)
+
+        self.url = '/api/reports/resume-financier/export-pdf/'
+
+    def test_export_pdf_autorise_pour_le_proprietaire(self):
+        self.client.force_authenticate(user=self.proprietaire_a)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('attachment', response['Content-Disposition'])
+        self.assertIn('boutique-export-a', response['Content-Disposition'])
+
+    def test_export_pdf_refuse_pour_un_employe(self):
+        self.client.force_authenticate(user=self.employe_a)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_export_pdf_isole_par_boutique(self):
+        """Un propriétaire ne peut exporter que le résumé de SA propre
+        boutique : aucun paramètre de la requête ne permet de cibler une
+        autre boutique (résolution via _boutique_effective, pas un id
+        passé par le client)."""
+        self.client.force_authenticate(user=self.proprietaire_b)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('boutique-export-b', response['Content-Disposition'])
+        self.assertNotIn('boutique-export-a', response['Content-Disposition'])
+
+    def test_export_pdf_utilise_la_devise_de_la_boutique_pas_fcfa_en_dur(self):
+        ParametresBoutique.objects.create(boutique=self.boutique_a, devise="EUR")
+
+        self.client.force_authenticate(user=self.proprietaire_a)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(b'EUR', response.content)
+        self.assertNotIn(b'FCFA', response.content)
