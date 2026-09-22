@@ -13,6 +13,9 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from openpyxl import Workbook
+from openpyxl.styles import Font
+from openpyxl.utils import get_column_letter
 from accounts.permissions import IsOwner
 from parametres.models import ParametresBoutique
 from tenants.mixins import BoutiqueScopedMixin
@@ -108,6 +111,15 @@ def calculer_resume_financier(boutique, date_debut, date_fin):
     }
 
 
+def parametres_boutique(boutique):
+    """get_or_create comme ParametresBoutiqueView.get_object() : une
+    boutique n'a pas forcément encore de ParametresBoutique créé
+    explicitement (default="FCFA" s'applique alors). Réutilisé par les
+    vues d'export (PDF, Excel) - une seule source pour ce pattern."""
+    parametres, _ = ParametresBoutique.objects.get_or_create(boutique=boutique)
+    return parametres
+
+
 class ResumeFinancierView(BoutiqueScopedMixin, APIView):
     permission_classes = [IsAuthenticated]
 
@@ -138,10 +150,7 @@ class ResumeFinancierExportPDFView(BoutiqueScopedMixin, APIView):
         date_debut = request.GET.get('date_debut')
         date_fin = request.GET.get('date_fin')
         resultat = calculer_resume_financier(boutique, date_debut, date_fin)
-        # get_or_create comme ParametresBoutiqueView.get_object() : une
-        # boutique n'a pas forcément encore de ParametresBoutique créé
-        # explicitement (default="FCFA" s'applique alors).
-        parametres, _ = ParametresBoutique.objects.get_or_create(boutique=boutique)
+        parametres = parametres_boutique(boutique)
         devise = parametres.devise
 
         response = HttpResponse(content_type='application/pdf')
@@ -281,3 +290,70 @@ class ResumeFinancierExportPDFView(BoutiqueScopedMixin, APIView):
         texte = f"Généré par iwiShop le {timezone.localtime().strftime('%d/%m/%Y %H:%M')}"
         canvas_pdf.drawString(2 * cm, 1.2 * cm, texte)
         canvas_pdf.restoreState()
+
+
+class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
+    # Même règle que l'export PDF (ResumeFinancierExportPDFView) : réservé
+    # au propriétaire - une extraction de données comptables complètes,
+    # pas un simple affichage (P1 point 6, RBAC).
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def get(self, request, *args, **kwargs):
+        boutique = self._boutique_effective()
+        date_debut = request.GET.get('date_debut')
+        date_fin = request.GET.get('date_fin')
+        resultat = calculer_resume_financier(boutique, date_debut, date_fin)
+        devise = parametres_boutique(boutique).devise
+
+        classeur = Workbook()
+        feuille = classeur.active
+        feuille.title = "Résumé financier"
+
+        gras = Font(bold=True)
+
+        feuille["A1"] = "Boutique"
+        feuille["B1"] = boutique.nom
+        feuille["A1"].font = gras
+        if resultat['date_debut'] and resultat['date_fin']:
+            feuille["A2"] = "Période"
+            feuille["B2"] = f"du {resultat['date_debut']} au {resultat['date_fin']}"
+        else:
+            feuille["A2"] = "Période"
+            feuille["B2"] = "toutes dates confondues"
+        feuille["A2"].font = gras
+
+        ligne_entete_tableau = 4
+        feuille.cell(row=ligne_entete_tableau, column=1, value="Indicateur").font = gras
+        feuille.cell(row=ligne_entete_tableau, column=2, value="Valeur").font = gras
+
+        lignes = [
+            ("Chiffre d'affaires", f"{resultat['chiffre_affaires']:.2f} {devise}"),
+            ("Total des achats", f"{resultat['total_achats']:.2f} {devise}"),
+            ("Total des dépenses", f"{resultat['total_depenses']:.2f} {devise}"),
+            ("Bénéfice brut", f"{resultat['benefice_brut']:.2f} {devise}"),
+            ("Bénéfice net", f"{resultat['benefice_net']:.2f} {devise}"),
+            ("Nombre de ventes", resultat['nombre_ventes']),
+            ("Nombre d'achats", resultat['nombre_achats']),
+            ("Nombre de dépenses", resultat['nombre_depenses']),
+        ]
+        for decalage, (libelle, valeur) in enumerate(lignes, start=1):
+            feuille.cell(row=ligne_entete_tableau + decalage, column=1, value=libelle)
+            feuille.cell(row=ligne_entete_tableau + decalage, column=2, value=valeur)
+
+        # Largeur de colonnes ajustée au contenu le plus long de chaque
+        # colonne - fichier de travail, pas besoin du même soin visuel que
+        # le PDF (pas de couleurs/alternance de lignes).
+        for indice_colonne in (1, 2):
+            lettre = get_column_letter(indice_colonne)
+            plus_long = max(
+                len(str(cellule.value)) for cellule in feuille[lettre] if cellule.value is not None
+            )
+            feuille.column_dimensions[lettre].width = plus_long + 4
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        nom_fichier = f"resume-financier-{boutique.slug}-{timezone.localdate().isoformat()}.xlsx"
+        response['Content-Disposition'] = f'attachment; filename="{nom_fichier}"'
+        classeur.save(response)
+        return response

@@ -11,9 +11,11 @@ django-filter==26.1
 django-storages==1.14.6
 djangorestframework==3.17.1
 djangorestframework_simplejwt==5.5.1
+et-xmlfile==2.0.0
 gunicorn==26.0.0
 idna==3.18
 jmespath==1.1.0
+openpyxl==3.1.5
 packaging==26.3
 pillow==12.3.0
 psycopg2-binary==2.9.12

@@ -1,7 +1,9 @@
 from decimal import Decimal
+from io import BytesIO
 
 from django.contrib.auth.models import User
 from django.utils import timezone
+from openpyxl import load_workbook
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
@@ -394,3 +396,98 @@ class ResumeFinancierExportPDFTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(b'EUR', response.content)
         self.assertNotIn(b'FCFA', response.content)
+
+
+class ResumeFinancierExportExcelTests(APITestCase):
+    """V2 étape 16 : export Excel du résumé financier, en miroir de
+    l'export PDF (ResumeFinancierExportPDFTests) - mêmes règles de
+    permission et d'isolation. Le contenu est vérifié via l'API openpyxl
+    (format binaire structuré), pas par une recherche de texte brut comme
+    pour le PDF."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique Excel A", slug="boutique-excel-a")
+        self.proprietaire_a = User.objects.create_user(username="excel_proprio_a", password="pass1234")
+        Profil.objects.create(user=self.proprietaire_a, boutique=self.boutique_a, est_proprietaire=True)
+
+        self.employe_a = User.objects.create_user(username="excel_employe_a", password="pass1234")
+        Profil.objects.create(user=self.employe_a, boutique=self.boutique_a, est_proprietaire=False)
+
+        self.boutique_b = Boutique.objects.create(nom="Boutique Excel B", slug="boutique-excel-b")
+        self.proprietaire_b = User.objects.create_user(username="excel_proprio_b", password="pass1234")
+        Profil.objects.create(user=self.proprietaire_b, boutique=self.boutique_b, est_proprietaire=True)
+
+        self.url = '/api/reports/resume-financier/export-excel/'
+
+    def _classeur(self, response):
+        return load_workbook(BytesIO(response.content))
+
+    def test_export_excel_autorise_pour_le_proprietaire(self):
+        self.client.force_authenticate(user=self.proprietaire_a)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response['Content-Type'],
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        self.assertIn('attachment', response['Content-Disposition'])
+        self.assertIn('boutique-excel-a', response['Content-Disposition'])
+
+    def test_export_excel_refuse_pour_un_employe(self):
+        self.client.force_authenticate(user=self.employe_a)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_export_excel_isole_par_boutique(self):
+        """Un propriétaire ne peut exporter que le résumé de SA propre
+        boutique, même principe que ResumeFinancierExportPDFTests
+        (résolution via _boutique_effective, pas un id passé par le
+        client)."""
+        self.client.force_authenticate(user=self.proprietaire_b)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('boutique-excel-b', response['Content-Disposition'])
+        self.assertNotIn('boutique-excel-a', response['Content-Disposition'])
+
+    def test_export_excel_contient_les_bonnes_valeurs(self):
+        ParametresBoutique.objects.create(boutique=self.boutique_a, devise="EUR")
+        unite = UniteVente.objects.create(
+            boutique=self.boutique_a, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        produit = Produit.objects.create(
+            boutique=self.boutique_a, nom="Produit Excel",
+            prix_achat=Decimal("500.00"), prix_unitaire=Decimal("800.00"), prix_douzaine=Decimal("9600.00"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=produit, unite=unite, prix=Decimal("800.00"))
+        vente = Vente.objects.create(
+            boutique=self.boutique_a, montant_paye=Decimal("800.00"),
+            montant_total=Decimal("800.00"), montant_net=Decimal("800.00"),
+        )
+        LigneVente.objects.create(
+            boutique=self.boutique_a, vente=vente, produit=produit, quantite=1,
+            type_vente='UNITE', unite=unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("800.00"), prix_achat_unitaire=Decimal("500.00"),
+        )
+
+        self.client.force_authenticate(user=self.proprietaire_a)
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        classeur = self._classeur(response)
+        feuille = classeur["Résumé financier"]
+
+        self.assertEqual(feuille["A1"].value, "Boutique")
+        self.assertEqual(feuille["B1"].value, "Boutique Excel A")
+
+        valeurs = {
+            feuille.cell(row=r, column=1).value: feuille.cell(row=r, column=2).value
+            for r in range(5, 13)
+        }
+        self.assertEqual(valeurs["Chiffre d'affaires"], "800.00 EUR")
+        self.assertEqual(valeurs["Bénéfice brut"], "300.00 EUR")
+        self.assertEqual(valeurs["Bénéfice net"], "300.00 EUR")
+        self.assertEqual(valeurs["Nombre de ventes"], 1)
