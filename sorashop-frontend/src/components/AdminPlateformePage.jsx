@@ -233,6 +233,14 @@ function BoutiquesPanel() {
   );
 }
 
+const FORM_APPROBATION_VIDE = {
+  lierExistant: false,
+  email: '',
+  utilisateurTrouve: null,
+  rechercheEnCours: false,
+  erreurRecherche: '',
+};
+
 function DemandesPanel() {
   const [demandes, setDemandes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -240,6 +248,10 @@ function DemandesPanel() {
   const [accesRefuse, setAccesRefuse] = useState(false);
   const [enCoursId, setEnCoursId] = useState(null);
   const [resultatApprobation, setResultatApprobation] = useState(null);
+  // Multi-boutique, étape 4 : par demande, l'admin peut choisir de lier
+  // l'approbation à un compte User déjà existant plutôt que d'en créer un
+  // nouveau (comportement par défaut inchangé si rien n'est choisi).
+  const [formsApprobation, setFormsApprobation] = useState({});
 
   const fetchDemandes = useCallback(async () => {
     setLoading(true);
@@ -266,13 +278,51 @@ function DemandesPanel() {
     void loadDemandes();
   }, [fetchDemandes]);
 
+  const majFormApprobation = (id, patch) => {
+    setFormsApprobation((prev) => ({
+      ...prev,
+      [id]: { ...(prev[id] || FORM_APPROBATION_VIDE), ...patch },
+    }));
+  };
+
+  const toggleLierExistant = (id, coche) => {
+    majFormApprobation(id, {
+      lierExistant: coche,
+      utilisateurTrouve: null,
+      erreurRecherche: '',
+    });
+  };
+
+  const handleRechercherUtilisateur = async (id) => {
+    const email = (formsApprobation[id]?.email || '').trim();
+    if (!email) return;
+
+    majFormApprobation(id, { rechercheEnCours: true, erreurRecherche: '', utilisateurTrouve: null });
+    try {
+      const response = await api.get('tenants/utilisateurs/rechercher/', { params: { email } });
+      majFormApprobation(id, { utilisateurTrouve: response.data, rechercheEnCours: false });
+    } catch (err) {
+      majFormApprobation(id, {
+        erreurRecherche: getErrorMessage(err, "Aucun compte trouvé pour cet email."),
+        rechercheEnCours: false,
+      });
+    }
+  };
+
   const handleApprouver = async (id) => {
     setEnCoursId(id);
     setError('');
     try {
       const demande = demandes.find((d) => d.id === id);
-      const response = await api.post(`tenants/demandes/${id}/approuver/`);
+      const utilisateurTrouve = formsApprobation[id]?.utilisateurTrouve;
+      const body = utilisateurTrouve ? { user_existant_id: utilisateurTrouve.id } : undefined;
+      const response = await api.post(`tenants/demandes/${id}/approuver/`, body);
       setResultatApprobation({ ...response.data, contact_email: demande?.email });
+      setFormsApprobation((prev) => {
+        const reste = { ...prev };
+        delete reste[id];
+        return reste;
+      });
       fetchDemandes();
     } catch (err) {
       setError(getErrorMessage(err, "Erreur lors de l'approbation de la demande."));
@@ -318,36 +368,45 @@ function DemandesPanel() {
           <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-1">
             <p className="font-semibold text-green-800">{resultatApprobation.detail}</p>
 
-            {resultatApprobation.email_envoye ? (
-              <p className="text-sm bg-green-100 text-green-800 rounded px-3 py-2">
-                ✅ Email envoyé automatiquement à {resultatApprobation.contact_email || 'l\'adresse du contact'}
+            {resultatApprobation.compte_existant ? (
+              <p className="text-sm text-gray-700">
+                Boutique : <span className="font-medium">{resultatApprobation.boutique}</span> — liée au compte existant{' '}
+                <span className="font-mono font-medium">{resultatApprobation.username}</span>. Aucun nouvel identifiant à transmettre.
               </p>
             ) : (
-              <p className="text-sm bg-orange-100 text-orange-800 rounded px-3 py-2">
-                ⚠️ Échec de l'envoi automatique ({resultatApprobation.erreur_email}) — transmets les identifiants manuellement ci-dessous
-              </p>
-            )}
-
-            <p className="text-sm text-gray-700">Boutique : <span className="font-medium">{resultatApprobation.boutique}</span></p>
-            <p className="text-sm text-gray-700">Identifiant : <span className="font-mono font-medium">{resultatApprobation.username}</span></p>
-            <p className="text-sm text-gray-700">Mot de passe temporaire : <span className="font-mono font-medium">{resultatApprobation.mot_de_passe_temporaire}</span></p>
-            <p className="text-xs text-red-600 mt-2">{resultatApprobation.avertissement}</p>
-            <div className="flex items-center gap-3 mt-2">
-              <button
-                onClick={() => navigator.clipboard.writeText(
-                  `${resultatApprobation.username} / ${resultatApprobation.mot_de_passe_temporaire}`
+              <>
+                {resultatApprobation.email_envoye ? (
+                  <p className="text-sm bg-green-100 text-green-800 rounded px-3 py-2">
+                    ✅ Email envoyé automatiquement à {resultatApprobation.contact_email || 'l\'adresse du contact'}
+                  </p>
+                ) : (
+                  <p className="text-sm bg-orange-100 text-orange-800 rounded px-3 py-2">
+                    ⚠️ Échec de l'envoi automatique ({resultatApprobation.erreur_email}) — transmets les identifiants manuellement ci-dessous
+                  </p>
                 )}
-                className="flex items-center gap-1 text-xs px-3 py-1 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-              >
-                <Copy className="w-3 h-3" /> Copier les identifiants
-              </button>
-              <button
-                onClick={() => setResultatApprobation(null)}
-                className="text-xs text-gray-500 underline"
-              >
-                Fermer
-              </button>
-            </div>
+
+                <p className="text-sm text-gray-700">Boutique : <span className="font-medium">{resultatApprobation.boutique}</span></p>
+                <p className="text-sm text-gray-700">Identifiant : <span className="font-mono font-medium">{resultatApprobation.username}</span></p>
+                <p className="text-sm text-gray-700">Mot de passe temporaire : <span className="font-mono font-medium">{resultatApprobation.mot_de_passe_temporaire}</span></p>
+                <p className="text-xs text-red-600 mt-2">{resultatApprobation.avertissement}</p>
+                <div className="flex items-center gap-3 mt-2">
+                  <button
+                    onClick={() => navigator.clipboard.writeText(
+                      `${resultatApprobation.username} / ${resultatApprobation.mot_de_passe_temporaire}`
+                    )}
+                    className="flex items-center gap-1 text-xs px-3 py-1 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                  >
+                    <Copy className="w-3 h-3" /> Copier les identifiants
+                  </button>
+                </div>
+              </>
+            )}
+            <button
+              onClick={() => setResultatApprobation(null)}
+              className="text-xs text-gray-500 underline"
+            >
+              Fermer
+            </button>
           </div>
         )}
 
@@ -374,7 +433,11 @@ function DemandesPanel() {
                 </tr>
               </thead>
               <tbody>
-                {demandes.map((d) => (
+                {demandes.map((d) => {
+                  const form = formsApprobation[d.id] || FORM_APPROBATION_VIDE;
+                  const approbationBloquee = form.lierExistant && !form.utilisateurTrouve;
+
+                  return (
                   <tr key={d.id} className="border-b last:border-0">
                     <td className="p-3">{d.nom_contact}</td>
                     <td className="p-3">{d.email}</td>
@@ -388,28 +451,69 @@ function DemandesPanel() {
                     <td className="p-3 text-gray-500">{new Date(d.date_demande).toLocaleDateString('fr-FR')}</td>
                     <td className="p-3">
                       {d.statut === 'EN_ATTENTE' ? (
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleApprouver(d.id)}
-                            disabled={enCoursId === d.id}
-                            className="flex items-center gap-1 px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 transition disabled:bg-green-300 text-xs"
-                          >
-                            <CheckCircle className="w-3 h-3" /> Approuver
-                          </button>
-                          <button
-                            onClick={() => handleRejeter(d.id)}
-                            disabled={enCoursId === d.id}
-                            className="flex items-center gap-1 px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition disabled:opacity-50 text-xs"
-                          >
-                            <XCircle className="w-3 h-3" /> Rejeter
-                          </button>
+                        <div className="flex flex-col gap-2 min-w-[220px]">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleApprouver(d.id)}
+                              disabled={enCoursId === d.id || approbationBloquee}
+                              title={approbationBloquee ? "Recherche d'abord le compte à lier, ou décoche l'option." : undefined}
+                              className="flex items-center gap-1 px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700 transition disabled:bg-green-300 text-xs"
+                            >
+                              <CheckCircle className="w-3 h-3" /> Approuver
+                            </button>
+                            <button
+                              onClick={() => handleRejeter(d.id)}
+                              disabled={enCoursId === d.id}
+                              className="flex items-center gap-1 px-3 py-1 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition disabled:opacity-50 text-xs"
+                            >
+                              <XCircle className="w-3 h-3" /> Rejeter
+                            </button>
+                          </div>
+
+                          <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                            <input
+                              type="checkbox"
+                              checked={form.lierExistant}
+                              onChange={(e) => toggleLierExistant(d.id, e.target.checked)}
+                            />
+                            Lier à un compte existant
+                          </label>
+
+                          {form.lierExistant && (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="email"
+                                placeholder="email du compte existant"
+                                value={form.email}
+                                onChange={(e) => majFormApprobation(d.id, {
+                                  email: e.target.value, utilisateurTrouve: null, erreurRecherche: '',
+                                })}
+                                className="flex-1 min-w-0 px-2 py-1 text-xs border rounded-md focus:outline-none focus:ring-1 focus:ring-blue-600"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleRechercherUtilisateur(d.id)}
+                                disabled={form.rechercheEnCours || !form.email.trim()}
+                                className="shrink-0 px-2 py-1 text-xs bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                              >
+                                {form.rechercheEnCours ? '…' : 'Rechercher'}
+                              </button>
+                            </div>
+                          )}
+                          {form.utilisateurTrouve && (
+                            <p className="text-xs text-green-700">Compte trouvé : {form.utilisateurTrouve.username}</p>
+                          )}
+                          {form.erreurRecherche && (
+                            <p className="text-xs text-red-600">{form.erreurRecherche}</p>
+                          )}
                         </div>
                       ) : (
                         <span className="text-gray-400 text-xs">—</span>
                       )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}

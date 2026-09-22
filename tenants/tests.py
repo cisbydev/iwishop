@@ -1194,3 +1194,143 @@ class MesBoutiquesTests(TestCase):
     def test_sans_authentification_401(self):
         response = self.client.get('/api/tenants/mes-boutiques/')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class ApprouverDemandeCompteExistantTests(TestCase):
+    """Multi-boutique, étape 4 : lier une DemandeAcces approuvée à un User
+    déjà existant (user_existant_id) plutôt que de créer un nouveau compte
+    à chaque fois - le même propriétaire peut ainsi accumuler plusieurs
+    boutiques."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username='admin_plateforme_multi', email='admin_multi@example.com', password='x'
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+
+        self.ancienne_boutique = Boutique.objects.create(nom='Boutique Existante', slug='mb4-boutique-existante')
+        self.proprietaire = User.objects.create_user(username='mb4-proprietaire', password='pass1234')
+        Profil.objects.create(user=self.proprietaire, boutique=self.ancienne_boutique, est_proprietaire=True)
+
+        self.demande = DemandeAcces.objects.create(
+            nom_contact='Awa Diop',
+            email='awa_deuxieme_boutique@example.com',
+            nom_boutique_souhaite='Boutique Awa Deuxieme',
+        )
+
+    def test_lie_a_un_compte_existant_sans_creer_de_nouveau_user(self):
+        nombre_users_avant = User.objects.count()
+
+        response = self.client.post(
+            f'/api/tenants/demandes/{self.demande.id}/approuver/',
+            {'user_existant_id': self.proprietaire.id},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(User.objects.count(), nombre_users_avant)
+        self.assertNotIn('mot_de_passe_temporaire', response.data)
+        self.assertTrue(response.data['compte_existant'])
+        self.assertEqual(response.data['username'], self.proprietaire.username)
+
+        nouvelle_boutique = Boutique.objects.get(nom='Boutique Awa Deuxieme')
+        self.assertTrue(
+            Profil.objects.filter(user=self.proprietaire, boutique=nouvelle_boutique, est_proprietaire=True).exists()
+        )
+        # L'ancien accès n'est pas perdu.
+        self.assertTrue(Profil.objects.filter(user=self.proprietaire, boutique=self.ancienne_boutique).exists())
+        self.assertEqual(Profil.objects.filter(user=self.proprietaire).count(), 2)
+
+    def test_user_existant_id_introuvable_renvoie_400_sans_rien_creer(self):
+        nombre_boutiques_avant = Boutique.objects.count()
+        nombre_users_avant = User.objects.count()
+
+        response = self.client.post(
+            f'/api/tenants/demandes/{self.demande.id}/approuver/',
+            {'user_existant_id': 999999},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Boutique.objects.count(), nombre_boutiques_avant)
+        self.assertEqual(User.objects.count(), nombre_users_avant)
+        self.demande.refresh_from_db()
+        self.assertEqual(self.demande.statut, 'EN_ATTENTE')
+
+    def test_sans_user_existant_id_le_comportement_actuel_est_inchange(self):
+        """Non-régression : un nouveau compte est toujours créé par défaut."""
+        nombre_users_avant = User.objects.count()
+
+        response = self.client.post(f'/api/tenants/demandes/{self.demande.id}/approuver/')
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(User.objects.count(), nombre_users_avant + 1)
+        self.assertIn('mot_de_passe_temporaire', response.data)
+        self.assertFalse(response.data['compte_existant'])
+
+    def test_utilisateur_avec_deux_profils_bascule_via_x_boutique_active(self):
+        """Intégration avec les étapes 1-3 : une fois le Profil
+        supplémentaire créé, le compte peut basculer entre ses deux
+        boutiques via l'en-tête X-Boutique-Active."""
+        response = self.client.post(
+            f'/api/tenants/demandes/{self.demande.id}/approuver/',
+            {'user_existant_id': self.proprietaire.id},
+        )
+        self.assertEqual(response.status_code, 201)
+        nouvelle_boutique = Boutique.objects.get(nom='Boutique Awa Deuxieme')
+
+        client_proprietaire = APIClient()
+        client_proprietaire.force_authenticate(user=self.proprietaire)
+
+        sans_header = client_proprietaire.get('/api/tenants/mes-boutiques/')
+        ids_accessibles = {b['id'] for b in sans_header.data.get('results', sans_header.data)}
+        self.assertEqual(ids_accessibles, {self.ancienne_boutique.id, nouvelle_boutique.id})
+
+        reponse_ancienne = client_proprietaire.get(
+            '/api/accounts/me/', HTTP_X_BOUTIQUE_ACTIVE=str(self.ancienne_boutique.id)
+        )
+        self.assertEqual(reponse_ancienne.data['boutique_nom'], 'Boutique Existante')
+
+        reponse_nouvelle = client_proprietaire.get(
+            '/api/accounts/me/', HTTP_X_BOUTIQUE_ACTIVE=str(nouvelle_boutique.id)
+        )
+        self.assertEqual(reponse_nouvelle.data['boutique_nom'], 'Boutique Awa Deuxieme')
+
+
+class RechercherUtilisateurTests(TestCase):
+    """Recherche par email exact (admin plateforme uniquement), utilisée par
+    le formulaire d'approbation pour trouver l'id à passer en
+    user_existant_id."""
+
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username='admin_recherche_user', email='admin_recherche@example.com', password='x'
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.admin)
+        self.proprietaire = User.objects.create_user(
+            username='mb4-recherche', password='pass1234', email='Existant@Example.com'
+        )
+
+    def test_trouve_par_email_insensible_a_la_casse(self):
+        response = self.client.get('/api/tenants/utilisateurs/rechercher/?email=existant@example.com')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['id'], self.proprietaire.id)
+        self.assertEqual(response.data['username'], 'mb4-recherche')
+
+    def test_email_inconnu_renvoie_404(self):
+        response = self.client.get('/api/tenants/utilisateurs/rechercher/?email=inconnu@example.com')
+        self.assertEqual(response.status_code, 404)
+
+    def test_email_manquant_renvoie_400(self):
+        response = self.client.get('/api/tenants/utilisateurs/rechercher/')
+        self.assertEqual(response.status_code, 400)
+
+    def test_reserve_a_ladmin_plateforme(self):
+        employe = User.objects.create_user(username='mb4-pas-admin', password='pass1234')
+        client = APIClient()
+        client.force_authenticate(user=employe)
+
+        response = client.get('/api/tenants/utilisateurs/rechercher/?email=existant@example.com')
+
+        self.assertEqual(response.status_code, 403)

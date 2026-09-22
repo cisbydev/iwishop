@@ -46,7 +46,11 @@ class DemandeAccesListView(generics.ListAPIView):
     permission_classes = [IsPlatformOwner]
 
 class ApprouverDemandeView(APIView):
-    """Approuve une demande : crée Boutique + User + Profil propriétaire."""
+    """Approuve une demande : crée une Boutique, puis soit un nouveau
+    User + Profil propriétaire (comportement par défaut), soit - si
+    user_existant_id est fourni dans le body - un Profil supplémentaire sur
+    un compte déjà existant (multi-boutique, étape 4/4 : la même personne
+    peut posséder plusieurs boutiques sans qu'on lui recrée un compte)."""
     permission_classes = [IsPlatformOwner]
 
     def post(self, request, demande_id, *args, **kwargs):
@@ -58,12 +62,29 @@ class ApprouverDemandeView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # Optionnel : lier la nouvelle boutique à un User déjà existant au
+        # lieu d'en créer un nouveau. Résolu AVANT la transaction pour
+        # échouer proprement (400) sans avoir déjà créé de Boutique.
+        user_existant_id = request.data.get('user_existant_id')
+        user_existant = None
+        if user_existant_id:
+            try:
+                user_existant = User.objects.get(pk=user_existant_id)
+            except (User.DoesNotExist, ValueError, TypeError):
+                return Response(
+                    {"detail": "Aucun compte trouvé pour user_existant_id."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         slug_base = slugify(demande.nom_boutique_souhaite)
         slug = slug_base
         compteur = 1
         while Boutique.objects.filter(slug=slug).exists():
             slug = f"{slug_base}-{compteur}"
             compteur += 1
+
+        username = None
+        mot_de_passe_temporaire = None
 
         # Boutique -> Profil transactionnel : sans ça, un échec à mi-chemin
         # (ex: FormuleAbonnement 'Essai gratuit' manquante, contrainte
@@ -96,19 +117,43 @@ class ApprouverDemandeView(APIView):
                 reference_paiement='ESSAI_GRATUIT',
             )
 
-            username_base = demande.email.split('@')[0]
-            username = username_base
-            compteur = 1
-            while User.objects.filter(username=username).exists():
-                username = f"{username_base}{compteur}"
-                compteur += 1
+            if user_existant is not None:
+                user = user_existant
+                username = user.username
+            else:
+                username_base = demande.email.split('@')[0]
+                username = username_base
+                compteur = 1
+                while User.objects.filter(username=username).exists():
+                    username = f"{username_base}{compteur}"
+                    compteur += 1
 
-            mot_de_passe_temporaire = secrets.token_urlsafe(8)
-            user = User.objects.create(username=username, email=demande.email)
-            user.set_password(mot_de_passe_temporaire)
-            user.save()
+                mot_de_passe_temporaire = secrets.token_urlsafe(8)
+                user = User.objects.create(username=username, email=demande.email)
+                user.set_password(mot_de_passe_temporaire)
+                user.save()
 
+            # unique_together('user', 'boutique') sur Profil (étape 1) ne
+            # peut pas être violé ici : `boutique` vient d'être créée juste
+            # au-dessus, dans CETTE transaction - un Profil pour ce couple
+            # (user_existant, boutique.id) est donc structurellement
+            # impossible à trouver déjà en base, qu'on lie un compte
+            # existant ou qu'on en crée un nouveau.
             Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
+
+        demande.statut = 'APPROUVEE'
+        demande.save()
+
+        if mot_de_passe_temporaire is None:
+            # Compte existant : pas de nouveau mot de passe à divulguer,
+            # l'utilisateur a déjà ses identifiants. Pas d'email envoyé non
+            # plus ici - rien de nouveau à lui communiquer côté identifiants.
+            return Response({
+                "detail": f"Boutique créée avec succès et liée au compte existant '{username}'.",
+                "boutique": boutique.nom,
+                "username": username,
+                "compte_existant": True,
+            }, status=status.HTTP_201_CREATED)
 
         email_envoye, erreur_email = envoyer_identifiants_email(
             destinataire_email=demande.email,
@@ -118,9 +163,6 @@ class ApprouverDemandeView(APIView):
             boutique_nom=boutique.nom,
         )
 
-        demande.statut = 'APPROUVEE'
-        demande.save()
-
         return Response({
             "detail": "Boutique créée avec succès.",
             "username": username,
@@ -128,8 +170,31 @@ class ApprouverDemandeView(APIView):
             "boutique": boutique.nom,
             "email_envoye": email_envoye,
             "erreur_email": erreur_email,
+            "compte_existant": False,
             "avertissement": "Transmets ces identifiants au client de façon sécurisée si l'email n'a pas pu être envoyé. Ce mot de passe ne sera plus jamais affiché."
         }, status=status.HTTP_201_CREATED)
+
+class RechercherUtilisateurView(APIView):
+    """Recherche un compte User par email exact, pour ApprouverDemandeView
+    (lier une nouvelle boutique à un propriétaire déjà client plutôt que de
+    lui recréer un compte). Correspondance exacte uniquement - pas de
+    recherche partielle - pour ne pas exposer un annuaire de comptes."""
+    permission_classes = [IsPlatformOwner]
+
+    def get(self, request, *args, **kwargs):
+        email = request.query_params.get('email', '').strip()
+        if not email:
+            return Response({"detail": "Paramètre 'email' requis."}, status=status.HTTP_400_BAD_REQUEST)
+
+        utilisateur = User.objects.filter(email__iexact=email).first()
+        if utilisateur is None:
+            return Response({"detail": "Aucun compte trouvé pour cet email."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "id": utilisateur.id,
+            "username": utilisateur.username,
+            "email": utilisateur.email,
+        })
 
 class RejeterDemandeView(APIView):
     permission_classes = [IsPlatformOwner]
