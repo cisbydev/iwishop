@@ -3,7 +3,7 @@ import api from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer } from 'lucide-react';
+import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer, FileDown } from 'lucide-react';
 
 function formatDateForInput(d) {
   return d.toISOString().split('T')[0];
@@ -28,8 +28,9 @@ function getPlagePeriode(periode) {
 }
 
 export default function Reports() {
-  const { parametres } = useSettings();
+  const { parametres, utilisateur } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const estProprietaire = utilisateur?.est_proprietaire;
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [periode, setPeriode] = useState('mois');
   const [dateDebut, setDateDebut] = useState(getPlagePeriode('mois').debut);
@@ -37,6 +38,8 @@ export default function Reports() {
   const [resume, setResume] = useState(null);
   const [loading, setLoading] = useState(true);
   const [erreurChargement, setErreurChargement] = useState('');
+  const [exportEnCours, setExportEnCours] = useState(false);
+  const [erreurExport, setErreurExport] = useState('');
 
   const fetchResume = async (debut, fin) => {
     setLoading(true);
@@ -74,6 +77,41 @@ export default function Reports() {
     fetchResume(dateDebut, dateFin);
   };
 
+  const handleExporterPDF = async () => {
+    setExportEnCours(true);
+    setErreurExport('');
+    try {
+      const response = await api.get(
+        `reports/resume-financier/export-pdf/?date_debut=${dateDebut}&date_fin=${dateFin}`,
+        { responseType: 'blob' }
+      );
+      // L'endpoint est protégé par JWT : un <a href> ou window.location
+      // direct n'envoie pas le header Authorization. On passe donc par le
+      // même client api (intercepteur JWT) en blob, puis un lien
+      // temporaire pour déclencher le téléchargement.
+      const url = URL.createObjectURL(response.data);
+      const lien = document.createElement('a');
+      lien.href = url;
+      lien.download = `resume-financier-${dateDebut}-${dateFin}.pdf`;
+      document.body.appendChild(lien);
+      lien.click();
+      document.body.removeChild(lien);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Erreur export PDF", err);
+      // La réponse d'erreur arrive elle aussi en blob (responseType défini
+      // sur toute la requête) : pas de JSON directement exploitable par
+      // getErrorMessage, on distingue donc seulement sur le statut HTTP.
+      setErreurExport(
+        err.response?.status === 403
+          ? "Seul le propriétaire de la boutique peut exporter le résumé financier en PDF."
+          : "Impossible de générer le PDF. Vérifiez votre connexion puis réessayez."
+      );
+    } finally {
+      setExportEnCours(false);
+    }
+  };
+
   const boutonClasse = (p) =>
     `inline-flex h-10 items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
       periode === p ? 'bg-blue-600 text-white shadow-sm' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
@@ -86,13 +124,30 @@ export default function Reports() {
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Rapports</h2>
           <p className="mt-2 text-sm text-slate-600">Analysez les performances de votre boutique sur la période de votre choix.</p>
         </div>
-        <button
-          onClick={() => window.print()}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 sm:w-auto"
-        >
-          <Printer className="h-4 w-4" /> Imprimer
-        </button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <button
+            onClick={() => window.print()}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 sm:w-auto"
+          >
+            <Printer className="h-4 w-4" /> Imprimer
+          </button>
+          {estProprietaire && (
+            <button
+              onClick={handleExporterPDF}
+              disabled={exportEnCours}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              <FileDown className="h-4 w-4" /> {exportEnCours ? 'Génération...' : 'Exporter en PDF'}
+            </button>
+          )}
+        </div>
       </section>
+
+      {erreurExport && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 print:hidden">
+          {erreurExport}
+        </div>
+      )}
 
       {/* Sélecteur de période */}
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm print:hidden sm:p-6">
