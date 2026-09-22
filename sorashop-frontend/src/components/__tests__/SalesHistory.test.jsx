@@ -1,10 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   getAll: vi.fn(),
+  utilisateur: { est_proprietaire: false },
 }));
 
 vi.mock('../../services/api', () => ({
@@ -13,7 +14,7 @@ vi.mock('../../services/api', () => ({
 }));
 
 vi.mock('../../context/settingsContextValue', () => ({
-  useSettings: () => ({ parametres: { devise: 'FCFA' } }),
+  useSettings: () => ({ parametres: { devise: 'FCFA' }, utilisateur: mocks.utilisateur }),
 }));
 
 vi.mock('../../context/supportViewContextValue', () => ({
@@ -40,6 +41,7 @@ describe('SalesHistory', () => {
   beforeEach(() => {
     mocks.get.mockReset();
     mocks.getAll.mockReset();
+    mocks.utilisateur = { est_proprietaire: false };
   });
 
   it('charge seulement la page 1 et affiche ses results', async () => {
@@ -110,5 +112,39 @@ describe('SalesHistory', () => {
     expect(await screen.findByText('#51')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Précédent' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Suivant' })).toBeDisabled();
+  });
+
+  it("n'affiche pas la section d'export du rapport détaillé pour un employé", async () => {
+    mocks.get.mockResolvedValue(pageDeVentes({ count: 0, next: null, previous: null, results: [] }));
+
+    render(<SalesHistory />);
+    await screen.findByText('Aucune vente enregistrée.');
+
+    expect(screen.queryByText('Rapport détaillé des ventes (export)')).not.toBeInTheDocument();
+  });
+
+  it('le propriétaire peut exporter le rapport détaillé, qui appelle bien reports/ventes-detaillees/export-pdf/', async () => {
+    mocks.utilisateur = { est_proprietaire: true };
+    mocks.get.mockImplementation((url) => {
+      if (url === 'ventes/') {
+        return Promise.resolve(pageDeVentes({ count: 0, next: null, previous: null, results: [] }));
+      }
+      return Promise.resolve({ data: new Blob(['contenu-pdf']) });
+    });
+    URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+    URL.revokeObjectURL = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SalesHistory />);
+    await screen.findByText('Aucune vente enregistrée.');
+
+    await user.click(screen.getByRole('button', { name: 'Exporter en PDF' }));
+
+    await waitFor(() => {
+      expect(mocks.get).toHaveBeenCalledWith(
+        expect.stringContaining('reports/ventes-detaillees/export-pdf/'),
+        { responseType: 'blob' },
+      );
+    });
   });
 });

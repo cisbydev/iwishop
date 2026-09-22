@@ -2,19 +2,21 @@ from io import BytesIO
 
 from django.http import HttpResponse
 from django.utils import timezone
+from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField
 from django.db.models.functions import Coalesce
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from accounts.permissions import IsOwner
 from parametres.models import ParametresBoutique
 from tenants.mixins import BoutiqueScopedMixin
@@ -121,6 +123,48 @@ def calculer_resume_financier(boutique, date_debut, date_fin):
     }
 
 
+def lister_ventes_detaillees(boutique, date_debut, date_fin):
+    """Une entrée par LigneVente des ventes VALIDEE de la période - la
+    granularité la plus fine du rapport de ventes (produit vendu, quantité,
+    prix), par opposition au résumé agrégé de calculer_resume_financier().
+
+    date_debut/date_fin sont ICI obligatoires (contrairement à
+    calculer_resume_financier, où l'absence de bornes veut dire "tout
+    l'historique") : une boutique avec des années d'historique produirait
+    sinon des dizaines de milliers de lignes en un seul appel.
+
+    select_related sur vente (+ vente__utilisateur, vente__client_credit),
+    produit et unite : une seule requête au total, jamais un N+1 par ligne
+    (vérifié par un test dédié qui compare le nombre de requêtes avant/après
+    ajout de lignes)."""
+    lignes = LigneVente.objects.filter(
+        boutique=boutique,
+        vente__statut='VALIDEE',
+        vente__date_vente__date__range=[date_debut, date_fin],
+    ).select_related(
+        'vente', 'vente__utilisateur', 'vente__client_credit', 'produit', 'unite',
+    ).order_by('vente__date_vente')
+
+    return {
+        "date_debut": date_debut,
+        "date_fin": date_fin,
+        "lignes": [
+            {
+                "date_vente": ligne.vente.date_vente,
+                "numero_vente": ligne.vente.numero,
+                "vendeur": ligne.vente.utilisateur.username if ligne.vente.utilisateur else "",
+                "client": ligne.vente.client_credit.nom if ligne.vente.client_credit_id else (ligne.vente.client or ""),
+                "produit": ligne.produit.nom,
+                "quantite": ligne.quantite,
+                "unite": ligne.unite.nom,
+                "prix_applique": ligne.prix_applique,
+                "sous_total": ligne.sous_total,
+            }
+            for ligne in lignes
+        ],
+    }
+
+
 def parametres_boutique(boutique):
     """get_or_create comme ParametresBoutiqueView.get_object() : une
     boutique n'a pas forcément encore de ParametresBoutique créé
@@ -128,6 +172,99 @@ def parametres_boutique(boutique):
     vues d'export (PDF, Excel) - une seule source pour ce pattern."""
     parametres, _ = ParametresBoutique.objects.get_or_create(boutique=boutique)
     return parametres
+
+
+def logo_flowable_pdf(parametres):
+    # ParametresBoutique.logo est optionnel - et même s'il est renseigné en
+    # base, le fichier peut être absent du stockage (même limite documentée
+    # pour l'affichage du logo côté frontend, cf. Settings.jsx/
+    # logoIndisponible) : jamais d'erreur, juste pas de logo dans le PDF le
+    # cas échéant. Partagé par tous les exports PDF des rapports.
+    if not parametres.logo:
+        return None
+    try:
+        with parametres.logo.open('rb') as fichier_logo:
+            lecteur_image = ImageReader(BytesIO(fichier_logo.read()))
+    except (OSError, ValueError):
+        return None
+
+    largeur_logo, hauteur_logo = lecteur_image.getSize()
+    if not largeur_logo or not hauteur_logo:
+        return None
+
+    hauteur_cible = 1.5 * cm
+    largeur_cible = largeur_logo * (hauteur_cible / hauteur_logo)
+    return Image(lecteur_image, width=largeur_cible, height=hauteur_cible)
+
+
+def entete_pdf(boutique, parametres, titre, texte_periode, largeur_disponible):
+    """En-tête commun à tous les exports PDF des rapports (titre + logo
+    optionnel + période) - partagé par ResumeFinancierExportPDFView et
+    VentesDetailleesExportPDFView pour rester visuellement identiques."""
+    styles = getSampleStyleSheet()
+    style_titre = ParagraphStyle(
+        'TitreBoutique', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=18, textColor=PDF_GRIS_TITRE,
+    )
+    style_periode = ParagraphStyle(
+        'Periode', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=10, textColor=PDF_GRIS_TEXTE, spaceBefore=8,
+    )
+
+    bloc_titre = [
+        Paragraph(f"{titre} — {boutique.nom}", style_titre),
+        Paragraph(texte_periode, style_periode),
+    ]
+
+    logo_flowable = logo_flowable_pdf(parametres)
+    if logo_flowable is not None:
+        largeur_logo_colonne = 3 * cm
+        entete = Table(
+            [[logo_flowable, bloc_titre]],
+            colWidths=[largeur_logo_colonne, largeur_disponible - largeur_logo_colonne],
+        )
+    else:
+        entete = Table([[bloc_titre]], colWidths=[largeur_disponible])
+
+    entete.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 0),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ('TOPPADDING', (0, 0), (-1, -1), 0),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
+    ]))
+    return entete
+
+
+def pied_de_page_pdf(canvas_pdf, doc):
+    """Pied de page commun à tous les exports PDF des rapports."""
+    canvas_pdf.saveState()
+    canvas_pdf.setFont('Helvetica', 8)
+    canvas_pdf.setFillColor(PDF_GRIS_TEXTE)
+    texte = f"Généré par iwiShop le {timezone.localtime().strftime('%d/%m/%Y %H:%M')}"
+    canvas_pdf.drawString(2 * cm, 1.2 * cm, texte)
+    canvas_pdf.restoreState()
+
+
+def texte_periode_rapport(date_debut, date_fin):
+    """Texte de la ligne "Période" sous le titre, partagé par tous les
+    exports (PDF et Excel) des rapports."""
+    if date_debut and date_fin:
+        return f"Période : du {date_debut} au {date_fin}"
+    return "Période : toutes dates confondues"
+
+
+def entete_excel(feuille, boutique, titre, texte_periode):
+    """En-tête commun à tous les exports Excel des rapports (titre fusionné
+    + période) - partagé par ResumeFinancierExportExcelView et
+    VentesDetailleesExportExcelView."""
+    feuille.merge_cells('A1:B1')
+    feuille['A1'] = f"{titre} — {boutique.nom}"
+    feuille['A1'].font = Font(bold=True, size=16, color=XLSX_GRIS_TITRE)
+
+    feuille.merge_cells('A2:B2')
+    feuille['A2'] = texte_periode
+    feuille['A2'].font = Font(size=10, color=XLSX_GRIS_TEXTE)
 
 
 class ResumeFinancierView(BoutiqueScopedMixin, APIView):
@@ -176,76 +313,15 @@ class ResumeFinancierExportPDFView(BoutiqueScopedMixin, APIView):
             leftMargin=marge, rightMargin=marge, topMargin=marge, bottomMargin=marge,
         )
         largeur_disponible = A4[0] - 2 * marge
+        texte_periode = texte_periode_rapport(resultat['date_debut'], resultat['date_fin'])
 
         elements = [
-            self._entete(boutique, parametres, resultat, largeur_disponible),
+            entete_pdf(boutique, parametres, "Résumé financier", texte_periode, largeur_disponible),
             Spacer(1, 0.8 * cm),
             self._tableau_resume(resultat, devise, largeur_disponible),
         ]
-        doc.build(elements, onFirstPage=self._pied_de_page, onLaterPages=self._pied_de_page)
+        doc.build(elements, onFirstPage=pied_de_page_pdf, onLaterPages=pied_de_page_pdf)
         return response
-
-    def _entete(self, boutique, parametres, resultat, largeur_disponible):
-        styles = getSampleStyleSheet()
-        style_titre = ParagraphStyle(
-            'TitreBoutique', parent=styles['Normal'],
-            fontName='Helvetica-Bold', fontSize=18, textColor=PDF_GRIS_TITRE,
-        )
-        style_periode = ParagraphStyle(
-            'Periode', parent=styles['Normal'],
-            fontName='Helvetica', fontSize=10, textColor=PDF_GRIS_TEXTE, spaceBefore=8,
-        )
-
-        if resultat['date_debut'] and resultat['date_fin']:
-            texte_periode = f"Période : du {resultat['date_debut']} au {resultat['date_fin']}"
-        else:
-            texte_periode = "Période : toutes dates confondues"
-
-        bloc_titre = [
-            Paragraph(f"Résumé financier — {boutique.nom}", style_titre),
-            Paragraph(texte_periode, style_periode),
-        ]
-
-        logo_flowable = self._logo_flowable(parametres)
-        if logo_flowable is not None:
-            largeur_logo_colonne = 3 * cm
-            entete = Table(
-                [[logo_flowable, bloc_titre]],
-                colWidths=[largeur_logo_colonne, largeur_disponible - largeur_logo_colonne],
-            )
-        else:
-            entete = Table([[bloc_titre]], colWidths=[largeur_disponible])
-
-        entete.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 0),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
-            ('TOPPADDING', (0, 0), (-1, -1), 0),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 0),
-        ]))
-        return entete
-
-    def _logo_flowable(self, parametres):
-        # ParametresBoutique.logo est optionnel - et même s'il est
-        # renseigné en base, le fichier peut être absent du stockage
-        # (même limite documentée pour l'affichage du logo côté frontend,
-        # cf. Settings.jsx/logoIndisponible) : jamais d'erreur, juste pas
-        # de logo dans le PDF le cas échéant.
-        if not parametres.logo:
-            return None
-        try:
-            with parametres.logo.open('rb') as fichier_logo:
-                lecteur_image = ImageReader(BytesIO(fichier_logo.read()))
-        except (OSError, ValueError):
-            return None
-
-        largeur_logo, hauteur_logo = lecteur_image.getSize()
-        if not largeur_logo or not hauteur_logo:
-            return None
-
-        hauteur_cible = 1.5 * cm
-        largeur_cible = largeur_logo * (hauteur_cible / hauteur_logo)
-        return Image(lecteur_image, width=largeur_cible, height=hauteur_cible)
 
     def _tableau_resume(self, resultat, devise, largeur_disponible):
         lignes = [
@@ -293,14 +369,6 @@ class ResumeFinancierExportPDFView(BoutiqueScopedMixin, APIView):
         tableau.setStyle(TableStyle(style_tableau))
         return tableau
 
-    def _pied_de_page(self, canvas_pdf, doc):
-        canvas_pdf.saveState()
-        canvas_pdf.setFont('Helvetica', 8)
-        canvas_pdf.setFillColor(PDF_GRIS_TEXTE)
-        texte = f"Généré par iwiShop le {timezone.localtime().strftime('%d/%m/%Y %H:%M')}"
-        canvas_pdf.drawString(2 * cm, 1.2 * cm, texte)
-        canvas_pdf.restoreState()
-
 
 class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
     # Même règle que l'export PDF (ResumeFinancierExportPDFView) : réservé
@@ -324,7 +392,8 @@ class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
         feuille = classeur.active
         feuille.title = "Résumé financier"
 
-        self._entete_excel(feuille, boutique, resultat)
+        texte_periode = texte_periode_rapport(resultat['date_debut'], resultat['date_fin'])
+        entete_excel(feuille, boutique, "Résumé financier", texte_periode)
         self._tableau_resume_excel(feuille, resultat, devise)
 
         response = HttpResponse(
@@ -334,19 +403,6 @@ class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
         response['Content-Disposition'] = f'attachment; filename="{nom_fichier}"'
         classeur.save(response)
         return response
-
-    def _entete_excel(self, feuille, boutique, resultat):
-        feuille.merge_cells('A1:B1')
-        feuille['A1'] = f"Résumé financier — {boutique.nom}"
-        feuille['A1'].font = Font(bold=True, size=16, color=XLSX_GRIS_TITRE)
-
-        if resultat['date_debut'] and resultat['date_fin']:
-            texte_periode = f"Période : du {resultat['date_debut']} au {resultat['date_fin']}"
-        else:
-            texte_periode = "Période : toutes dates confondues"
-        feuille.merge_cells('A2:B2')
-        feuille['A2'] = texte_periode
-        feuille['A2'].font = Font(size=10, color=XLSX_GRIS_TEXTE)
 
     def _tableau_resume_excel(self, feuille, resultat, devise):
         ligne_entete = self.LIGNE_ENTETE_TABLEAU
@@ -412,3 +468,209 @@ class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
         )
         feuille.column_dimensions['A'].width = largeur_libelles + 4
         feuille.column_dimensions['B'].width = largeur_valeurs + 4
+
+
+def _bornes_dates_obligatoires(request):
+    """Retourne (date_debut, date_fin) ou None si l'une des deux manque.
+    Contrairement à calculer_resume_financier (dates optionnelles),
+    lister_ventes_detaillees exige toujours des bornes explicites - voir sa
+    docstring."""
+    date_debut = request.GET.get('date_debut')
+    date_fin = request.GET.get('date_fin')
+    if not date_debut or not date_fin:
+        return None
+    return date_debut, date_fin
+
+
+def _reponse_dates_obligatoires_manquantes():
+    return Response(
+        {"detail": "date_debut et date_fin sont obligatoires."}, status=status.HTTP_400_BAD_REQUEST
+    )
+
+
+# Colonnes du rapport détaillé des ventes, dans l'ordre d'affichage -
+# partagées par la vue JSON (comme clés de tri implicite) et les deux
+# exports (comme en-têtes de colonnes).
+COLONNES_VENTES_DETAILLEES = [
+    ("date_vente", "Date"),
+    ("numero_vente", "N° vente"),
+    ("vendeur", "Vendeur"),
+    ("client", "Client"),
+    ("produit", "Produit"),
+    ("quantite", "Qté"),
+    ("unite", "Unité"),
+    ("prix_applique", "Prix"),
+    ("sous_total", "Sous-total"),
+]
+
+
+class VentesDetailleesView(BoutiqueScopedMixin, APIView):
+    # Même règle que ResumeFinancierView : lecture ouverte à l'employé, pas
+    # réservée au propriétaire (seuls les exports le sont, ci-dessous).
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        boutique = self._boutique_effective()
+        bornes = _bornes_dates_obligatoires(request)
+        if bornes is None:
+            return _reponse_dates_obligatoires_manquantes()
+
+        return Response(lister_ventes_detaillees(boutique, *bornes))
+
+
+class VentesDetailleesExportPDFView(BoutiqueScopedMixin, APIView):
+    # Réservé au propriétaire, même principe que ResumeFinancierExportPDFView.
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def get(self, request, *args, **kwargs):
+        boutique = self._boutique_effective()
+        bornes = _bornes_dates_obligatoires(request)
+        if bornes is None:
+            return _reponse_dates_obligatoires_manquantes()
+        date_debut, date_fin = bornes
+
+        resultat = lister_ventes_detaillees(boutique, date_debut, date_fin)
+        parametres = parametres_boutique(boutique)
+        devise = parametres.devise
+
+        response = HttpResponse(content_type='application/pdf')
+        nom_fichier = f"ventes-detaillees-{boutique.slug}-{date_debut}-au-{date_fin}.pdf"
+        response['Content-Disposition'] = f'attachment; filename="{nom_fichier}"'
+
+        # Paysage plutôt que portrait : 9 colonnes tiennent mal en largeur
+        # A4 portrait (utilisée pour le résumé, seulement 2 colonnes).
+        marge = 1.5 * cm
+        doc = SimpleDocTemplate(
+            response, pagesize=landscape(A4), pageCompression=0,
+            leftMargin=marge, rightMargin=marge, topMargin=marge, bottomMargin=marge,
+        )
+        largeur_disponible = landscape(A4)[0] - 2 * marge
+        texte_periode = texte_periode_rapport(date_debut, date_fin)
+
+        elements = [
+            entete_pdf(boutique, parametres, "Ventes détaillées", texte_periode, largeur_disponible),
+            Spacer(1, 0.6 * cm),
+            self._tableau_ventes(resultat, devise, largeur_disponible),
+        ]
+        doc.build(elements, onFirstPage=pied_de_page_pdf, onLaterPages=pied_de_page_pdf)
+        return response
+
+    def _tableau_ventes(self, resultat, devise, largeur_disponible):
+        entetes = [libelle for _, libelle in COLONNES_VENTES_DETAILLEES]
+        data_tableau = [entetes]
+        for ligne in resultat['lignes']:
+            data_tableau.append([
+                timezone.localtime(ligne['date_vente']).strftime('%d/%m/%Y %H:%M'),
+                ligne['numero_vente'],
+                ligne['vendeur'] or '—',
+                ligne['client'] or '—',
+                ligne['produit'],
+                str(ligne['quantite']),
+                ligne['unite'],
+                f"{ligne['prix_applique']:.2f}",
+                f"{ligne['sous_total']:.2f} {devise}",
+            ])
+
+        # Poids relatifs des colonnes (somme = 1) : Produit et Client ont le
+        # plus besoin d'espace (texte libre), Qté le moins (1-2 chiffres).
+        poids = [0.11, 0.10, 0.11, 0.14, 0.19, 0.06, 0.09, 0.09, 0.11]
+        largeurs_colonnes = [largeur_disponible * p for p in poids]
+
+        tableau = Table(
+            data_tableau, colWidths=largeurs_colonnes,
+            # Répète la ligne d'en-tête sur chaque page - potentiellement
+            # beaucoup de lignes, le tableau se scinde automatiquement.
+            repeatRows=1,
+        )
+        style_tableau = [
+            ('BACKGROUND', (0, 0), (-1, 0), PDF_BLEU_PRINCIPAL),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('ALIGN', (5, 0), (5, -1), 'RIGHT'),
+            ('ALIGN', (7, 0), (8, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+            ('GRID', (0, 0), (-1, -1), 0.5, PDF_GRIS_BORDURE),
+            *[
+                ('BACKGROUND', (0, i), (-1, i), PDF_GRIS_LIGNE_ALTERNEE)
+                for i in range(1, len(data_tableau)) if i % 2 == 0
+            ],
+        ]
+        tableau.setStyle(TableStyle(style_tableau))
+        return tableau
+
+
+class VentesDetailleesExportExcelView(BoutiqueScopedMixin, APIView):
+    # Réservé au propriétaire, même principe que ResumeFinancierExportExcelView.
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    LIGNE_ENTETE_TABLEAU = 4
+
+    def get(self, request, *args, **kwargs):
+        boutique = self._boutique_effective()
+        bornes = _bornes_dates_obligatoires(request)
+        if bornes is None:
+            return _reponse_dates_obligatoires_manquantes()
+        date_debut, date_fin = bornes
+
+        resultat = lister_ventes_detaillees(boutique, date_debut, date_fin)
+        devise = parametres_boutique(boutique).devise
+
+        classeur = Workbook()
+        feuille = classeur.active
+        feuille.title = "Ventes détaillées"
+
+        texte_periode = texte_periode_rapport(date_debut, date_fin)
+        entete_excel(feuille, boutique, "Ventes détaillées", texte_periode)
+        self._tableau_ventes_excel(feuille, resultat, devise)
+
+        response = HttpResponse(
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        nom_fichier = f"ventes-detaillees-{boutique.slug}-{date_debut}-au-{date_fin}.xlsx"
+        response['Content-Disposition'] = f'attachment; filename="{nom_fichier}"'
+        classeur.save(response)
+        return response
+
+    def _tableau_ventes_excel(self, feuille, resultat, devise):
+        ligne_entete = self.LIGNE_ENTETE_TABLEAU
+        bordure = Border(*(Side(style='thin', color=XLSX_GRIS_BORDURE) for _ in range(4)))
+        remplissage_entete = PatternFill('solid', fgColor=XLSX_BLEU_PRINCIPAL)
+        remplissage_alterne = PatternFill('solid', fgColor=XLSX_GRIS_LIGNE_ALTERNEE)
+        format_montant = f'#,##0.00 "{devise}"'
+        colonnes_montant = {'prix_applique', 'sous_total'}
+
+        for colonne, (_, libelle) in enumerate(COLONNES_VENTES_DETAILLEES, start=1):
+            cellule = feuille.cell(row=ligne_entete, column=colonne, value=libelle)
+            cellule.font = Font(bold=True, color='FFFFFF')
+            cellule.fill = remplissage_entete
+            cellule.border = bordure
+
+        for decalage, ligne_vente in enumerate(resultat['lignes'], start=1):
+            ligne = ligne_entete + decalage
+            for colonne, (cle, _) in enumerate(COLONNES_VENTES_DETAILLEES, start=1):
+                valeur = ligne_vente[cle]
+                if cle == 'date_vente':
+                    valeur = timezone.localtime(valeur).replace(tzinfo=None)
+                cellule = feuille.cell(row=ligne, column=colonne, value=valeur)
+                cellule.border = bordure
+                if cle in colonnes_montant:
+                    cellule.number_format = format_montant
+                    cellule.alignment = Alignment(horizontal='right')
+                if cle == 'date_vente':
+                    cellule.number_format = 'DD/MM/YYYY HH:MM'
+                if decalage % 2 == 0:
+                    cellule.fill = remplissage_alterne
+
+        largeurs_min = {
+            'date_vente': 16, 'numero_vente': 14, 'vendeur': 14, 'client': 18,
+            'produit': 24, 'quantite': 6, 'unite': 12, 'prix_applique': 12, 'sous_total': 14,
+        }
+        for colonne, (cle, libelle) in enumerate(COLONNES_VENTES_DETAILLEES, start=1):
+            lettre = get_column_letter(colonne)
+            feuille.column_dimensions[lettre].width = max(largeurs_min[cle], len(libelle) + 2)

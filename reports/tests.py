@@ -2,6 +2,8 @@ from decimal import Decimal
 from io import BytesIO
 
 from django.contrib.auth.models import User
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from openpyxl import load_workbook
 from rest_framework import status
@@ -502,3 +504,325 @@ class ResumeFinancierExportExcelTests(APITestCase):
         # Bénéfice net (ligne 9) mis en évidence, même logique que le PDF.
         cellule_benefice_net = feuille.cell(row=9, column=2)
         self.assertTrue(cellule_benefice_net.font.bold)
+
+
+class VentesDetailleesTestsBase(APITestCase):
+    """Fixtures communes aux tests du rapport détaillé des ventes."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Ventes Détail", slug="boutique-ventes-detail")
+        self.proprietaire = User.objects.create_user(username="ventesdetail_proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.employe = User.objects.create_user(username="ventesdetail_employe", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit Détail",
+            prix_achat=Decimal("500.00"), prix_unitaire=Decimal("800.00"), prix_douzaine=Decimal("9600.00"),
+            quantite_en_stock=100,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("800.00"))
+
+    def _creer_vente_avec_ligne(self, date_vente, quantite=1, utilisateur=None, statut='VALIDEE'):
+        montant = Decimal("800.00") * quantite
+        vente = Vente.objects.create(
+            boutique=self.boutique, montant_paye=montant, montant_total=montant, montant_net=montant,
+            utilisateur=utilisateur, statut=statut,
+        )
+        LigneVente.objects.create(
+            boutique=self.boutique, vente=vente, produit=self.produit, quantite=quantite,
+            type_vente='UNITE', unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("800.00"), prix_achat_unitaire=Decimal("500.00"),
+        )
+        Vente.objects.filter(pk=vente.pk).update(date_vente=date_vente)
+        vente.refresh_from_db()
+        return vente
+
+    def _creer_vente_pour_boutique(self, boutique, nom_produit, date_vente):
+        """Comme _creer_vente_avec_ligne, mais pour une boutique arbitraire
+        (pas forcément self.boutique) - utilisé par les tests d'isolation
+        multi-tenant qui doivent comparer le contenu d'un export entre deux
+        boutiques distinctes."""
+        # get_or_create (pas create) : quand boutique=self.boutique, une
+        # UniteVente "Unité" existe déjà (créée par
+        # VentesDetailleesTestsBase.setUp) - la recréer violerait la
+        # contrainte unique (boutique, nom).
+        unite, _ = UniteVente.objects.get_or_create(
+            boutique=boutique, nom="Unité",
+            defaults={"facteur_conversion": Decimal("1.000"), "est_systeme": True},
+        )
+        produit = Produit.objects.create(
+            boutique=boutique, nom=nom_produit,
+            prix_achat=Decimal("500.00"), prix_unitaire=Decimal("800.00"), prix_douzaine=Decimal("9600.00"),
+            quantite_en_stock=100,
+        )
+        vente = Vente.objects.create(
+            boutique=boutique, montant_paye=Decimal("800.00"), montant_total=Decimal("800.00"),
+            montant_net=Decimal("800.00"), statut='VALIDEE',
+        )
+        LigneVente.objects.create(
+            boutique=boutique, vente=vente, produit=produit, quantite=1,
+            type_vente='UNITE', unite=unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("800.00"), prix_achat_unitaire=Decimal("500.00"),
+        )
+        Vente.objects.filter(pk=vente.pk).update(date_vente=date_vente)
+        return vente
+
+
+class VentesDetailleesViewTests(VentesDetailleesTestsBase):
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('ventes-detaillees')
+
+    def test_bornes_dates_obligatoires(self):
+        self.client.force_authenticate(user=self.proprietaire)
+
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            self.client.get(self.url, {"date_debut": "2026-09-01"}).status_code, status.HTTP_400_BAD_REQUEST
+        )
+
+    def test_employe_peut_lire(self):
+        """Même principe que ResumeFinancierView : lecture ouverte à
+        l'employé, seuls les exports sont réservés au propriétaire."""
+        self.client.force_authenticate(user=self.employe)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_ne_retourne_que_les_lignes_dans_la_periode_et_validees(self):
+        vente_dans_periode = self._creer_vente_avec_ligne(
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)), utilisateur=self.proprietaire,
+        )
+        self._creer_vente_avec_ligne(timezone.make_aware(timezone.datetime(2026, 8, 1, 10, 0)))
+        vente_annulee = self._creer_vente_avec_ligne(
+            timezone.make_aware(timezone.datetime(2026, 9, 20, 10, 0)), statut='ANNULEE',
+        )
+
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        numeros = [ligne['numero_vente'] for ligne in response.data['lignes']]
+        self.assertIn(vente_dans_periode.numero, numeros)
+        self.assertNotIn(vente_annulee.numero, numeros)
+        self.assertEqual(len(numeros), 1)
+
+    def test_contenu_dune_ligne(self):
+        vente = self._creer_vente_avec_ligne(
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)), quantite=3, utilisateur=self.proprietaire,
+        )
+
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        ligne = response.data['lignes'][0]
+        self.assertEqual(ligne['numero_vente'], vente.numero)
+        self.assertEqual(ligne['vendeur'], self.proprietaire.username)
+        self.assertEqual(ligne['produit'], "Produit Détail")
+        self.assertEqual(ligne['quantite'], 3)
+        self.assertEqual(ligne['unite'], "Unité")
+        self.assertEqual(Decimal(str(ligne['prix_applique'])), Decimal("800.00"))
+        self.assertEqual(Decimal(str(ligne['sous_total'])), Decimal("2400.00"))
+
+
+class VentesDetailleesRequeteCountTests(VentesDetailleesTestsBase):
+    """select_related doit éviter tout N+1 : le nombre de requêtes ne doit
+    pas dépendre du nombre de lignes retournées (même pattern que
+    sales.tests.VenteListQueryCountTests)."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('ventes-detaillees')
+        self.client.force_authenticate(user=self.proprietaire)
+
+    def test_nombre_de_requetes_constant_quel_que_soit_le_nombre_de_lignes(self):
+        self._creer_vente_avec_ligne(
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)), utilisateur=self.proprietaire,
+        )
+        with CaptureQueriesContext(connection) as premier:
+            response_1 = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        for _ in range(5):
+            self._creer_vente_avec_ligne(
+                timezone.make_aware(timezone.datetime(2026, 9, 16, 10, 0)), utilisateur=self.proprietaire,
+            )
+        with CaptureQueriesContext(connection) as second:
+            response_2 = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response_1.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response_2.data['lignes']), 6)
+        self.assertEqual(len(premier.captured_queries), len(second.captured_queries))
+
+
+class VentesDetailleesExportPDFTests(VentesDetailleesTestsBase):
+    def setUp(self):
+        super().setUp()
+        self.autre_boutique = Boutique.objects.create(nom="Autre Boutique Détail", slug="autre-boutique-detail")
+        self.autre_proprietaire = User.objects.create_user(username="ventesdetail_autre_proprio", password="pass1234")
+        Profil.objects.create(user=self.autre_proprietaire, boutique=self.autre_boutique, est_proprietaire=True)
+        self.url = reverse('ventes-detaillees-export-pdf')
+
+    def test_bornes_dates_obligatoires(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_autorise_pour_le_proprietaire(self):
+        self.client.force_authenticate(user=self.proprietaire)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertIn('boutique-ventes-detail', response['Content-Disposition'])
+
+    def test_refuse_pour_un_employe(self):
+        self.client.force_authenticate(user=self.employe)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_isole_par_boutique(self):
+        self.client.force_authenticate(user=self.autre_proprietaire)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('autre-boutique-detail', response['Content-Disposition'])
+        self.assertNotIn('boutique-ventes-detail', response['Content-Disposition'])
+
+    def test_contient_les_donnees_de_la_vente(self):
+        self._creer_vente_avec_ligne(
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)), utilisateur=self.proprietaire,
+        )
+        self.client.force_authenticate(user=self.proprietaire)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(b'Produit', response.content)
+        self.assertIn(self.proprietaire.username.encode(), response.content)
+
+    def test_contenu_isole_par_boutique(self):
+        """Preuve directe (pas seulement le nom de fichier) : le PDF de
+        autre_proprietaire contient le produit de SA boutique mais jamais
+        celui de boutique-ventes-detail, même période, même requête."""
+        self._creer_vente_pour_boutique(
+            self.boutique, "Produit Boutique A Isolation",
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)),
+        )
+        self._creer_vente_pour_boutique(
+            self.autre_boutique, "Produit Boutique B Isolation",
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)),
+        )
+        self.client.force_authenticate(user=self.autre_proprietaire)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(b'Produit Boutique B Isolation', response.content)
+        self.assertNotIn(b'Produit Boutique A Isolation', response.content)
+
+
+class VentesDetailleesExportExcelTests(VentesDetailleesTestsBase):
+    def setUp(self):
+        super().setUp()
+        self.autre_boutique = Boutique.objects.create(
+            nom="Autre Boutique Excel Détail", slug="autre-boutique-excel-detail"
+        )
+        self.autre_proprietaire = User.objects.create_user(username="ventesdetail_excel_autre", password="pass1234")
+        Profil.objects.create(user=self.autre_proprietaire, boutique=self.autre_boutique, est_proprietaire=True)
+        self.url = reverse('ventes-detaillees-export-excel')
+
+    def _classeur(self, response):
+        return load_workbook(BytesIO(response.content))
+
+    def test_bornes_dates_obligatoires(self):
+        self.client.force_authenticate(user=self.proprietaire)
+        self.assertEqual(self.client.get(self.url).status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_autorise_pour_le_proprietaire(self):
+        self.client.force_authenticate(user=self.proprietaire)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        self.assertIn('boutique-ventes-detail', response['Content-Disposition'])
+
+    def test_refuse_pour_un_employe(self):
+        self.client.force_authenticate(user=self.employe)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_isole_par_boutique(self):
+        self.client.force_authenticate(user=self.autre_proprietaire)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn('autre-boutique-excel-detail', response['Content-Disposition'])
+
+    def test_contenu_dune_ligne(self):
+        ParametresBoutique.objects.create(boutique=self.boutique, devise="EUR")
+        self._creer_vente_avec_ligne(
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)), quantite=2, utilisateur=self.proprietaire,
+        )
+        self.client.force_authenticate(user=self.proprietaire)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        classeur = self._classeur(response)
+        feuille = classeur["Ventes détaillées"]
+
+        self.assertEqual(feuille["A1"].value, "Ventes détaillées — Boutique Ventes Détail")
+        # En-tête du tableau (ligne 4) puis la seule ligne de données (ligne 5).
+        entetes = [feuille.cell(row=4, column=c).value for c in range(1, 10)]
+        self.assertEqual(
+            entetes,
+            ["Date", "N° vente", "Vendeur", "Client", "Produit", "Qté", "Unité", "Prix", "Sous-total"],
+        )
+
+        valeurs = [feuille.cell(row=5, column=c).value for c in range(1, 10)]
+        self.assertEqual(valeurs[2], self.proprietaire.username)  # Vendeur
+        self.assertEqual(valeurs[4], "Produit Détail")            # Produit
+        self.assertEqual(valeurs[5], 2)                           # Qté
+        self.assertEqual(valeurs[7], 800.0)                       # Prix
+        self.assertEqual(valeurs[8], 1600.0)                      # Sous-total
+
+        cellule_sous_total = feuille.cell(row=5, column=9)
+        self.assertIn('EUR', cellule_sous_total.number_format)
+
+    def test_contenu_isole_par_boutique(self):
+        """Preuve directe (pas seulement le nom de fichier) : le classeur de
+        autre_proprietaire contient le produit de SA boutique mais jamais
+        celui de boutique-ventes-detail, même période, même requête."""
+        self._creer_vente_pour_boutique(
+            self.boutique, "Produit Boutique A Isolation",
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)),
+        )
+        self._creer_vente_pour_boutique(
+            self.autre_boutique, "Produit Boutique B Isolation",
+            timezone.make_aware(timezone.datetime(2026, 9, 15, 10, 0)),
+        )
+        self.client.force_authenticate(user=self.autre_proprietaire)
+
+        response = self.client.get(self.url, {"date_debut": "2026-09-01", "date_fin": "2026-09-30"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        classeur = self._classeur(response)
+        feuille = classeur["Ventes détaillées"]
+        produits_lus = [feuille.cell(row=5, column=5).value]
+
+        self.assertIn("Produit Boutique B Isolation", produits_lus)
+        self.assertNotIn("Produit Boutique A Isolation", produits_lus)

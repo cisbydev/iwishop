@@ -3,6 +3,8 @@ import api from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { formatCurrency, formatDate } from '../utils/formatters';
+import { getPlagePeriode } from '../utils/periode';
+import { telechargerBlob } from '../utils/telechargerBlob';
 import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer, FileDown, FileSpreadsheet } from 'lucide-react';
 
 // Les deux exports (PDF, Excel) suivent exactement le même flux, seuls le
@@ -11,28 +13,6 @@ const FORMATS_EXPORT = {
   pdf: { chemin: 'export-pdf', extension: 'pdf', libelle: 'Exporter en PDF', Icone: FileDown },
   excel: { chemin: 'export-excel', extension: 'xlsx', libelle: 'Exporter en Excel', Icone: FileSpreadsheet },
 };
-
-function formatDateForInput(d) {
-  return d.toISOString().split('T')[0];
-}
-
-function getPlagePeriode(periode) {
-  const aujourdHui = new Date();
-  let debut, fin;
-
-  if (periode === 'jour') {
-    debut = new Date(aujourdHui);
-    fin = new Date(aujourdHui);
-  } else if (periode === 'mois') {
-    debut = new Date(aujourdHui.getFullYear(), aujourdHui.getMonth(), 1);
-    fin = new Date(aujourdHui.getFullYear(), aujourdHui.getMonth() + 1, 0);
-  } else if (periode === 'annee') {
-    debut = new Date(aujourdHui.getFullYear(), 0, 1);
-    fin = new Date(aujourdHui.getFullYear(), 11, 31);
-  }
-
-  return { debut: formatDateForInput(debut), fin: formatDateForInput(fin) };
-}
 
 export default function Reports() {
   const { parametres, utilisateur } = useSettings();
@@ -97,14 +77,7 @@ export default function Reports() {
       // direct n'envoie pas le header Authorization. On passe donc par le
       // même client api (intercepteur JWT) en blob, puis un lien
       // temporaire pour déclencher le téléchargement.
-      const url = URL.createObjectURL(response.data);
-      const lien = document.createElement('a');
-      lien.href = url;
-      lien.download = `resume-financier-${dateDebut}-${dateFin}.${extension}`;
-      document.body.appendChild(lien);
-      lien.click();
-      document.body.removeChild(lien);
-      URL.revokeObjectURL(url);
+      telechargerBlob(response.data, `resume-financier-${dateDebut}-${dateFin}.${extension}`);
     } catch (err) {
       console.error(`Erreur export ${format}`, err);
       // La réponse d'erreur arrive elle aussi en blob (responseType défini
