@@ -18,10 +18,15 @@ class NotificationViewSet(BoutiqueScopedMixin, mixins.ListModelMixin, viewsets.G
     def get_queryset(self):
         # BoutiqueScopedMixin.get_queryset() applique déjà le scoping
         # boutique - un Employé ne doit en plus jamais voir une
-        # notification réservée au propriétaire.
+        # notification réservée au propriétaire. Multi-boutique : on
+        # vérifie le Profil de la boutique ACTIVE (déjà résolue par
+        # super().get_queryset() via _boutique_effective()), pas "un
+        # profil propriétaire quelque part" (cf. accounts.permissions.IsOwner).
         queryset = super().get_queryset()
-        profil = getattr(self.request.user, 'profil', None)
-        est_proprietaire = bool(profil and profil.est_proprietaire)
+        boutique = self._boutique_effective()
+        est_proprietaire = self.request.user.profils.filter(
+            boutique=boutique, est_proprietaire=True
+        ).exists()
         if not est_proprietaire:
             queryset = queryset.filter(destinataire_role=DestinataireNotification.TOUS)
         return queryset

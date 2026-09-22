@@ -53,9 +53,17 @@ class Boutique(models.Model):
         return self.abonnement_valide() and self.abonnement.formule.palier == 'PREMIUM'
 
 class Profil(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profil')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profils')
     boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name='membres')
     est_proprietaire = models.BooleanField(default=False)
+
+    class Meta:
+        # Un compte ne peut avoir qu'un seul Profil par boutique (le
+        # multi-boutique autorise plusieurs Profil par user, mais jamais
+        # deux fois la même boutique) - sans ça, les .filter(boutique=...)
+        # utilisés par boutique_de()/IsOwner/EmployeViewSet pourraient
+        # remonter des doublons.
+        unique_together = ('user', 'boutique')
 
     def __str__(self):
         return f"{self.user.username} - {self.boutique.nom}"

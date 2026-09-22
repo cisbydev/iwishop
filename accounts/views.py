@@ -190,7 +190,7 @@ class MeView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        serializer = MeSerializer(request.user)
+        serializer = MeSerializer(request.user, context={'request': request})
         return Response(serializer.data)
 
 
@@ -223,7 +223,7 @@ class EmployeViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         # get_queryset() est surchargé (le modèle est User, scopé via
-        # profil__boutique, et filtré en plus sur est_proprietaire=False) :
+        # profils__boutique, et filtré en plus sur est_proprietaire=False) :
         # le filtrage générique du mixin ne s'applique donc pas telle
         # quelle. _verifier_acces() (boutique désactivée/abonnement expiré)
         # n'est PAS appelée ici : lister ses employés reste une lecture,
@@ -231,10 +231,13 @@ class EmployeViewSet(BoutiqueScopedMixin, viewsets.ModelViewSet):
         # seules les écritures (create/destroy/reactiver) sont bloquées,
         # via un appel explicite à chacune (cf.
         # tenants.mixins.BoutiqueScopedMixin.get_queryset()).
+        # profils__boutique=boutique ne peut pas remonter de doublon : le
+        # unique_together ('user', 'boutique') de Profil garantit au plus
+        # un Profil par (user, boutique).
         boutique = self._boutique_effective()
         return User.objects.filter(
-            profil__boutique=boutique,
-            profil__est_proprietaire=False
+            profils__boutique=boutique,
+            profils__est_proprietaire=False
         ).order_by('username')
 
     def perform_create(self, serializer):

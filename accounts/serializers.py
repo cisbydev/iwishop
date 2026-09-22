@@ -59,6 +59,9 @@ class EmployeCreateSerializer(serializers.ModelSerializer):
 
 
 class MeSerializer(serializers.ModelSerializer):
+    """Multi-boutique : est_proprietaire/boutique_nom reflètent le Profil
+    de la boutique ACTIVE (résolue via boutique_de sur la requête en
+    contexte), pas "un profil quelconque" de l'utilisateur."""
     est_proprietaire = serializers.SerializerMethodField()
     boutique_nom = serializers.SerializerMethodField()
 
@@ -66,8 +69,22 @@ class MeSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'username', 'first_name', 'last_name', 'est_proprietaire', 'boutique_nom']
 
+    def _profil_actif(self, obj):
+        request = self.context.get('request')
+        if request is None:
+            return None
+        from tenants.profil import boutique_de
+        from rest_framework.exceptions import PermissionDenied
+        try:
+            boutique = boutique_de(request)
+        except PermissionDenied:
+            return None
+        return obj.profils.filter(boutique=boutique).first()
+
     def get_est_proprietaire(self, obj):
-        return hasattr(obj, 'profil') and obj.profil.est_proprietaire
+        profil = self._profil_actif(obj)
+        return bool(profil and profil.est_proprietaire)
 
     def get_boutique_nom(self, obj):
-        return obj.profil.boutique.nom if hasattr(obj, 'profil') else None
+        profil = self._profil_actif(obj)
+        return profil.boutique.nom if profil else None

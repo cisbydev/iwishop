@@ -33,9 +33,9 @@ class JWTAccessTokenLifetimeTests(TestCase):
 
     def setUp(self):
         cache.clear()
-        boutique = Boutique.objects.create(nom='Boutique JWT', slug='boutique-jwt')
+        self.boutique = Boutique.objects.create(nom='Boutique JWT', slug='boutique-jwt')
         self.user = User.objects.create_user(username='jwtuser', password='motdepasse123')
-        Profil.objects.create(user=self.user, boutique=boutique, est_proprietaire=True)
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
         self.client = APIClient()
 
     def tearDown(self):
@@ -213,8 +213,8 @@ class JWTAccessTokenLifetimeTests(TestCase):
 
     def test_boutique_inactive_conserve_le_comportement_refresh_existant(self):
         self._connexion()
-        self.user.profil.boutique.actif = False
-        self.user.profil.boutique.save(update_fields=['actif'])
+        self.boutique.actif = False
+        self.boutique.save(update_fields=['actif'])
 
         response = self.client.post('/api/token/refresh/', {})
         self.assertEqual(response.status_code, status.HTTP_200_OK)

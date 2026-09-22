@@ -18,7 +18,7 @@ class Command(BaseCommand):
             return
 
         if User.objects.filter(is_superuser=True).exists():
-            superuser_sans_profil = User.objects.filter(is_superuser=True, profil__isnull=True).first()
+            superuser_sans_profil = User.objects.filter(is_superuser=True, profils__isnull=True).first()
             if superuser_sans_profil:
                 boutique, _ = Boutique.objects.get_or_create(
                     slug='ma-boutique',

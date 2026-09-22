@@ -1,18 +1,28 @@
 from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
 
 
 class IsOwner(BasePermission):
     """
-    Autorise uniquement le propriétaire de la boutique (Profil.est_proprietaire).
+    Autorise uniquement le propriétaire de la boutique ACTIVE (résolue par
+    boutique_de : en-tête X-Boutique-Active ou fallback). Multi-boutique :
+    un même compte peut être propriétaire d'une boutique et employé d'une
+    autre, donc on vérifie le Profil de la boutique effectivement visée
+    par la requête, jamais "un profil propriétaire quelque part".
     """
     message = "Seul le propriétaire de la boutique peut effectuer cette action."
 
     def has_permission(self, request, view):
-        return bool(
-            request.user and request.user.is_authenticated
-            and hasattr(request.user, 'profil')
-            and request.user.profil.est_proprietaire
-        )
+        if not (request.user and request.user.is_authenticated):
+            return False
+
+        from tenants.profil import boutique_de
+        try:
+            boutique = boutique_de(request)
+        except PermissionDenied:
+            return False
+
+        return request.user.profils.filter(boutique=boutique, est_proprietaire=True).exists()
 
 
 class RestrictedActionsForOwnerMixin:
