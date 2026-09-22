@@ -480,14 +480,25 @@ class ResumeFinancierExportExcelTests(APITestCase):
         classeur = self._classeur(response)
         feuille = classeur["Résumé financier"]
 
-        self.assertEqual(feuille["A1"].value, "Boutique")
-        self.assertEqual(feuille["B1"].value, "Boutique Excel A")
+        self.assertEqual(feuille["A1"].value, "Résumé financier — Boutique Excel A")
 
+        # Lignes du tableau (après titre fusionné ligne 1, période ligne 2,
+        # une ligne 3 vide, en-tête Indicateur/Valeur ligne 4) : lignes 5-12.
         valeurs = {
             feuille.cell(row=r, column=1).value: feuille.cell(row=r, column=2).value
             for r in range(5, 13)
         }
-        self.assertEqual(valeurs["Chiffre d'affaires"], "800.00 EUR")
-        self.assertEqual(valeurs["Bénéfice brut"], "300.00 EUR")
-        self.assertEqual(valeurs["Bénéfice net"], "300.00 EUR")
+        # Montants écrits comme de vrais nombres (recalculables dans
+        # Excel), pas du texte formaté - la devise vit dans number_format.
+        self.assertEqual(valeurs["Chiffre d'affaires"], 800.0)
+        self.assertEqual(valeurs["Bénéfice brut"], 300.0)
+        self.assertEqual(valeurs["Bénéfice net"], 300.0)
         self.assertEqual(valeurs["Nombre de ventes"], 1)
+
+        cellule_ca = feuille.cell(row=5, column=2)
+        self.assertIn('EUR', cellule_ca.number_format)
+        self.assertIn('#,##0.00', cellule_ca.number_format)
+
+        # Bénéfice net (ligne 9) mis en évidence, même logique que le PDF.
+        cellule_benefice_net = feuille.cell(row=9, column=2)
+        self.assertTrue(cellule_benefice_net.font.bold)

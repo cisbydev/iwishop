@@ -14,8 +14,7 @@ from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from openpyxl import Workbook
-from openpyxl.styles import Font
-from openpyxl.utils import get_column_letter
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from accounts.permissions import IsOwner
 from parametres.models import ParametresBoutique
 from tenants.mixins import BoutiqueScopedMixin
@@ -24,9 +23,12 @@ from sales.utils import unites_reelles_expr
 from purchases.models import Achat
 from expenses.models import Depense
 
-# Palette du PDF - reprend l'identité visuelle déjà utilisée dans
-# Reports.jsx/Dashboard.jsx (bleu Tailwind par défaut), pas une palette
-# inventée pour l'occasion.
+# Palette des exports (PDF et Excel) - reprend l'identité visuelle déjà
+# utilisée dans Reports.jsx/Dashboard.jsx (bleu Tailwind par défaut), pas
+# une palette inventée pour l'occasion. Deux jeux de constantes (reportlab
+# attend des colors.HexColor, openpyxl des chaînes hex sans '#') pour les
+# mêmes valeurs, gardées côte à côte pour qu'elles restent visiblement
+# synchronisées si la palette change un jour.
 PDF_BLEU_PRINCIPAL = colors.HexColor('#2563eb')   # blue-600
 PDF_GRIS_TITRE = colors.HexColor('#0f172a')       # slate-900
 PDF_GRIS_TEXTE = colors.HexColor('#64748b')       # slate-500
@@ -34,6 +36,14 @@ PDF_GRIS_LIGNE_ALTERNEE = colors.HexColor('#f1f5f9')  # slate-100
 PDF_GRIS_BORDURE = colors.HexColor('#e2e8f0')     # slate-200
 PDF_VERT_POSITIF = colors.HexColor('#059669')     # emerald-600
 PDF_ROUGE_NEGATIF = colors.HexColor('#dc2626')    # red-600
+
+XLSX_BLEU_PRINCIPAL = '2563EB'      # blue-600
+XLSX_GRIS_TITRE = '0F172A'          # slate-900
+XLSX_GRIS_TEXTE = '64748B'          # slate-500
+XLSX_GRIS_LIGNE_ALTERNEE = 'F1F5F9'  # slate-100
+XLSX_GRIS_BORDURE = 'E2E8F0'        # slate-200
+XLSX_VERT_POSITIF = '059669'        # emerald-600
+XLSX_ROUGE_NEGATIF = 'DC2626'       # red-600
 
 
 def calculer_resume_financier(boutique, date_debut, date_fin):
@@ -298,6 +308,11 @@ class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
     # pas un simple affichage (P1 point 6, RBAC).
     permission_classes = [IsAuthenticated, IsOwner]
 
+    # Ligne du tableau Indicateur/Valeur (après le titre fusionné en ligne
+    # 1, la période en ligne 2, une ligne 3 vide comme respiration - même
+    # esprit que le Spacer entre en-tête et tableau côté PDF).
+    LIGNE_ENTETE_TABLEAU = 4
+
     def get(self, request, *args, **kwargs):
         boutique = self._boutique_effective()
         date_debut = request.GET.get('date_debut')
@@ -309,46 +324,8 @@ class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
         feuille = classeur.active
         feuille.title = "Résumé financier"
 
-        gras = Font(bold=True)
-
-        feuille["A1"] = "Boutique"
-        feuille["B1"] = boutique.nom
-        feuille["A1"].font = gras
-        if resultat['date_debut'] and resultat['date_fin']:
-            feuille["A2"] = "Période"
-            feuille["B2"] = f"du {resultat['date_debut']} au {resultat['date_fin']}"
-        else:
-            feuille["A2"] = "Période"
-            feuille["B2"] = "toutes dates confondues"
-        feuille["A2"].font = gras
-
-        ligne_entete_tableau = 4
-        feuille.cell(row=ligne_entete_tableau, column=1, value="Indicateur").font = gras
-        feuille.cell(row=ligne_entete_tableau, column=2, value="Valeur").font = gras
-
-        lignes = [
-            ("Chiffre d'affaires", f"{resultat['chiffre_affaires']:.2f} {devise}"),
-            ("Total des achats", f"{resultat['total_achats']:.2f} {devise}"),
-            ("Total des dépenses", f"{resultat['total_depenses']:.2f} {devise}"),
-            ("Bénéfice brut", f"{resultat['benefice_brut']:.2f} {devise}"),
-            ("Bénéfice net", f"{resultat['benefice_net']:.2f} {devise}"),
-            ("Nombre de ventes", resultat['nombre_ventes']),
-            ("Nombre d'achats", resultat['nombre_achats']),
-            ("Nombre de dépenses", resultat['nombre_depenses']),
-        ]
-        for decalage, (libelle, valeur) in enumerate(lignes, start=1):
-            feuille.cell(row=ligne_entete_tableau + decalage, column=1, value=libelle)
-            feuille.cell(row=ligne_entete_tableau + decalage, column=2, value=valeur)
-
-        # Largeur de colonnes ajustée au contenu le plus long de chaque
-        # colonne - fichier de travail, pas besoin du même soin visuel que
-        # le PDF (pas de couleurs/alternance de lignes).
-        for indice_colonne in (1, 2):
-            lettre = get_column_letter(indice_colonne)
-            plus_long = max(
-                len(str(cellule.value)) for cellule in feuille[lettre] if cellule.value is not None
-            )
-            feuille.column_dimensions[lettre].width = plus_long + 4
+        self._entete_excel(feuille, boutique, resultat)
+        self._tableau_resume_excel(feuille, resultat, devise)
 
         response = HttpResponse(
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -357,3 +334,81 @@ class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
         response['Content-Disposition'] = f'attachment; filename="{nom_fichier}"'
         classeur.save(response)
         return response
+
+    def _entete_excel(self, feuille, boutique, resultat):
+        feuille.merge_cells('A1:B1')
+        feuille['A1'] = f"Résumé financier — {boutique.nom}"
+        feuille['A1'].font = Font(bold=True, size=16, color=XLSX_GRIS_TITRE)
+
+        if resultat['date_debut'] and resultat['date_fin']:
+            texte_periode = f"Période : du {resultat['date_debut']} au {resultat['date_fin']}"
+        else:
+            texte_periode = "Période : toutes dates confondues"
+        feuille.merge_cells('A2:B2')
+        feuille['A2'] = texte_periode
+        feuille['A2'].font = Font(size=10, color=XLSX_GRIS_TEXTE)
+
+    def _tableau_resume_excel(self, feuille, resultat, devise):
+        ligne_entete = self.LIGNE_ENTETE_TABLEAU
+        bordure = Border(*(Side(style='thin', color=XLSX_GRIS_BORDURE) for _ in range(4)))
+        remplissage_entete = PatternFill('solid', fgColor=XLSX_BLEU_PRINCIPAL)
+        remplissage_alterne = PatternFill('solid', fgColor=XLSX_GRIS_LIGNE_ALTERNEE)
+        # "#,##0.00" pour le séparateur de milliers + 2 décimales, la
+        # devise en texte littéral entre guillemets - la cellule reste un
+        # vrai nombre (recalculable dans Excel), seul l'affichage change,
+        # même principe que formatCurrency() côté frontend.
+        format_montant = f'#,##0.00 "{devise}"'
+
+        for colonne, texte in enumerate(("Indicateur", "Valeur"), start=1):
+            cellule = feuille.cell(row=ligne_entete, column=colonne, value=texte)
+            cellule.font = Font(bold=True, color='FFFFFF')
+            cellule.fill = remplissage_entete
+            cellule.border = bordure
+
+        # (libellé, valeur, est_un_montant) - un montant reçoit le format
+        # numérique ci-dessus, un simple compte (nombre de ventes...) reste
+        # un entier brut.
+        lignes = [
+            ("Chiffre d'affaires", resultat['chiffre_affaires'], True),
+            ("Total des achats", resultat['total_achats'], True),
+            ("Total des dépenses", resultat['total_depenses'], True),
+            ("Bénéfice brut", resultat['benefice_brut'], True),
+            ("Bénéfice net", resultat['benefice_net'], True),
+            ("Nombre de ventes", resultat['nombre_ventes'], False),
+            ("Nombre d'achats", resultat['nombre_achats'], False),
+            ("Nombre de dépenses", resultat['nombre_depenses'], False),
+        ]
+
+        for decalage, (libelle, valeur, est_montant) in enumerate(lignes, start=1):
+            ligne = ligne_entete + decalage
+            cellule_libelle = feuille.cell(row=ligne, column=1, value=libelle)
+            cellule_valeur = feuille.cell(row=ligne, column=2, value=valeur)
+            cellule_libelle.border = bordure
+            cellule_valeur.border = bordure
+            cellule_valeur.alignment = Alignment(horizontal='right')
+            if est_montant:
+                cellule_valeur.number_format = format_montant
+
+            if decalage % 2 == 0:
+                cellule_libelle.fill = remplissage_alterne
+                cellule_valeur.fill = remplissage_alterne
+
+            if libelle == "Bénéfice net":
+                couleur = XLSX_VERT_POSITIF if resultat['benefice_net'] >= 0 else XLSX_ROUGE_NEGATIF
+                police_mise_en_evidence = Font(bold=True, color=couleur)
+                cellule_libelle.font = police_mise_en_evidence
+                cellule_valeur.font = police_mise_en_evidence
+
+        # Largeur de colonnes basée sur le tableau Indicateur/Valeur
+        # uniquement (pas le titre fusionné en ligne 1/2, bien plus long
+        # que ce que ses deux colonnes ont individuellement besoin
+        # d'accueillir). Estimée sur la représentation affichée réelle
+        # (montant formaté + devise), pas la longueur brute de la valeur
+        # numérique.
+        largeur_libelles = max(len(libelle) for libelle, _, _ in lignes)
+        largeur_valeurs = max(
+            len(f"{valeur:,.2f} {devise}") if est_montant else len(str(valeur))
+            for _, valeur, est_montant in lignes
+        )
+        feuille.column_dimensions['A'].width = largeur_libelles + 4
+        feuille.column_dimensions['B'].width = largeur_valeurs + 4
