@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getSupportBoutiqueId } from './supportViewState';
+import { getBoutiqueActiveId } from './boutiqueActiveState';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
 
@@ -100,6 +101,11 @@ api.interceptors.request.use(
     const supportBoutiqueId = getSupportBoutiqueId();
     if (supportBoutiqueId) {
       config.headers['X-Support-Boutique'] = String(supportBoutiqueId);
+    }
+
+    const boutiqueActiveId = getBoutiqueActiveId();
+    if (boutiqueActiveId) {
+      config.headers['X-Boutique-Active'] = String(boutiqueActiveId);
     }
 
     return config;

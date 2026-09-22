@@ -21,7 +21,9 @@ import { SettingsProvider } from './context/SettingsContext';
 import { useSettings } from './context/settingsContextValue';
 import { SupportViewProvider } from './context/SupportViewContext';
 import { useSupportView } from './context/supportViewContextValue';
+import { BoutiqueActiveProvider } from './context/BoutiqueActiveContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import BoutiqueSelecteur from './components/BoutiqueSelecteur';
 import SupportViewBanner from './components/SupportViewBanner';
 import AbonnementBanner from './components/AbonnementBanner';
 import VentesEnAttenteBanner from './components/VentesEnAttenteBanner';
@@ -140,6 +142,7 @@ function AppContent() {
           <NotificationBell />
 
           <div className="hidden shrink-0 items-center gap-2 min-[1280px]:flex">
+            <BoutiqueSelecteur />
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100 shadow-sm shadow-blue-100/70" aria-hidden="true">
               {initialeUtilisateur}
             </span>
@@ -197,7 +200,9 @@ function AccueilApp() {
 
   return (
     <SettingsProvider>
-      <AppContent />
+      <BoutiqueActiveProvider>
+        <AppContent />
+      </BoutiqueActiveProvider>
     </SettingsProvider>
   );
 }
