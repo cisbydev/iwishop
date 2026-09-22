@@ -3,7 +3,14 @@ import api from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer, FileDown } from 'lucide-react';
+import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer, FileDown, FileSpreadsheet } from 'lucide-react';
+
+// Les deux exports (PDF, Excel) suivent exactement le même flux, seuls le
+// segment d'URL, l'extension du fichier téléchargé et le libellé changent.
+const FORMATS_EXPORT = {
+  pdf: { chemin: 'export-pdf', extension: 'pdf', libelle: 'Exporter en PDF', Icone: FileDown },
+  excel: { chemin: 'export-excel', extension: 'xlsx', libelle: 'Exporter en Excel', Icone: FileSpreadsheet },
+};
 
 function formatDateForInput(d) {
   return d.toISOString().split('T')[0];
@@ -38,7 +45,7 @@ export default function Reports() {
   const [resume, setResume] = useState(null);
   const [loading, setLoading] = useState(true);
   const [erreurChargement, setErreurChargement] = useState('');
-  const [exportEnCours, setExportEnCours] = useState(false);
+  const [exportEnCours, setExportEnCours] = useState(null); // null | 'pdf' | 'excel'
   const [erreurExport, setErreurExport] = useState('');
 
   const fetchResume = async (debut, fin) => {
@@ -77,12 +84,13 @@ export default function Reports() {
     fetchResume(dateDebut, dateFin);
   };
 
-  const handleExporterPDF = async () => {
-    setExportEnCours(true);
+  const handleExporter = async (format) => {
+    const { chemin, extension } = FORMATS_EXPORT[format];
+    setExportEnCours(format);
     setErreurExport('');
     try {
       const response = await api.get(
-        `reports/resume-financier/export-pdf/?date_debut=${dateDebut}&date_fin=${dateFin}`,
+        `reports/resume-financier/${chemin}/?date_debut=${dateDebut}&date_fin=${dateFin}`,
         { responseType: 'blob' }
       );
       // L'endpoint est protégé par JWT : un <a href> ou window.location
@@ -92,23 +100,23 @@ export default function Reports() {
       const url = URL.createObjectURL(response.data);
       const lien = document.createElement('a');
       lien.href = url;
-      lien.download = `resume-financier-${dateDebut}-${dateFin}.pdf`;
+      lien.download = `resume-financier-${dateDebut}-${dateFin}.${extension}`;
       document.body.appendChild(lien);
       lien.click();
       document.body.removeChild(lien);
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error("Erreur export PDF", err);
+      console.error(`Erreur export ${format}`, err);
       // La réponse d'erreur arrive elle aussi en blob (responseType défini
       // sur toute la requête) : pas de JSON directement exploitable par
       // getErrorMessage, on distingue donc seulement sur le statut HTTP.
       setErreurExport(
         err.response?.status === 403
-          ? "Seul le propriétaire de la boutique peut exporter le résumé financier en PDF."
-          : "Impossible de générer le PDF. Vérifiez votre connexion puis réessayez."
+          ? "Seul le propriétaire de la boutique peut exporter le résumé financier."
+          : "Impossible de générer le fichier. Vérifiez votre connexion puis réessayez."
       );
     } finally {
-      setExportEnCours(false);
+      setExportEnCours(null);
     }
   };
 
@@ -131,15 +139,16 @@ export default function Reports() {
           >
             <Printer className="h-4 w-4" /> Imprimer
           </button>
-          {estProprietaire && (
+          {estProprietaire && Object.entries(FORMATS_EXPORT).map(([format, { libelle, Icone }]) => (
             <button
-              onClick={handleExporterPDF}
-              disabled={exportEnCours}
+              key={format}
+              onClick={() => handleExporter(format)}
+              disabled={exportEnCours !== null}
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
-              <FileDown className="h-4 w-4" /> {exportEnCours ? 'Génération...' : 'Exporter en PDF'}
+              <Icone className="h-4 w-4" /> {exportEnCours === format ? 'Génération...' : libelle}
             </button>
-          )}
+          ))}
         </div>
       </section>
 
