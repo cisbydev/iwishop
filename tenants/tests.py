@@ -1131,3 +1131,66 @@ class ProfilManquantTests(TestCase):
         response = client.get('/api/produits/')
 
         self.assertEqual(response.status_code, 200)
+
+
+class MesBoutiquesTests(TestCase):
+    """Multi-boutique, étape 2 : GET /api/tenants/mes-boutiques/ alimente
+    le sélecteur de boutique - une entrée par Profil de l'utilisateur
+    connecté, jamais celles d'un autre compte."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def test_une_seule_boutique_renvoie_un_seul_element(self):
+        boutique = Boutique.objects.create(nom='Boutique Unique', slug='mb-boutique-unique')
+        user = User.objects.create_user(username='mb-user-unique', password='pass1234')
+        Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get('/api/tenants/mes-boutiques/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resultats = response.data.get('results', response.data)
+        self.assertEqual(len(resultats), 1)
+        self.assertEqual(resultats[0], {
+            'id': boutique.id, 'nom': 'Boutique Unique', 'est_proprietaire': True,
+        })
+
+    def test_deux_boutiques_renvoie_deux_elements_avec_le_bon_est_proprietaire(self):
+        boutique_a = Boutique.objects.create(nom='Boutique A', slug='mb-boutique-a')
+        boutique_b = Boutique.objects.create(nom='Boutique B', slug='mb-boutique-b')
+        user = User.objects.create_user(username='mb-user-multi', password='pass1234')
+        Profil.objects.create(user=user, boutique=boutique_a, est_proprietaire=True)
+        Profil.objects.create(user=user, boutique=boutique_b, est_proprietaire=False)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get('/api/tenants/mes-boutiques/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resultats = response.data.get('results', response.data)
+        self.assertEqual(len(resultats), 2)
+        par_id = {r['id']: r for r in resultats}
+        self.assertTrue(par_id[boutique_a.id]['est_proprietaire'])
+        self.assertFalse(par_id[boutique_b.id]['est_proprietaire'])
+
+    def test_ne_voit_jamais_les_boutiques_dun_autre_compte(self):
+        """Sécurité : même avec plusieurs comptes et boutiques en base en
+        même temps, chacun ne voit que les siennes."""
+        boutique_moi = Boutique.objects.create(nom='Boutique Moi', slug='mb-boutique-moi')
+        boutique_autre = Boutique.objects.create(nom='Boutique Autre', slug='mb-boutique-autre')
+        moi = User.objects.create_user(username='mb-moi', password='pass1234')
+        autre = User.objects.create_user(username='mb-autre', password='pass1234')
+        Profil.objects.create(user=moi, boutique=boutique_moi, est_proprietaire=True)
+        Profil.objects.create(user=autre, boutique=boutique_autre, est_proprietaire=True)
+        self.client.force_authenticate(user=moi)
+
+        response = self.client.get('/api/tenants/mes-boutiques/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resultats = response.data.get('results', response.data)
+        ids = {r['id'] for r in resultats}
+        self.assertEqual(ids, {boutique_moi.id})
+
+    def test_sans_authentification_401(self):
+        response = self.client.get('/api/tenants/mes-boutiques/')
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

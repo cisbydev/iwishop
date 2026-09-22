@@ -60,6 +60,15 @@ class FormuleAbonnementSerializer(serializers.ModelSerializer):
         model = FormuleAbonnement
         fields = ['id', 'nom', 'duree_jours', 'prix']
 
+class MaBoutiqueSerializer(serializers.Serializer):
+    """Une entrée de GET /mes-boutiques/. Basé sur un Profil (pas
+    directement sur Boutique) : est_proprietaire est un attribut du
+    Profil, il peut différer d'une boutique à l'autre pour un même
+    compte (multi-boutique)."""
+    id = serializers.IntegerField(source='boutique.id')
+    nom = serializers.CharField(source='boutique.nom')
+    est_proprietaire = serializers.BooleanField()
+
 class AccesSupportSerializer(serializers.ModelSerializer):
     admin_username = serializers.ReadOnlyField(source='admin.username')
 

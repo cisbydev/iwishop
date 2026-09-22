@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from products.models import UniteVente, UNITES_PAR_DEFAUT
 from .models import DemandeAcces, Boutique, Profil, AccesSupport, Abonnement, FormuleAbonnement, PaiementAbonnement
-from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer, FormuleAbonnementSerializer
+from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer, FormuleAbonnementSerializer, MaBoutiqueSerializer
 from .permissions import IsPlatformOwner
 from .emails import envoyer_identifiants_email, notifier_nouvelle_demande, envoyer_alerte_expiration_email
 from . import paydunya
@@ -195,6 +195,20 @@ class MesAccesSupportView(generics.ListAPIView):
     def get_queryset(self):
         boutique = boutique_de(self.request)
         return AccesSupport.objects.filter(boutique=boutique).order_by('-date_acces')
+
+class MesBoutiquesView(generics.ListAPIView):
+    """Multi-boutique, étape 2 : boutiques accessibles à l'utilisateur
+    connecté (une entrée par Profil qui lui appartient), pour alimenter
+    le sélecteur de boutique côté frontend. Retourne la liste même s'il
+    n'y a qu'une seule boutique - au frontend de décider s'il affiche un
+    sélecteur ou non."""
+    serializer_class = MaBoutiqueSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        # Filtre strict sur l'utilisateur connecté : ne jamais laisser
+        # fuiter les boutiques d'un autre compte.
+        return Profil.objects.filter(user=self.request.user).select_related('boutique').order_by('id')
 
 class FormuleAbonnementListView(generics.ListAPIView):
     """Liste des formules d'abonnement actives, ouverte à tout utilisateur connecté."""

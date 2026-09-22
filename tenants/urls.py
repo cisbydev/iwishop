@@ -2,8 +2,8 @@ from django.urls import path
 from .views import (
     DemandeAccesCreateView, DemandeAccesListView, ApprouverDemandeView, RejeterDemandeView,
     BoutiqueListView, ToggleBoutiqueActifView, DemarrerVueSupportView, MesAccesSupportView,
-    MonAbonnementView, FormuleAbonnementListView, CreerPaiementView, PaiementAbonnementStatutView,
-    PaydunyaWebhookView,
+    MesBoutiquesView, MonAbonnementView, FormuleAbonnementListView, CreerPaiementView,
+    PaiementAbonnementStatutView, PaydunyaWebhookView,
 )
 
 urlpatterns = [
@@ -15,6 +15,7 @@ urlpatterns = [
     path('boutiques/<int:boutique_id>/toggle-actif/', ToggleBoutiqueActifView.as_view(), name='boutique-toggle-actif'),
     path('boutiques/<int:boutique_id>/vue-support/', DemarrerVueSupportView.as_view(), name='vue-support'),
     path('mes-acces-support/', MesAccesSupportView.as_view(), name='mes-acces-support'),
+    path('mes-boutiques/', MesBoutiquesView.as_view(), name='mes-boutiques'),
     path('mon-abonnement/', MonAbonnementView.as_view(), name='mon-abonnement'),
     path('formules-abonnement/', FormuleAbonnementListView.as_view(), name='formules-abonnement'),
     path('creer-paiement/', CreerPaiementView.as_view(), name='creer-paiement'),
