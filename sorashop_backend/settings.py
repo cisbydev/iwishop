@@ -23,6 +23,10 @@ if SENTRY_DSN:
         traces_sample_rate=0.0,
     )
 
+# Reste vide tant que non configurée - assistant.views.AssistantView gère ce
+# cas proprement (message d'erreur clair, pas d'appel API ni de crash).
+ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
+
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost', cast=lambda v: [s.strip() for s in v.split(',')])
 
 # Stockage des médias (Produit.photo, ParametresBoutique.logo) : bascule sur
@@ -89,6 +93,7 @@ INSTALLED_APPS = [
     'reports',
     'dashboard',
     'notifications',
+    'assistant',
 ]
 
 INSTALLED_APPS += [

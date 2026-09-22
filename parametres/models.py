@@ -19,6 +19,10 @@ class ParametresBoutique(models.Model):
     # notifications.services.SEUIL_DETTE_RETARD_JOURS pour toutes les
     # boutiques existantes, sans backfill nécessaire.
     seuil_dette_retard_jours = models.PositiveIntegerField(default=7)
+    # default=30 : quota de départ raisonnable - vérifié par
+    # assistant.views.AssistantView AVANT tout appel à l'API Anthropic
+    # (facturée au token), pour éviter une facture imprévue.
+    limite_questions_assistant_par_jour = models.PositiveIntegerField(default=30)
 
     def __str__(self):
         return self.nom_boutique
