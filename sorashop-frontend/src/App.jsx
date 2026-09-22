@@ -16,6 +16,7 @@ import Settings from './components/Settings';
 import Sales from './components/Sales';
 import SalesHistory from './components/SalesHistory';
 import Clients from './components/Clients';
+import Assistant from './components/Assistant';
 import { SettingsProvider } from './context/SettingsContext';
 import { useSettings } from './context/settingsContextValue';
 import { SupportViewProvider } from './context/SupportViewContext';
@@ -174,6 +175,7 @@ function AppContent() {
             {activeTab === 'settings' && <Settings ongletInitial={ongletParametresInitial} />}
             {activeTab === 'history' && <SalesHistory />}
             {activeTab === 'clients' && <Clients onNaviguerVersAbonnement={allerVersAbonnement} />}
+            {activeTab === 'assistant' && <Assistant />}
           </div>
         </main>
       </div>
