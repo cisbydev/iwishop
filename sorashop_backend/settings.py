@@ -121,11 +121,12 @@ MIDDLEWARE = [
 # CORS_ALLOWED_ORIGINS, ex: "http://localhost:5174,https://mon-app.vercel.app")
 CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='', cast=lambda v: [s.strip() for s in v.split(',') if s.strip()])
 
-# La Vue Support ajoute un header custom (X-Support-Boutique) sur les requêtes
+# La Vue Support (X-Support-Boutique) et la boutique active du multi-boutique
+# (X-Boutique-Active) ajoutent chacune un header custom sur les requêtes
 # sortantes du frontend - sans ça, le navigateur bloque la requête au niveau du
-# preflight CORS car ce header n'est pas dans la liste par défaut de corsheaders.
+# preflight CORS car ces headers ne sont pas dans la liste par défaut de corsheaders.
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_HEADERS = list(default_headers) + ['x-support-boutique', 'x-csrftoken']
+CORS_ALLOW_HEADERS = list(default_headers) + ['x-support-boutique', 'x-boutique-active', 'x-csrftoken']
 
 # Les endpoints qui utilisent le cookie de refresh ont une protection CSRF.
 # Les origines restent explicites pour ne jamais combiner credentials et wildcard.
