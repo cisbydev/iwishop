@@ -4,11 +4,12 @@ import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
-import { Truck, Plus, Trash2, CheckCircle, History } from 'lucide-react';
+import { Ban, Truck, Plus, Trash2, CheckCircle, History } from 'lucide-react';
 
 export default function Purchases() {
-  const { parametres } = useSettings();
+  const { parametres, utilisateur } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const estProprietaire = utilisateur?.est_proprietaire;
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [unitesParProduit, setUnitesParProduit] = useState({}); // produitId -> [{ unite_id, unite_nom, facteur_conversion }]
@@ -16,6 +17,7 @@ export default function Purchases() {
   const [achats, setAchats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erreurChargement, setErreurChargement] = useState('');
+  const [annulationEnCours, setAnnulationEnCours] = useState(null);
 
   const [selectedFournisseur, setSelectedFournisseur] = useState('');
   const [notes, setNotes] = useState('');
@@ -103,6 +105,25 @@ export default function Purchases() {
     } catch (err) {
       console.error("Erreur chargement achats", err);
       setErreurChargement("Impossible de charger les données des achats. Vérifiez votre connexion puis réessayez.");
+    }
+  };
+
+  // Même flux que l'annulation d'une dépense (Expenses.jsx) : le backend
+  // (AchatViewSet.annuler) retire le stock ajouté et refuse si une partie a
+  // déjà été revendue - son message est affiché tel quel.
+  const handleAnnulerAchat = async (achat) => {
+    if (annulationEnCours === achat.id) return;
+    if (!window.confirm(`Annuler l'achat #${achat.id} (${formatCurrency(achat.montant_total, devise)}) ? Le stock ajouté sera retiré.`)) {
+      return;
+    }
+    setAnnulationEnCours(achat.id);
+    try {
+      await api.post(`achats/${achat.id}/annuler/`);
+      await fetchAchats();
+    } catch (err) {
+      alert(getErrorMessage(err, "Erreur lors de l'annulation de l'achat."));
+    } finally {
+      setAnnulationEnCours(null);
     }
   };
 
@@ -463,12 +484,22 @@ export default function Purchases() {
                   <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">Date</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">Détail</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">Montant Total</th>
+                  <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-[0.08em] text-blue-950">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {achats.map((a) => (
-                  <tr key={a.id}>
-                    <td className="px-6 py-5 whitespace-nowrap text-sm font-semibold text-blue-600">#{a.id}</td>
+                {achats.map((a) => {
+                  const estAnnule = a.statut === 'ANNULE';
+                  return (
+                  <tr key={a.id} className={estAnnule ? 'bg-slate-50/70 opacity-75' : ''}>
+                    <td className="px-6 py-5 whitespace-nowrap text-sm font-semibold text-slate-900">
+                      #{a.id}
+                      {estAnnule && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                          Annulé
+                        </span>
+                      )}
+                    </td>
                     <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-slate-800">{a.fournisseur_nom || 'Inconnu'}</td>
                     <td className="px-6 py-5 whitespace-nowrap text-sm text-slate-600">
                       {formatDateTime(a.date_achat)}
@@ -483,9 +514,24 @@ export default function Purchases() {
                         ))}
                       </ul>
                     </td>
-                    <td className="px-6 py-5 whitespace-nowrap text-sm font-semibold text-slate-900">{formatCurrency(a.montant_total, devise)}</td>
+                    <td className={`px-6 py-5 whitespace-nowrap text-sm font-semibold text-slate-900 ${estAnnule ? 'line-through' : ''}`}>{formatCurrency(a.montant_total, devise)}</td>
+                    <td className="px-6 py-5 whitespace-nowrap text-right text-sm">
+                      {!estAnnule && estProprietaire ? (
+                        <button
+                          type="button"
+                          onClick={() => handleAnnulerAchat(a)}
+                          disabled={modeSupport || annulationEnCours === a.id}
+                          title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Annuler l'achat"}
+                          className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 ${modeSupport || annulationEnCours === a.id ? 'cursor-not-allowed bg-slate-50 text-slate-300' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                          aria-label={annulationEnCours === a.id ? `Annulation de l'achat #${a.id} en cours` : `Annuler l'achat #${a.id}`}
+                        >
+                          {annulationEnCours === a.id ? 'Annulation...' : <Ban className="h-4 w-4" />}
+                        </button>
+                      ) : null}
+                    </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

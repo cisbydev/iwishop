@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
+import { getErrorMessage } from '../services/errorUtils';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { getPlagePeriode } from '../utils/periode';
 import { telechargerBlob } from '../utils/telechargerBlob';
-import { History, Calendar, FileDown, FileSpreadsheet } from 'lucide-react';
+import { Ban, History, Calendar, FileDown, FileSpreadsheet } from 'lucide-react';
 
 // Les deux exports (PDF, Excel) du rapport détaillé des ventes suivent
 // exactement le même flux que ceux du résumé financier (Reports.jsx),
@@ -39,6 +40,7 @@ export default function SalesHistory() {
   const [dateFin, setDateFin] = useState(getPlagePeriode('mois').fin);
   const [exportEnCours, setExportEnCours] = useState(null); // null | 'pdf' | 'excel'
   const [erreurExport, setErreurExport] = useState('');
+  const [annulationEnCours, setAnnulationEnCours] = useState(null);
 
   const fetchVentes = useCallback(async (pageDemandee) => {
     setLoading(true);
@@ -76,6 +78,25 @@ export default function SalesHistory() {
       annule = true;
     };
   }, [fetchVentes, modeSupport, boutiqueId]);
+
+  // Même flux que l'annulation d'une dépense (Expenses.jsx) : le backend
+  // (VenteViewSet.annuler) restaure le stock et refuse une vente à crédit
+  // déjà remboursée - son message est affiché tel quel.
+  const handleAnnuler = async (vente) => {
+    if (annulationEnCours === vente.id) return;
+    if (!window.confirm(`Annuler la vente #${vente.id} (${formatCurrency(vente.montant_net, devise)}) ? Le stock sera restauré.`)) {
+      return;
+    }
+    setAnnulationEnCours(vente.id);
+    try {
+      await api.post(`ventes/${vente.id}/annuler/`);
+      await fetchVentes(page);
+    } catch (err) {
+      alert(getErrorMessage(err, "Erreur lors de l'annulation de la vente."));
+    } finally {
+      setAnnulationEnCours(null);
+    }
+  };
 
   const handlePeriodeRapide = (nouvellePeriode) => {
     setPeriode(nouvellePeriode);
@@ -215,13 +236,24 @@ export default function SalesHistory() {
                 <th className="border-b border-blue-200 px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">Articles / Détails</th>
                 <th className="border-b border-blue-200 px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">Remise</th>
                 <th className="border-b border-blue-200 px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider">Montant Net</th>
+                <th className="border-b border-blue-200 px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {ventes.map((vente) => (
-                <tr key={vente.id} className="bg-white transition-colors even:bg-slate-50 hover:bg-blue-50">
-                  <td className="whitespace-nowrap px-6 py-4 text-sm font-semibold text-blue-600">
+              {ventes.map((vente) => {
+                const estAnnulee = vente.statut === 'ANNULEE';
+                return (
+                <tr
+                  key={vente.id}
+                  className={estAnnulee ? 'bg-slate-50/70 opacity-75' : 'bg-white transition-colors even:bg-slate-50 hover:bg-blue-50'}
+                >
+                  <td className="whitespace-nowrap px-6 py-4 text-sm font-semibold text-slate-900">
                     #{vente.id}
+                    {estAnnulee && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                        Annulée
+                      </span>
+                    )}
                   </td>
                   <td className="flex items-center gap-1 whitespace-nowrap px-6 py-4 text-sm text-slate-600">
                     <Calendar className="h-4 w-4 text-slate-400" />
@@ -240,11 +272,26 @@ export default function SalesHistory() {
                   <td className="whitespace-nowrap px-6 py-4 text-sm text-slate-600">
                     {formatCurrency(vente.remise, devise)}
                   </td>
-                  <td className="whitespace-nowrap px-6 py-4 text-sm font-semibold text-slate-900">
+                  <td className={`whitespace-nowrap px-6 py-4 text-sm font-semibold text-slate-900 ${estAnnulee ? 'line-through' : ''}`}>
                     {formatCurrency(vente.montant_net, devise)}
                   </td>
+                  <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
+                    {!estAnnulee && estProprietaire ? (
+                      <button
+                        type="button"
+                        onClick={() => handleAnnuler(vente)}
+                        disabled={modeSupport || annulationEnCours === vente.id}
+                        title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : "Annuler la vente"}
+                        className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2 ${modeSupport || annulationEnCours === vente.id ? 'cursor-not-allowed bg-slate-50 text-slate-300' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                        aria-label={annulationEnCours === vente.id ? `Annulation de la vente #${vente.id} en cours` : `Annuler la vente #${vente.id}`}
+                      >
+                        {annulationEnCours === vente.id ? 'Annulation...' : <Ban className="h-4 w-4" />}
+                      </button>
+                    ) : null}
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           </div>
