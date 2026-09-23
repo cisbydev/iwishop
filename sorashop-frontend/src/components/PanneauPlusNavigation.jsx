@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { LogOut, X } from 'lucide-react';
+import BoutiqueSelecteur from './BoutiqueSelecteur';
 
 export default function PanneauPlusNavigation({
   items,
@@ -39,6 +40,8 @@ export default function PanneauPlusNavigation({
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
+
+        <BoutiqueSelecteur variante="liste" />
 
         <div className="grid grid-cols-3 gap-3">
           {items.map(({ id, label, Icon }) => {

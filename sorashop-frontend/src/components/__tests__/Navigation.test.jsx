@@ -1,7 +1,16 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const mocks = vi.hoisted(() => ({
+  listerMesBoutiques: vi.fn(),
+}));
+
+vi.mock('../../services/boutiques', () => ({
+  listerMesBoutiques: mocks.listerMesBoutiques,
+}));
+
+import { BoutiqueActiveProvider } from '../../context/BoutiqueActiveContext';
 import { NavigationPanneauProvider } from '../../context/NavigationPanneauContext';
 import NavigationTablette from '../NavigationTablette';
 import NavigationMobile from '../NavigationMobile';
@@ -25,14 +34,22 @@ const PRIORITAIRES_MOBILE = ['Tableau de Bord', 'Ventes', 'Produits & Stocks'];
 
 function renderNavigation(props = {}) {
   return render(
-    <NavigationPanneauProvider activeTab="dashboard" onSelect={vi.fn()} onLogout={vi.fn()} {...props}>
-      <NavigationTablette />
-      <NavigationMobile />
-    </NavigationPanneauProvider>
+    <BoutiqueActiveProvider>
+      <NavigationPanneauProvider activeTab="dashboard" onSelect={vi.fn()} onLogout={vi.fn()} {...props}>
+        <NavigationTablette />
+        <NavigationMobile />
+      </NavigationPanneauProvider>
+    </BoutiqueActiveProvider>
   );
 }
 
 describe('Navigation (tablette + mobile, panneau Plus partagé)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mocks.listerMesBoutiques.mockReset();
+    mocks.listerMesBoutiques.mockResolvedValue([{ id: 1, nom: 'Boutique Unique', est_proprietaire: true }]);
+  });
+
   it('affiche directement les sections prioritaires, sans passer par "Plus"', () => {
     renderNavigation();
 
@@ -142,5 +159,41 @@ describe('Navigation (tablette + mobile, panneau Plus partagé)', () => {
 
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it("n'affiche pas la ligne Boutique dans le panneau \"Plus\" avec une seule boutique", async () => {
+    const user = userEvent.setup();
+    renderNavigation();
+
+    await waitFor(() => expect(mocks.listerMesBoutiques).toHaveBeenCalled());
+    const navMobile = screen.getByRole('navigation', { name: 'Navigation mobile' });
+    await user.click(within(navMobile).getByRole('button', { name: 'Plus' }));
+
+    expect(within(screen.getByRole('dialog')).queryByText(/Boutique :/)).not.toBeInTheDocument();
+  });
+
+  it("affiche la ligne Boutique dans le panneau \"Plus\" avec deux boutiques et permet d'en changer", async () => {
+    mocks.listerMesBoutiques.mockResolvedValue([
+      { id: 1, nom: 'Boutique A', est_proprietaire: true },
+      { id: 2, nom: 'Boutique B', est_proprietaire: false },
+    ]);
+    const reload = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { ...window.location, reload },
+    });
+    const user = userEvent.setup();
+    renderNavigation();
+
+    const navMobile = screen.getByRole('navigation', { name: 'Navigation mobile' });
+    await user.click(within(navMobile).getByRole('button', { name: 'Plus' }));
+    const panneau = screen.getByRole('dialog');
+
+    const ligne = await within(panneau).findByRole('button', { name: /Boutique : Boutique A/ });
+    await user.click(ligne);
+    await user.click(within(panneau).getByRole('button', { name: 'Boutique B' }));
+
+    expect(localStorage.getItem('boutique_active_id')).toBe('2');
+    expect(reload).toHaveBeenCalledOnce();
   });
 });
