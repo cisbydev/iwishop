@@ -11,7 +11,7 @@ class AccesSupportAdmin(admin.ModelAdmin):
 
 @admin.register(FormuleAbonnement)
 class FormuleAbonnementAdmin(admin.ModelAdmin):
-    list_display = ['nom', 'duree_jours', 'prix', 'actif']
+    list_display = ['nom', 'palier', 'duree_jours', 'prix', 'actif']
     list_editable = ['actif']
 
 @admin.register(Abonnement)
