@@ -9,6 +9,7 @@ import {
   obtenirHistoriqueClient,
   creerClient,
   enregistrerRemboursement,
+  corrigerRemboursement,
 } from '../services/clients';
 import PremiumRequisBanner from './PremiumRequisBanner';
 import { Plus, Users, Search, Phone, MapPin, X } from 'lucide-react';
@@ -27,13 +28,54 @@ const STATUT_PAIEMENT_BADGES = {
   paye: 'bg-green-100 text-green-800',
 };
 
-function FicheClient({ client, devise, modeSupport, premiumRefuse, onClose, onRemboursementEnregistre, onNaviguerVersAbonnement }) {
+const CORRECTION_VIDE = { nouveauMontant: '', motif: '' };
+
+// Montants au centime : évite les résidus flottants (0.1 + 0.2) dans les
+// comparaisons de bornes et d'écart nul.
+const arrondirCentimes = (valeur) => Math.round(valeur * 100) / 100;
+
+// Regroupe chaque remboursement d'origine avec ses corrections (lignes
+// append-only pointant vers lui via remboursement_corrige) et calcule son
+// montant effectif (original + écarts des corrections).
+function grouperRemboursements(remboursements) {
+  const correctionsParOriginal = new Map();
+  remboursements
+    .filter((r) => r.remboursement_corrige != null)
+    .forEach((r) => {
+      const liste = correctionsParOriginal.get(r.remboursement_corrige) || [];
+      liste.push(r);
+      correctionsParOriginal.set(r.remboursement_corrige, liste);
+    });
+
+  return remboursements
+    .filter((r) => r.remboursement_corrige == null)
+    .map((original) => {
+      const corrections = correctionsParOriginal.get(original.id) || [];
+      const montantEffectif = arrondirCentimes(corrections.reduce(
+        (total, c) => total + Number(c.montant),
+        Number(original.montant),
+      ));
+      return { original, corrections, montantEffectif };
+    });
+}
+
+function formatEcart(montant, devise) {
+  const valeur = Number(montant);
+  return `${valeur > 0 ? '+' : ''}${formatCurrency(valeur, devise)}`;
+}
+
+function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietaire, onClose, onRemboursementEnregistre, onNaviguerVersAbonnement }) {
   const [ventes, setVentes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erreur, setErreur] = useState('');
   const [montantsParVente, setMontantsParVente] = useState({});
   const [erreursParVente, setErreursParVente] = useState({});
   const [enregistrementEnCours, setEnregistrementEnCours] = useState(null);
+  // Une seule correction ouverte à la fois (id du remboursement d'origine).
+  const [correctionOuverte, setCorrectionOuverte] = useState(null);
+  const [formCorrection, setFormCorrection] = useState(CORRECTION_VIDE);
+  const [erreurCorrection, setErreurCorrection] = useState('');
+  const [correctionEnCours, setCorrectionEnCours] = useState(false);
 
   const chargerHistorique = async () => {
     setLoading(true);
@@ -98,6 +140,62 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, onClose, onRe
       setEnregistrementEnCours(null);
     }
   };
+
+  const ouvrirCorrection = (groupe) => {
+    setCorrectionOuverte(groupe.original.id);
+    setFormCorrection({ nouveauMontant: String(groupe.montantEffectif), motif: '' });
+    setErreurCorrection('');
+  };
+
+  const fermerCorrection = () => {
+    setCorrectionOuverte(null);
+    setFormCorrection(CORRECTION_VIDE);
+    setErreurCorrection('');
+  };
+
+  const handleSubmitCorrection = async (vente, groupe) => {
+    const nouveauMontant = Number(formCorrection.nouveauMontant);
+    const motif = formCorrection.motif.trim();
+
+    // Validation frontend en miroir de corriger_remboursement() (backend) :
+    // le total remboursé doit rester entre 0 et la dette initiale de la
+    // vente (montant net - acompte).
+    if (formCorrection.nouveauMontant === '' || Number.isNaN(nouveauMontant) || nouveauMontant < 0) {
+      setErreurCorrection('Le nouveau montant doit être positif ou nul.');
+      return;
+    }
+    if (!motif) {
+      setErreurCorrection('Le motif de la correction est obligatoire.');
+      return;
+    }
+    const ecart = arrondirCentimes(nouveauMontant - groupe.montantEffectif);
+    if (ecart === 0) {
+      setErreurCorrection('Le nouveau montant est identique au montant actuel.');
+      return;
+    }
+    const detteInitiale = arrondirCentimes(Number(vente.montant_net) - Number(vente.montant_paye));
+    const totalRembourse = vente.remboursements.reduce((total, r) => total + Number(r.montant), 0);
+    if (arrondirCentimes(totalRembourse + ecart) > detteInitiale) {
+      setErreurCorrection(
+        `Cette correction ferait dépasser le montant dû (dette initiale : ${formatCurrency(detteInitiale, devise)}).`,
+      );
+      return;
+    }
+
+    setCorrectionEnCours(true);
+    try {
+      await corrigerRemboursement(groupe.original.id, nouveauMontant, motif);
+      fermerCorrection();
+      await chargerHistorique();
+      onRemboursementEnregistre?.();
+    } catch (err) {
+      setErreurCorrection(getErrorMessage(err, 'Erreur lors de la correction du remboursement.'));
+    } finally {
+      setCorrectionEnCours(false);
+    }
+  };
+
+  const peutCorriger = (vente) => estProprietaire && !modeSupport && !premiumRefuse && vente.statut !== 'ANNULEE';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]">
@@ -173,11 +271,108 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, onClose, onRe
                 {vente.remboursements.length > 0 && (
                   <div className="mt-3 border-t border-slate-100 pt-3">
                     <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Remboursements</p>
-                    <ul className="mt-2 space-y-1 text-sm text-slate-700">
-                      {vente.remboursements.map((r) => (
-                        <li key={r.id} className="flex justify-between gap-2">
-                          <span className="truncate">{formatDate(r.date_remboursement)} · {r.enregistre_par_nom}</span>
-                          <span className="shrink-0 font-medium">{formatCurrency(r.montant, devise)}</span>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
+                      {grouperRemboursements(vente.remboursements).map((groupe) => (
+                        <li key={groupe.original.id}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate">
+                              {formatDate(groupe.original.date_remboursement)} · {groupe.original.enregistre_par_nom}
+                            </span>
+                            <span className="flex shrink-0 items-center gap-2">
+                              <span className={`font-medium ${groupe.corrections.length > 0 ? 'text-slate-400 line-through' : ''}`}>
+                                {formatCurrency(groupe.original.montant, devise)}
+                              </span>
+                              {groupe.corrections.length > 0 && (
+                                <span className="font-medium">{formatCurrency(groupe.montantEffectif, devise)}</span>
+                              )}
+                              {peutCorriger(vente) && correctionOuverte !== groupe.original.id && (
+                                <button
+                                  type="button"
+                                  onClick={() => ouvrirCorrection(groupe)}
+                                  className="rounded-md border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                                >
+                                  Corriger
+                                </button>
+                              )}
+                            </span>
+                          </div>
+
+                          {groupe.corrections.length > 0 && (
+                            <ul className="mt-1 space-y-1 border-l-2 border-amber-200 pl-3">
+                              {groupe.corrections.map((c) => (
+                                <li key={c.id} className="text-xs text-slate-600">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="flex min-w-0 items-center gap-2">
+                                      <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800">
+                                        Correction
+                                      </span>
+                                      <span className="truncate">{formatDate(c.date_remboursement)} · {c.enregistre_par_nom}</span>
+                                    </span>
+                                    <span className="shrink-0 font-medium">{formatEcart(c.montant, devise)}</span>
+                                  </div>
+                                  {c.motif_correction && (
+                                    <p className="mt-0.5 italic text-slate-500">Motif : {c.motif_correction}</p>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+
+                          {correctionOuverte === groupe.original.id && (
+                            <div className="mt-2 space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                              <div>
+                                <label className="block text-xs font-medium text-slate-700" htmlFor={`correction-montant-${groupe.original.id}`}>
+                                  Nouveau montant
+                                </label>
+                                <input
+                                  id={`correction-montant-${groupe.original.id}`}
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={formCorrection.nouveauMontant}
+                                  onChange={(e) => {
+                                    setFormCorrection((prev) => ({ ...prev, nouveauMontant: e.target.value }));
+                                    setErreurCorrection('');
+                                  }}
+                                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-slate-700" htmlFor={`correction-motif-${groupe.original.id}`}>
+                                  Motif de la correction
+                                </label>
+                                <input
+                                  id={`correction-motif-${groupe.original.id}`}
+                                  type="text"
+                                  value={formCorrection.motif}
+                                  onChange={(e) => {
+                                    setFormCorrection((prev) => ({ ...prev, motif: e.target.value }));
+                                    setErreurCorrection('');
+                                  }}
+                                  placeholder="Ex. : erreur de saisie"
+                                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                                />
+                              </div>
+                              {erreurCorrection && <p className="text-xs text-red-700">{erreurCorrection}</p>}
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={fermerCorrection}
+                                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                                >
+                                  Annuler
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSubmitCorrection(vente, groupe)}
+                                  disabled={correctionEnCours}
+                                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {correctionEnCours ? '...' : 'Valider la correction'}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -237,8 +432,9 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, onClose, onRe
 
 export default function Clients({ onNaviguerVersAbonnement }) {
   const { actif: modeSupport, boutiqueId } = useSupportView();
-  const { parametres, aAccesPremium } = useSettings();
+  const { parametres, aAccesPremium, utilisateur } = useSettings();
   const devise = parametres?.devise || 'FCFA';
+  const estProprietaire = Boolean(utilisateur?.est_proprietaire);
   // Tant que le palier n'est pas confirmé à false, on n'empêche rien
   // (cf. SettingsContext : null pendant le chargement, jamais bloquant).
   const premiumRefuse = aAccesPremium === false;
@@ -550,6 +746,7 @@ export default function Clients({ onNaviguerVersAbonnement }) {
           devise={devise}
           modeSupport={modeSupport}
           premiumRefuse={premiumRefuse}
+          estProprietaire={estProprietaire}
           onClose={() => setClientSelectionne(null)}
           onRemboursementEnregistre={fetchClients}
           onNaviguerVersAbonnement={onNaviguerVersAbonnement}
