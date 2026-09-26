@@ -1,4 +1,4 @@
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -16,8 +16,11 @@ from .models import Vente, LigneVente, Client, Remboursement
 from .serializers import (
     VenteSerializer, ClientSerializer, RemboursementSerializer,
     ClientAvecDetteSerializer, HistoriqueClientSerializer,
+    CorrectionRemboursementSerializer,
 )
-from .services.credit import avertissement_plafond_credit, enregistrer_remboursement
+from .services.credit import (
+    avertissement_plafond_credit, corriger_remboursement, enregistrer_remboursement,
+)
 
 class VenteViewSet(
     BoutiqueScopedMixin,
@@ -202,14 +205,19 @@ class ClientViewSet(
 
 class RemboursementViewSet(
     BoutiqueScopedMixin,
+    RestrictedActionsForOwnerMixin,
     mixins.CreateModelMixin,
     viewsets.GenericViewSet,
 ):
-    # Immutable : ni update ni destroy, un remboursement déjà enregistré ne
-    # se corrige pas (même principe comptable que Vente/annuler).
+    # Immutable : ni update ni destroy, une ligne de remboursement déjà
+    # enregistrée n'est jamais modifiée. Une erreur se corrige via l'action
+    # `corriger`, qui ajoute une ligne d'écart (append-only).
     queryset = Remboursement.objects.select_related('vente', 'enregistre_par')
     serializer_class = RemboursementSerializer
     permission_classes = [IsAuthenticated]
+    # Corriger modifie une écriture comptable déjà entrée (dette du
+    # client) : réservé au propriétaire, comme Vente/Achat.annuler.
+    actions_reservees_proprietaire = ('corriger',)
     # Remboursement n'a pas de champ `boutique` direct : l'isolation passe
     # par la vente qu'il rembourse (même principe que ProduitPrixViewSet,
     # boutique_lookup = 'produit__boutique').
@@ -232,3 +240,32 @@ class RemboursementViewSet(
             vente=vente, montant=serializer.validated_data['montant'], utilisateur=self.request.user
         )
         serializer.instance = remboursement
+
+    @action(detail=True, methods=['post'])
+    def corriger(self, request, pk=None):
+        # Écriture comptable : mêmes contrôles d'accès que perform_create.
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
+        verifier_acces_premium(boutique)
+        # get_object() applique le scoping boutique (boutique_lookup) : le
+        # remboursement d'une autre boutique renvoie 404.
+        remboursement = self.get_object()
+
+        entree = CorrectionRemboursementSerializer(data=request.data)
+        entree.is_valid(raise_exception=True)
+        correction, vente, total_rembourse = corriger_remboursement(
+            remboursement=remboursement,
+            nouveau_montant=entree.validated_data['nouveau_montant'],
+            motif=entree.validated_data['motif'],
+            utilisateur=request.user,
+        )
+
+        # État de la vente joint à la réponse (le frontend rafraîchit son
+        # affichage sans requête supplémentaire), montants formatés comme
+        # le reste de l'API (chaînes à 2 décimales).
+        montant = serializers.DecimalField(max_digits=12, decimal_places=2)
+        data = RemboursementSerializer(correction).data
+        data['total_rembourse'] = montant.to_representation(total_rembourse)
+        data['montant_du'] = montant.to_representation(vente.montant_du)
+        data['statut_paiement'] = vente.statut_paiement
+        return Response(data, status=status.HTTP_201_CREATED)

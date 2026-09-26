@@ -29,8 +29,13 @@ class RemboursementSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Remboursement
-        fields = ['id', 'vente', 'montant', 'date_remboursement', 'enregistre_par']
-        read_only_fields = ['date_remboursement']
+        fields = [
+            'id', 'vente', 'montant', 'date_remboursement', 'enregistre_par',
+            'remboursement_corrige', 'motif_correction',
+        ]
+        # Une correction ne se crée que via l'action `corriger` (écart
+        # calculé côté serveur), jamais par un POST direct.
+        read_only_fields = ['date_remboursement', 'remboursement_corrige', 'motif_correction']
 
     def validate(self, attrs):
         montant = attrs.get('montant')
@@ -42,6 +47,12 @@ class RemboursementSerializer(serializers.ModelSerializer):
                 {"montant": "Le montant dépasse le montant dû sur cette vente."}
             )
         return attrs
+
+class CorrectionRemboursementSerializer(serializers.Serializer):
+    # Entrée de RemboursementViewSet.corriger : le montant que le
+    # remboursement aurait dû avoir (0 = il n'a jamais eu lieu), pas l'écart.
+    nouveau_montant = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
+    motif = serializers.CharField()
 
 class ClientAvecDetteSerializer(serializers.ModelSerializer):
     # Annoté par ClientViewSet.avec_dette() (Sum agrégé en base, pas un
@@ -62,7 +73,10 @@ class RemboursementHistoriqueSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Remboursement
-        fields = ['id', 'montant', 'date_remboursement', 'enregistre_par_nom']
+        fields = [
+            'id', 'montant', 'date_remboursement', 'enregistre_par_nom',
+            'remboursement_corrige', 'motif_correction',
+        ]
 
 class HistoriqueClientSerializer(serializers.ModelSerializer):
     # Serializer dédié à ClientViewSet.historique() : n'expose que ce dont

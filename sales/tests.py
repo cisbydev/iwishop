@@ -1538,3 +1538,200 @@ class AccesPremiumCreditTests(APITestCase):
             self.url_clients, {"nom": "Client Test", "telephone": "0100000004"}, format='json'
         )
         self.assertEqual(reponse_client.status_code, status.HTTP_201_CREATED, reponse_client.data)
+
+
+class RemboursementCorrectionTests(APITestCase):
+    """Correction append-only d'un Remboursement : la ligne d'origine n'est
+    jamais modifiée, une ligne d'écart pointant vers elle est ajoutée et la
+    dette de la vente (montant_du/statut_paiement) est recalculée."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Correction", slug="boutique-correction")
+        self.autre_boutique = Boutique.objects.create(nom="Autre Boutique", slug="autre-boutique-correction")
+
+        self.proprietaire = User.objects.create_user(username="correction_proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.employe = User.objects.create_user(username="correction_employe", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+        self.autre_proprietaire = User.objects.create_user(username="correction_autre", password="pass1234")
+        Profil.objects.create(user=self.autre_proprietaire, boutique=self.autre_boutique, est_proprietaire=True)
+
+        _donner_acces_premium(self.boutique)
+        _donner_acces_premium(self.autre_boutique)
+
+        self.client_credit = Client.objects.create(
+            boutique=self.boutique, nom="Client Correction", telephone="0100000010"
+        )
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.proprietaire)
+
+        self.vente = self._creer_vente_credit(montant_net=Decimal("1000.00"), acompte=Decimal("0"))
+        self.original = self._rembourser(self.vente, "400.00")
+
+    def _creer_vente_credit(self, montant_net, acompte):
+        return Vente.objects.create(
+            boutique=self.boutique,
+            client_credit=self.client_credit,
+            montant_total=montant_net,
+            montant_net=montant_net,
+            montant_paye=acompte,
+            montant_du=montant_net - acompte,
+            statut_paiement=StatutPaiement.PARTIEL if acompte > 0 else StatutPaiement.EN_ATTENTE,
+        )
+
+    def _rembourser(self, vente, montant):
+        response = self.api_client.post(
+            reverse('remboursements-list'), {"vente": vente.id, "montant": montant}, format='json'
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.data
+        return Remboursement.objects.get(pk=response.data['id'])
+
+    def _corriger(self, remboursement, nouveau_montant, motif="Erreur de saisie"):
+        return self.api_client.post(
+            reverse('remboursements-corriger', args=[remboursement.id]),
+            {"nouveau_montant": nouveau_montant, "motif": motif},
+            format='json',
+        )
+
+    def test_proprietaire_peut_corriger_ligne_distincte_liee_a_loriginal(self):
+        response = self._corriger(self.original, "300.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        correction = Remboursement.objects.get(pk=response.data['id'])
+        self.assertNotEqual(correction.pk, self.original.pk)
+        self.assertEqual(correction.montant, Decimal("-100.00"))
+        self.assertEqual(correction.remboursement_corrige_id, self.original.pk)
+        self.assertEqual(correction.motif_correction, "Erreur de saisie")
+        self.assertEqual(correction.enregistre_par_id, self.proprietaire.id)
+        self.assertEqual(Remboursement.objects.filter(vente=self.vente).count(), 2)
+
+        self.assertEqual(response.data['remboursement_corrige'], self.original.pk)
+        self.assertEqual(response.data['total_rembourse'], "300.00")
+        self.assertEqual(response.data['montant_du'], "700.00")
+        self.assertEqual(response.data['statut_paiement'], StatutPaiement.PARTIEL)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.montant_du, Decimal("700.00"))
+
+    def test_ligne_originale_jamais_modifiee(self):
+        response = self._corriger(self.original, "250.00")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        self.original.refresh_from_db()
+        self.assertEqual(self.original.montant, Decimal("400.00"))
+        self.assertIsNone(self.original.remboursement_corrige_id)
+        self.assertEqual(self.original.motif_correction, "")
+
+    def test_employe_ne_peut_pas_corriger(self):
+        self.api_client.force_authenticate(user=self.employe)
+
+        response = self._corriger(self.original, "300.00")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Remboursement.objects.filter(vente=self.vente).count(), 1)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.montant_du, Decimal("600.00"))
+
+    def test_impossible_de_corriger_une_correction(self):
+        correction = Remboursement.objects.get(pk=self._corriger(self.original, "300.00").data['id'])
+
+        response = self._corriger(correction, "0.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("déjà une correction", str(response.data))
+        self.assertEqual(Remboursement.objects.filter(vente=self.vente).count(), 2)
+
+    def test_correction_qui_ferait_depasser_la_dette_est_rejetee(self):
+        response = self._corriger(self.original, "1200.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Remboursement.objects.filter(vente=self.vente).count(), 1)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.montant_du, Decimal("600.00"))
+
+    def test_correction_jusqua_la_dette_totale_passe_la_vente_en_paye(self):
+        response = self._corriger(self.original, "1000.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.montant_du, Decimal("0.00"))
+        self.assertEqual(self.vente.statut_paiement, StatutPaiement.PAYE)
+
+    def test_correction_a_zero_ramene_la_dette_initiale_jamais_negative(self):
+        response = self._corriger(self.original, "0.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['total_rembourse'], "0.00")
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.montant_du, Decimal("1000.00"))
+        self.assertEqual(self.vente.statut_paiement, StatutPaiement.EN_ATTENTE)
+
+        negatif = self._corriger(self.original, "-50.00")
+        self.assertEqual(negatif.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_borne_est_la_dette_initiale_et_non_le_montant_total(self):
+        """Avec un acompte, la dette initiale (montant_net - acompte) est
+        inférieure à montant_total : c'est elle qui borne le total remboursé."""
+        vente = self._creer_vente_credit(montant_net=Decimal("1000.00"), acompte=Decimal("200.00"))
+        original = self._rembourser(vente, "800.00")
+
+        response = self._corriger(original, "900.00")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        vente.refresh_from_db()
+        self.assertEqual(vente.montant_du, Decimal("0.00"))
+
+        response = self._corriger(original, "0.00")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        vente.refresh_from_db()
+        self.assertEqual(vente.montant_du, Decimal("800.00"))
+        self.assertEqual(vente.statut_paiement, StatutPaiement.PARTIEL)
+
+    def test_seconde_correction_calculee_sur_le_montant_effectif(self):
+        self._corriger(self.original, "300.00")  # écart -100
+
+        response = self._corriger(self.original, "350.00")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(Decimal(response.data['montant']), Decimal("50.00"))
+        self.assertEqual(self.original.corrections.count(), 2)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.montant_du, Decimal("650.00"))
+
+    def test_ecart_nul_ou_motif_vide_rejetes(self):
+        for nouveau_montant, motif in (("400.00", "Rien à corriger"), ("300.00", ""), ("300.00", "   ")):
+            response = self._corriger(self.original, nouveau_montant, motif=motif)
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, (nouveau_montant, motif))
+
+        self.assertEqual(Remboursement.objects.filter(vente=self.vente).count(), 1)
+
+    def test_remboursement_dune_autre_boutique_introuvable(self):
+        self.api_client.force_authenticate(user=self.autre_proprietaire)
+
+        response = self._corriger(self.original, "300.00")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Remboursement.objects.filter(vente=self.vente).count(), 1)
+
+    def test_post_direct_ne_peut_pas_creer_une_correction(self):
+        response = self.api_client.post(
+            reverse('remboursements-list'),
+            {"vente": self.vente.id, "montant": "100.00",
+             "remboursement_corrige": self.original.id, "motif_correction": "forcé"},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        cree = Remboursement.objects.get(pk=response.data['id'])
+        self.assertIsNone(cree.remboursement_corrige_id)
+        self.assertEqual(cree.motif_correction, "")
+
+    def test_historique_client_expose_le_lien_et_le_motif(self):
+        correction_id = self._corriger(self.original, "300.00").data['id']
+
+        response = self.api_client.get(reverse('clients-historique', args=[self.client_credit.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        remboursements = {r['id']: r for r in response.data[0]['remboursements']}
+        self.assertIsNone(remboursements[self.original.id]['remboursement_corrige'])
+        self.assertEqual(remboursements[correction_id]['remboursement_corrige'], self.original.id)
+        self.assertEqual(remboursements[correction_id]['motif_correction'], "Erreur de saisie")

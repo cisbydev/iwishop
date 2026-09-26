@@ -175,6 +175,19 @@ class Remboursement(models.Model):
     montant = models.DecimalField(max_digits=12, decimal_places=2)
     date_remboursement = models.DateTimeField(auto_now_add=True)
     enregistre_par = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    # Correction append-only (même principe que MouvementStock) : une ligne
+    # déjà enregistrée n'est jamais modifiée ; une erreur se corrige par une
+    # nouvelle ligne portant l'écart (montant éventuellement négatif) et
+    # pointant toujours vers l'ORIGINAL, jamais vers une autre correction
+    # (cf. sales.services.credit.corriger_remboursement).
+    remboursement_corrige = models.ForeignKey(
+        'self', on_delete=models.PROTECT, null=True, blank=True, related_name='corrections'
+    )
+    # Obligatoire quand remboursement_corrige est rempli - imposé par le
+    # service/serializer, pas en base (les lignes existantes restent à '').
+    motif_correction = models.TextField(blank=True, default='')
 
     def __str__(self):
+        if self.remboursement_corrige_id:
+            return f"Correction {self.montant} du remboursement #{self.remboursement_corrige_id} sur {self.vente.numero}"
         return f"Remboursement {self.montant} sur {self.vente.numero}"
