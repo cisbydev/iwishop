@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 from decouple import config  # <-- nouvelle ligne
 import dj_database_url
@@ -10,9 +11,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')                          # <-- remplace l'ancienne ligne
 DEBUG = config('DEBUG', default=False, cast=bool)           # <-- remplace l'ancienne ligne DEBUG = True
 
+# Vrai sous `manage.py test` (ou TESTING=True dans l'environnement) - évite
+# d'envoyer le bruit des tests vers Sentry.
+TESTING = sys.argv[1:2] == ['test'] or config('TESTING', default=False, cast=bool)
+
 # Sentry remains entirely inactive until a DSN is supplied by the environment.
 SENTRY_DSN = config('SENTRY_DSN', default='')
-if SENTRY_DSN:
+if SENTRY_DSN and not TESTING:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         integrations=[DjangoIntegration()],
