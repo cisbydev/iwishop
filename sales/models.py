@@ -186,6 +186,14 @@ class Remboursement(models.Model):
     # Obligatoire quand remboursement_corrige est rempli - imposé par le
     # service/serializer, pas en base (les lignes existantes restent à '').
     motif_correction = models.TextField(blank=True, default='')
+    # Mode d'encaissement (journal de caisse). null = "non précisé" : les
+    # remboursements antérieurs à ce champ ne sont jamais supposés en
+    # espèces. Optionnel côté API (un frontend PWA encore en cache ne
+    # l'envoie pas), obligatoire dans le formulaire. Une correction reprend
+    # le mode de son original (cf. corriger_remboursement).
+    mode_paiement = models.CharField(
+        max_length=30, choices=Vente.MODES_PAIEMENT, null=True, blank=True
+    )
 
     def __str__(self):
         if self.remboursement_corrige_id:

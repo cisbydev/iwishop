@@ -3,6 +3,7 @@ import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
 import { getErrorMessage, getErrorCode, CODE_PALIER_INSUFFISANT } from '../services/errorUtils';
 import { formatCurrency, formatDate, couleurBadgeDette } from '../utils/formatters';
+import { MODES_PAIEMENT, libelleModePaiement } from '../utils/modesPaiement';
 import {
   listerClients,
   listerClientsAvecDette,
@@ -69,6 +70,7 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
   const [loading, setLoading] = useState(true);
   const [erreur, setErreur] = useState('');
   const [montantsParVente, setMontantsParVente] = useState({});
+  const [modesParVente, setModesParVente] = useState({});
   const [erreursParVente, setErreursParVente] = useState({});
   const [enregistrementEnCours, setEnregistrementEnCours] = useState(null);
   // Une seule correction ouverte à la fois (id du remboursement d'origine).
@@ -105,8 +107,14 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
     setErreursParVente((prev) => ({ ...prev, [venteId]: '' }));
   };
 
+  const handleModeChange = (venteId, valeur) => {
+    setModesParVente((prev) => ({ ...prev, [venteId]: valeur }));
+    setErreursParVente((prev) => ({ ...prev, [venteId]: '' }));
+  };
+
   const handleSubmitRemboursement = async (vente) => {
     const montantSaisi = montantsParVente[vente.id];
+    const modePaiement = modesParVente[vente.id];
     const montant = Number(montantSaisi);
     const montantDu = Number(vente.montant_du);
 
@@ -124,11 +132,18 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
       }));
       return;
     }
+    // Obligatoire ici (journal de caisse par mode), alors que l'API
+    // l'accepte absent pour ne pas casser un frontend PWA encore en cache.
+    if (!modePaiement) {
+      setErreursParVente((prev) => ({ ...prev, [vente.id]: 'Choisissez le mode de paiement.' }));
+      return;
+    }
 
     setEnregistrementEnCours(vente.id);
     try {
-      await enregistrerRemboursement(vente.id, montant);
+      await enregistrerRemboursement(vente.id, montant, modePaiement);
       setMontantsParVente((prev) => ({ ...prev, [vente.id]: '' }));
+      setModesParVente((prev) => ({ ...prev, [vente.id]: '' }));
       await chargerHistorique();
       onRemboursementEnregistre?.();
     } catch (err) {
@@ -277,6 +292,7 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate">
                               {formatDate(groupe.original.date_remboursement)} · {groupe.original.enregistre_par_nom}
+                              {' · '}{libelleModePaiement(groupe.original.mode_paiement)}
                             </span>
                             <span className="flex shrink-0 items-center gap-2">
                               <span className={`font-medium ${groupe.corrections.length > 0 ? 'text-slate-400 line-through' : ''}`}>
@@ -390,7 +406,7 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
                     <label className="block text-xs font-medium text-slate-700" htmlFor={`remboursement-${vente.id}`}>
                       Enregistrer un remboursement
                     </label>
-                    <div className="mt-1 flex gap-2">
+                    <div className="mt-1 flex flex-wrap gap-2 sm:flex-nowrap">
                       <input
                         id={`remboursement-${vente.id}`}
                         type="number"
@@ -401,6 +417,17 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
                         placeholder="Montant"
                         className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                       />
+                      <select
+                        aria-label="Mode de paiement du remboursement"
+                        value={modesParVente[vente.id] || ''}
+                        onChange={(e) => handleModeChange(vente.id, e.target.value)}
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-40 sm:flex-none"
+                      >
+                        <option value="">Mode...</option>
+                        {MODES_PAIEMENT.map((mode) => (
+                          <option key={mode.valeur} value={mode.valeur}>{mode.libelle}</option>
+                        ))}
+                      </select>
                       <button
                         type="button"
                         onClick={() => handleSubmitRemboursement(vente)}

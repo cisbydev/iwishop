@@ -1751,3 +1751,89 @@ class RemboursementCorrectionTests(APITestCase):
         self.assertIsNone(remboursements[self.original.id]['remboursement_corrige'])
         self.assertEqual(remboursements[correction_id]['remboursement_corrige'], self.original.id)
         self.assertEqual(remboursements[correction_id]['motif_correction'], "Erreur de saisie")
+
+
+class RemboursementModePaiementTests(APITestCase):
+    """Journal de caisse, étape 1 : mode d'encaissement d'un remboursement.
+    Optionnel côté API (null = "non précisé", jamais supposé en espèces),
+    repris tel quel par une correction."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Mode", slug="boutique-mode-remboursement")
+        self.user = User.objects.create_user(username="mode_proprio", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        _donner_acces_premium(self.boutique)
+
+        self.client_credit = Client.objects.create(
+            boutique=self.boutique, nom="Client Mode", telephone="0100000020"
+        )
+        self.vente = Vente.objects.create(
+            boutique=self.boutique, client_credit=self.client_credit,
+            montant_total=Decimal("1000.00"), montant_net=Decimal("1000.00"),
+            montant_paye=0, montant_du=Decimal("1000.00"),
+            statut_paiement=StatutPaiement.EN_ATTENTE,
+        )
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user)
+        self.url = reverse('remboursements-list')
+
+    def _rembourser(self, **extra):
+        return self.api_client.post(
+            self.url, {"vente": self.vente.id, "montant": "400.00", **extra}, format='json'
+        )
+
+    def test_mode_fourni_est_enregistre_et_renvoye(self):
+        response = self._rembourser(mode_paiement="MOBILE_MONEY")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['mode_paiement'], "MOBILE_MONEY")
+        self.assertEqual(Remboursement.objects.get(pk=response.data['id']).mode_paiement, "MOBILE_MONEY")
+
+    def test_mode_absent_reste_non_precise_sans_supposer_especes(self):
+        response = self._rembourser()
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertIsNone(response.data['mode_paiement'])
+        self.assertIsNone(Remboursement.objects.get(pk=response.data['id']).mode_paiement)
+
+    def test_mode_invalide_rejete(self):
+        response = self._rembourser(mode_paiement="CHEQUE_EN_BOIS")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Remboursement.objects.count(), 0)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.montant_du, Decimal("1000.00"))
+
+    def test_correction_reprend_le_mode_de_loriginal(self):
+        original_id = self._rembourser(mode_paiement="ESPECES").data['id']
+
+        response = self.api_client.post(
+            reverse('remboursements-corriger', args=[original_id]),
+            {"nouveau_montant": "300.00", "motif": "Erreur de saisie", "mode_paiement": "CARTE"},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        # Le mode éventuellement envoyé est ignoré : l'écart se compense
+        # toujours dans le mode de l'original.
+        self.assertEqual(response.data['mode_paiement'], "ESPECES")
+
+    def test_correction_dun_remboursement_non_precise_reste_non_precise(self):
+        original_id = self._rembourser().data['id']
+
+        response = self.api_client.post(
+            reverse('remboursements-corriger', args=[original_id]),
+            {"nouveau_montant": "300.00", "motif": "Erreur de saisie"},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertIsNone(response.data['mode_paiement'])
+
+    def test_historique_client_expose_le_mode(self):
+        self._rembourser(mode_paiement="MOBILE_MONEY")
+
+        response = self.api_client.get(reverse('clients-historique', args=[self.client_credit.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data[0]['remboursements'][0]['mode_paiement'], "MOBILE_MONEY")

@@ -237,7 +237,10 @@ class RemboursementViewSet(
         # La logique de recalcul (dette, statut_paiement) vit uniquement
         # dans le service : jamais de serializer.save() direct ici.
         remboursement = enregistrer_remboursement(
-            vente=vente, montant=serializer.validated_data['montant'], utilisateur=self.request.user
+            vente=vente,
+            montant=serializer.validated_data['montant'],
+            utilisateur=self.request.user,
+            mode_paiement=serializer.validated_data.get('mode_paiement'),
         )
         serializer.instance = remboursement
 

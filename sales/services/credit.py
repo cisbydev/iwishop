@@ -10,7 +10,7 @@ from ..models import Remboursement, StatutPaiement, Vente
 
 
 @transaction.atomic
-def enregistrer_remboursement(vente, montant, utilisateur):
+def enregistrer_remboursement(vente, montant, utilisateur, mode_paiement=None):
     """Enregistre un remboursement sur une vente à crédit et recalcule sa
     dette. Verrouille la vente (select_for_update) pour revalider
     montant <= montant_du sous le verrou : deux remboursements concurrents
@@ -24,7 +24,7 @@ def enregistrer_remboursement(vente, montant, utilisateur):
         raise ValidationError("Le montant du remboursement dépasse le montant dû sur cette vente.")
 
     remboursement = Remboursement.objects.create(
-        vente=vente, montant=montant, enregistre_par=utilisateur
+        vente=vente, montant=montant, enregistre_par=utilisateur, mode_paiement=mode_paiement
     )
 
     vente.montant_du -= montant
@@ -93,6 +93,9 @@ def corriger_remboursement(remboursement, nouveau_montant, motif, utilisateur):
         enregistre_par=utilisateur,
         remboursement_corrige=remboursement,
         motif_correction=motif,
+        # L'écart se compense dans le même mode que l'original : le journal
+        # de caisse par mode reste juste après correction.
+        mode_paiement=remboursement.mode_paiement,
     )
 
     vente.montant_du = nouveau_du

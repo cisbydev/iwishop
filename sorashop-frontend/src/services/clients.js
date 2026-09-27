@@ -18,8 +18,12 @@ export async function creerClient(data) {
   return response.data;
 }
 
-export async function enregistrerRemboursement(venteId, montant) {
-  const response = await api.post('ventes/remboursements/', { vente: venteId, montant });
+export async function enregistrerRemboursement(venteId, montant, modePaiement) {
+  const response = await api.post('ventes/remboursements/', {
+    vente: venteId,
+    montant,
+    mode_paiement: modePaiement,
+  });
   return response.data;
 }
 

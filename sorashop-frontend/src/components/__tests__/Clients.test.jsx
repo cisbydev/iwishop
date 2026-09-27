@@ -35,7 +35,7 @@ function client(id, nom, telephone) {
   return { id, nom, telephone, adresse: '', plafond_credit: null, date_creation: '2026-01-01T00:00:00Z' };
 }
 
-function remboursement(id, montant, { corrige = null, motif = '' } = {}) {
+function remboursement(id, montant, { corrige = null, motif = '', mode = null } = {}) {
   return {
     id,
     montant,
@@ -43,6 +43,7 @@ function remboursement(id, montant, { corrige = null, motif = '' } = {}) {
     enregistre_par_nom: 'proprio',
     remboursement_corrige: corrige,
     motif_correction: motif,
+    mode_paiement: mode,
   };
 }
 
@@ -71,7 +72,7 @@ async function ouvrirFicheAvec(remboursements) {
 
   render(<Clients />);
   await user.click(await screen.findByText('Aïcha'));
-  await screen.findByText('Remboursements');
+  await screen.findByText('V-ABCD1234');
   return user;
 }
 
@@ -202,6 +203,7 @@ describe('Clients', () => {
 
     const champMontant = await screen.findByLabelText('Enregistrer un remboursement');
     await user.type(champMontant, '100');
+    await user.selectOptions(screen.getByLabelText('Mode de paiement du remboursement'), 'ESPECES');
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
 
     expect(await screen.findByText(/palier Premium/)).toBeInTheDocument();
@@ -270,5 +272,36 @@ describe('Clients', () => {
 
     expect(await screen.findByText(/ferait dépasser le montant dû/)).toBeInTheDocument();
     expect(mocks.corrigerRemboursement).not.toHaveBeenCalled();
+  });
+
+  it('le formulaire de remboursement exige le mode de paiement', async () => {
+    const user = await ouvrirFicheAvec([]);
+
+    await user.type(screen.getByLabelText('Enregistrer un remboursement'), '100');
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
+
+    expect(await screen.findByText('Choisissez le mode de paiement.')).toBeInTheDocument();
+    expect(mocks.enregistrerRemboursement).not.toHaveBeenCalled();
+  });
+
+  it('envoie le mode de paiement choisi avec le remboursement', async () => {
+    mocks.enregistrerRemboursement.mockResolvedValue({ id: 9 });
+    const user = await ouvrirFicheAvec([]);
+
+    await user.type(screen.getByLabelText('Enregistrer un remboursement'), '100');
+    await user.selectOptions(screen.getByLabelText('Mode de paiement du remboursement'), 'MOBILE_MONEY');
+    await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
+
+    expect(mocks.enregistrerRemboursement).toHaveBeenCalledWith(42, 100, 'MOBILE_MONEY');
+  });
+
+  it('affiche le mode de chaque remboursement, "Non précisé" pour les anciens', async () => {
+    await ouvrirFicheAvec([
+      remboursement(7, '400.00', { mode: 'MOBILE_MONEY' }),
+      remboursement(9, '100.00'),
+    ]);
+
+    expect(screen.getByText(/proprio · Mobile Money/)).toBeInTheDocument();
+    expect(screen.getByText(/Non précisé/)).toBeInTheDocument();
   });
 });

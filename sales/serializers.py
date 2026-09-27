@@ -31,7 +31,7 @@ class RemboursementSerializer(serializers.ModelSerializer):
         model = Remboursement
         fields = [
             'id', 'vente', 'montant', 'date_remboursement', 'enregistre_par',
-            'remboursement_corrige', 'motif_correction',
+            'remboursement_corrige', 'motif_correction', 'mode_paiement',
         ]
         # Une correction ne se crée que via l'action `corriger` (écart
         # calculé côté serveur), jamais par un POST direct.
@@ -75,7 +75,7 @@ class RemboursementHistoriqueSerializer(serializers.ModelSerializer):
         model = Remboursement
         fields = [
             'id', 'montant', 'date_remboursement', 'enregistre_par_nom',
-            'remboursement_corrige', 'motif_correction',
+            'remboursement_corrige', 'motif_correction', 'mode_paiement',
         ]
 
 class HistoriqueClientSerializer(serializers.ModelSerializer):
