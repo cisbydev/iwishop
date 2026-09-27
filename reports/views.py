@@ -2,7 +2,9 @@ from io import BytesIO
 
 from django.http import HttpResponse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -237,6 +239,29 @@ def pied_de_page_pdf(canvas_pdf, doc):
     canvas_pdf.restoreState()
 
 
+def _lire_date(request, nom):
+    """Lit un paramètre de date AAAA-MM-JJ optionnel. Absent -> None ;
+    mal formé ("abc") ou inexistant ("2026-13-45") -> 400 explicite, au lieu
+    de passer la chaîne brute à l'ORM (ValidationError Django non gérée par
+    DRF, donc 500)."""
+    valeur = request.GET.get(nom)
+    if not valeur:
+        return None
+    try:
+        date = parse_date(valeur)
+    except ValueError:  # bien formée mais inexistante (mois 13...)
+        date = None
+    if date is None:
+        raise ValidationError({nom: "Date invalide, format attendu : AAAA-MM-JJ."})
+    return date
+
+
+def bornes_dates_rapport(request):
+    """(date_debut, date_fin) validées, chacune éventuellement None -
+    partagé par toutes les vues de rapports."""
+    return _lire_date(request, 'date_debut'), _lire_date(request, 'date_fin')
+
+
 def texte_periode_rapport(date_debut, date_fin):
     """Texte de la ligne "Période" sous le titre, partagé par tous les
     exports (PDF et Excel) des rapports."""
@@ -270,9 +295,8 @@ class ResumeFinancierView(BoutiqueScopedMixin, APIView):
         # rester possible boutique désactivée/abonnement expiré, seules
         # les écritures sont bloquées (cf. tenants.mixins.BoutiqueScopedMixin).
         boutique = self._boutique_effective()
-        # Récupérer les filtres de date optionnels (?date_debut=YYYY-MM-DD&date_fin=YYYY-MM-DD)
-        date_debut = request.GET.get('date_debut')
-        date_fin = request.GET.get('date_fin')
+        # Filtres de date optionnels (?date_debut=YYYY-MM-DD&date_fin=YYYY-MM-DD)
+        date_debut, date_fin = bornes_dates_rapport(request)
 
         return Response(calculer_resume_financier(boutique, date_debut, date_fin))
 
@@ -285,8 +309,7 @@ class ResumeFinancierExportPDFView(BoutiqueScopedMixin, APIView):
 
     def get(self, request, *args, **kwargs):
         boutique = self._boutique_effective()
-        date_debut = request.GET.get('date_debut')
-        date_fin = request.GET.get('date_fin')
+        date_debut, date_fin = bornes_dates_rapport(request)
         resultat = calculer_resume_financier(boutique, date_debut, date_fin)
         parametres = parametres_boutique(boutique)
         devise = parametres.devise
@@ -374,8 +397,7 @@ class ResumeFinancierExportExcelView(BoutiqueScopedMixin, APIView):
 
     def get(self, request, *args, **kwargs):
         boutique = self._boutique_effective()
-        date_debut = request.GET.get('date_debut')
-        date_fin = request.GET.get('date_fin')
+        date_debut, date_fin = bornes_dates_rapport(request)
         resultat = calculer_resume_financier(boutique, date_debut, date_fin)
         devise = parametres_boutique(boutique).devise
 
@@ -466,8 +488,7 @@ def _bornes_dates_obligatoires(request):
     Contrairement à calculer_resume_financier (dates optionnelles),
     lister_ventes_detaillees exige toujours des bornes explicites - voir sa
     docstring."""
-    date_debut = request.GET.get('date_debut')
-    date_fin = request.GET.get('date_fin')
+    date_debut, date_fin = bornes_dates_rapport(request)
     if not date_debut or not date_fin:
         return None
     return date_debut, date_fin

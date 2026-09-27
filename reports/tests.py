@@ -826,3 +826,53 @@ class VentesDetailleesExportExcelTests(VentesDetailleesTestsBase):
 
         self.assertIn("Produit Boutique B Isolation", produits_lus)
         self.assertNotIn("Produit Boutique A Isolation", produits_lus)
+
+
+class RapportsDatesInvalidesTests(APITestCase):
+    """Une date mal formée ou inexistante (?date_debut=2026-13-45) doit
+    renvoyer un 400 explicite, jamais un 500 (la chaîne brute était passée
+    telle quelle à l'ORM, qui levait une ValidationError Django non gérée
+    par DRF) - sur les 6 vues de rapports."""
+
+    URLS = [
+        'resume-financier', 'resume-financier-export-pdf', 'resume-financier-export-excel',
+        'ventes-detaillees', 'ventes-detaillees-export-pdf', 'ventes-detaillees-export-excel',
+    ]
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Dates", slug="boutique-dates-invalides")
+        self.user = User.objects.create_user(username="dates_proprio", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.user)
+
+    def test_date_inexistante_ou_mal_formee_renvoie_400_sur_chaque_rapport(self):
+        for nom_url in self.URLS:
+            for date_debut, date_fin in (("2026-13-45", "2026-01-31"), ("2026-01-01", "abc")):
+                with self.subTest(url=nom_url, date_debut=date_debut, date_fin=date_fin):
+                    response = self.client.get(
+                        reverse(nom_url), {"date_debut": date_debut, "date_fin": date_fin}
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_message_indique_le_parametre_et_le_format_attendu(self):
+        response = self.client.get(
+            reverse('resume-financier'), {"date_debut": "2026-13-45", "date_fin": "2026-01-31"}
+        )
+
+        self.assertIn('date_debut', response.data)
+        self.assertIn('AAAA-MM-JJ', str(response.data['date_debut']))
+
+    def test_dates_valides_et_absentes_restent_acceptees(self):
+        valides = {"date_debut": "2026-01-01", "date_fin": "2026-01-31"}
+        self.assertEqual(self.client.get(reverse('resume-financier'), valides).status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get(reverse('ventes-detaillees'), valides).status_code, status.HTTP_200_OK)
+        # Dates optionnelles pour le résumé financier : comportement inchangé.
+        self.assertEqual(self.client.get(reverse('resume-financier')).status_code, status.HTTP_200_OK)
+
+    def test_resume_financier_renvoie_les_dates_au_meme_format_quavant(self):
+        response = self.client.get(
+            reverse('resume-financier'), {"date_debut": "2026-01-01", "date_fin": "2026-01-31"}
+        )
+
+        self.assertEqual(response.json()['date_debut'], "2026-01-01")
+        self.assertEqual(response.json()['date_fin'], "2026-01-31")
