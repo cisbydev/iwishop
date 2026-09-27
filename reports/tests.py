@@ -1,4 +1,6 @@
+from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from io import BytesIO
 
 from django.contrib.auth.models import User
@@ -13,7 +15,9 @@ from rest_framework.test import APITestCase
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from suppliers.models import Fournisseur
 from products.models import Produit, UniteVente, ProduitPrix
-from sales.models import Vente, LigneVente
+from sales.models import Client as ClientCredit, LigneVente, Remboursement, Vente
+from purchases.models import Achat
+from expenses.models import Depense
 from parametres.models import ParametresBoutique
 from .views import calculer_resume_financier
 
@@ -876,3 +880,192 @@ class RapportsDatesInvalidesTests(APITestCase):
 
         self.assertEqual(response.json()['date_debut'], "2026-01-01")
         self.assertEqual(response.json()['date_fin'], "2026-01-31")
+
+
+class JournalCaisseTests(APITestCase):
+    """Journal de caisse (lecture seule) : encaissé = montant_paye -
+    monnaie_rendue + remboursements de dettes, par mode ; achats/dépenses en
+    sorties ; aucun chiffre de ResumeFinancierView ne change."""
+
+    JOUR = datetime(2026, 3, 10)
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Caisse", slug="boutique-caisse")
+        self.autre_boutique = Boutique.objects.create(nom="Autre Caisse", slug="autre-boutique-caisse")
+        self.proprietaire = User.objects.create_user(username="caisse_proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.employe = User.objects.create_user(username="caisse_employe", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+        self.client_credit = ClientCredit.objects.create(
+            boutique=self.boutique, nom="Client Caisse", telephone="0100000030"
+        )
+        self.client.force_authenticate(user=self.proprietaire)
+        self.url = reverse('journal-caisse')
+        self.params = {"date_debut": "2026-03-10", "date_fin": "2026-03-10"}
+
+    # --- helpers ---
+
+    def _a(self, jour=None, heure=12, minute=0):
+        jour = jour or self.JOUR
+        return datetime(jour.year, jour.month, jour.day, heure, minute, tzinfo=ZoneInfo('Africa/Bamako'))
+
+    def _vente(self, montant_net, montant_paye, monnaie_rendue="0", mode='ESPECES', credit=False,
+               statut='VALIDEE', quand=None, boutique=None, hors_ligne=False):
+        vente = Vente.objects.create(
+            boutique=boutique or self.boutique,
+            montant_total=Decimal(montant_net), montant_net=Decimal(montant_net),
+            montant_paye=Decimal(montant_paye), monnaie_rendue=Decimal(monnaie_rendue),
+            mode_paiement=mode, statut=statut, creee_hors_ligne=hors_ligne,
+            client_credit=self.client_credit if credit else None,
+            montant_du=Decimal(montant_net) - Decimal(montant_paye) if credit else 0,
+        )
+        Vente.objects.filter(pk=vente.pk).update(date_vente=quand or self._a())
+        return vente
+
+    def _remboursement(self, vente, montant, mode=None, corrige=None, quand=None):
+        r = Remboursement.objects.create(
+            vente=vente, montant=Decimal(montant), enregistre_par=self.proprietaire,
+            mode_paiement=mode, remboursement_corrige=corrige,
+            motif_correction="Erreur" if corrige else "",
+        )
+        Remboursement.objects.filter(pk=r.pk).update(date_remboursement=quand or self._a())
+        return r
+
+    def _get(self, **params):
+        return self.client.get(self.url, params or self.params)
+
+    def _mode(self, data, mode):
+        return next(ligne for ligne in data['entrees']['par_mode'] if ligne['mode_paiement'] == mode)
+
+    # --- calcul ---
+
+    def test_vente_comptant_avec_monnaie_rendue_compte_le_net_encaisse(self):
+        self._vente("1000", montant_paye="1500", monnaie_rendue="500", mode='ESPECES')
+
+        data = self._get().data
+
+        self.assertEqual(self._mode(data, 'ESPECES')['ventes'], Decimal("1000.00"))
+        self.assertEqual(data['entrees']['total'], Decimal("1000.00"))
+
+    def test_vente_a_credit_ne_compte_que_lacompte_et_le_reste_en_information(self):
+        self._vente("1000", montant_paye="200", mode='MOBILE_MONEY', credit=True)
+
+        data = self._get().data
+
+        self.assertEqual(self._mode(data, 'MOBILE_MONEY')['ventes'], Decimal("200.00"))
+        self.assertEqual(data['entrees']['total'], Decimal("200.00"))
+        self.assertEqual(data['informations']['credit_accorde'], Decimal("800.00"))
+
+    def test_remboursements_par_mode_avec_non_precise_et_correction(self):
+        vente = self._vente("1000", montant_paye="0", credit=True, quand=self._a(datetime(2026, 3, 1)))
+        original = self._remboursement(vente, "300", mode='ESPECES')
+        self._remboursement(vente, "-50", mode='ESPECES', corrige=original)
+        self._remboursement(vente, "100", mode=None)
+
+        data = self._get().data
+
+        self.assertEqual(self._mode(data, 'ESPECES')['remboursements'], Decimal("250.00"))
+        self.assertEqual(self._mode(data, None)['remboursements'], Decimal("100.00"))
+        self.assertEqual(data['entrees']['remboursements'], Decimal("350.00"))
+        # La vente elle-même date du 1er mars : rien en "ventes" ce jour-là.
+        self.assertEqual(data['entrees']['ventes'], Decimal("0.00"))
+
+    def test_ligne_non_precise_absente_sil_ny_en_a_pas(self):
+        self._vente("1000", montant_paye="1000")
+
+        modes = [ligne['mode_paiement'] for ligne in self._get().data['entrees']['par_mode']]
+
+        self.assertEqual(modes, ['ESPECES', 'MOBILE_MONEY', 'CARTE', 'AUTRE'])
+
+    def test_sorties_et_solde_de_la_periode(self):
+        self._vente("1000", montant_paye="1000")
+        achat = Achat.objects.create(boutique=self.boutique, montant_total=Decimal("400"))
+        Achat.objects.filter(pk=achat.pk).update(date_achat=self._a())
+        Depense.objects.create(
+            boutique=self.boutique, titre="Loyer", montant=Decimal("150"), date_depense=self.JOUR.date()
+        )
+
+        data = self._get().data
+
+        self.assertEqual(data['sorties']['achats'], Decimal("400.00"))
+        self.assertEqual(data['sorties']['depenses'], Decimal("150.00"))
+        self.assertEqual(data['sorties']['total'], Decimal("550.00"))
+        self.assertEqual(data['solde_periode'], Decimal("450.00"))
+
+    def test_ventes_achats_depenses_annules_exclus(self):
+        self._vente("1000", montant_paye="1000", statut='ANNULEE')
+        achat = Achat.objects.create(boutique=self.boutique, montant_total=Decimal("400"), statut='ANNULE')
+        Achat.objects.filter(pk=achat.pk).update(date_achat=self._a())
+        Depense.objects.create(
+            boutique=self.boutique, titre="Loyer", montant=Decimal("150"),
+            date_depense=self.JOUR.date(), statut='ANNULEE',
+        )
+
+        data = self._get().data
+
+        self.assertEqual(data['entrees']['total'], Decimal("0.00"))
+        self.assertEqual(data['sorties']['total'], Decimal("0.00"))
+
+    def test_decoupage_par_journee_heure_de_bamako(self):
+        self._vente("100", montant_paye="100", quand=self._a(heure=0, minute=1))
+        self._vente("200", montant_paye="200", quand=self._a(heure=23, minute=59))
+        self._vente("400", montant_paye="400", quand=self._a(datetime(2026, 3, 9), heure=23, minute=59))
+        self._vente("800", montant_paye="800", quand=self._a(datetime(2026, 3, 11), heure=0, minute=1))
+
+        data = self._get().data
+
+        self.assertEqual(data['entrees']['ventes'], Decimal("300.00"))
+        self.assertEqual(data['informations']['nombre_ventes'], 2)
+
+    def test_ventes_synchronisees_en_differe_signalees(self):
+        self._vente("100", montant_paye="100", hors_ligne=True)
+        self._vente("100", montant_paye="100")
+
+        self.assertEqual(self._get().data['informations']['ventes_synchronisees_en_differe'], 1)
+
+    def test_donnees_dune_autre_boutique_jamais_comptees(self):
+        self._vente("1000", montant_paye="1000", boutique=self.autre_boutique)
+
+        self.assertEqual(self._get().data['entrees']['total'], Decimal("0.00"))
+
+    def test_resume_financier_inchange(self):
+        """Non-régression : le résumé financier reste en chiffre d'affaires
+        (vente à crédit comptée en totalité), le journal en encaissé."""
+        self._vente("1000", montant_paye="1000")
+        self._vente("1000", montant_paye="200", credit=True)
+
+        resume = calculer_resume_financier(self.boutique, self.JOUR.date(), self.JOUR.date())
+        journal = self._get().data
+
+        self.assertEqual(resume['chiffre_affaires'], Decimal("2000"))
+        self.assertEqual(journal['entrees']['total'], Decimal("1200.00"))
+
+    # --- accès et paramètres ---
+
+    def test_employe_refuse(self):
+        self.client.force_authenticate(user=self.employe)
+
+        self.assertEqual(self._get().status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_sans_dates_aujourdhui_par_defaut(self):
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['date_debut'], timezone.localdate())
+        self.assertEqual(response.data['date_fin'], timezone.localdate())
+
+    def test_parametres_invalides_renvoient_400(self):
+        cas = [
+            {"date_debut": "2026-13-45", "date_fin": "2026-03-10"},
+            {"date_debut": "2026-03-10"},
+            {"date_debut": "2026-03-11", "date_fin": "2026-03-10"},
+            {"date_debut": "2026-03-01", "date_fin": "2026-04-01"},  # 32 jours
+        ]
+        for params in cas:
+            with self.subTest(params=params):
+                self.assertEqual(self.client.get(self.url, params).status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_periode_de_31_jours_acceptee(self):
+        response = self.client.get(self.url, {"date_debut": "2026-03-01", "date_fin": "2026-03-31"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

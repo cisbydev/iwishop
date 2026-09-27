@@ -1,10 +1,12 @@
 from django.urls import path
+from .caisse import JournalCaisseView
 from .views import (
     ResumeFinancierExportExcelView, ResumeFinancierExportPDFView, ResumeFinancierView,
     VentesDetailleesExportExcelView, VentesDetailleesExportPDFView, VentesDetailleesView,
 )
 
 urlpatterns = [
+    path('journal-caisse/', JournalCaisseView.as_view(), name='journal-caisse'),
     path('resume-financier/', ResumeFinancierView.as_view(), name='resume-financier'),
     path('resume-financier/export-pdf/', ResumeFinancierExportPDFView.as_view(), name='resume-financier-export-pdf'),
     path(
