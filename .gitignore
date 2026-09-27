@@ -20,6 +20,11 @@ db.sqlite3-journal
 # Ce sont des données, pas du code — elles ne doivent pas être dans Git
 media/
 
+# Ancienne photo produit uploadée à la racine (commit 637af56) : hors de
+# MEDIA_ROOT, jamais servie par Django - les photos vivent dans media/
+# (local) ou R2 (prod).
+/produits/
+
 # Fichiers de configuration sensibles (clés secrètes, mots de passe, etc.)
 .env
 .env.local
