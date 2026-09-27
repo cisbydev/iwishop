@@ -5,6 +5,7 @@ import { useSupportView } from '../context/supportViewContextValue';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { getPlagePeriode } from '../utils/periode';
 import { telechargerBlob } from '../utils/telechargerBlob';
+import JournalCaisse from './JournalCaisse';
 import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer, FileDown, FileSpreadsheet } from 'lucide-react';
 
 // Les deux exports (PDF, Excel) suivent exactement le même flux, seuls le
@@ -27,6 +28,10 @@ export default function Reports() {
   const [erreurChargement, setErreurChargement] = useState('');
   const [exportEnCours, setExportEnCours] = useState(null); // null | 'pdf' | 'excel'
   const [erreurExport, setErreurExport] = useState('');
+  // 'resume' | 'caisse' - le journal de caisse est réservé au propriétaire
+  // en v1 (JournalCaisseView : IsOwner), l'onglet n'existe pas sinon.
+  const [vue, setVue] = useState('resume');
+  const vueCaisse = estProprietaire && vue === 'caisse';
 
   const fetchResume = async (debut, fin) => {
     setLoading(true);
@@ -93,6 +98,11 @@ export default function Reports() {
     }
   };
 
+  const ongletClasse = (v) =>
+    `inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
+      vue === v ? 'bg-blue-600 text-white shadow-sm' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+    }`;
+
   const boutonClasse = (p) =>
     `inline-flex h-10 items-center justify-center rounded-lg px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${
       periode === p ? 'bg-blue-600 text-white shadow-sm' : 'border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
@@ -112,7 +122,7 @@ export default function Reports() {
           >
             <Printer className="h-4 w-4" /> Imprimer
           </button>
-          {estProprietaire && Object.entries(FORMATS_EXPORT).map(([format, { libelle, Icone }]) => (
+          {estProprietaire && !vueCaisse && Object.entries(FORMATS_EXPORT).map(([format, { libelle, Icone }]) => (
             <button
               key={format}
               onClick={() => handleExporter(format)}
@@ -125,6 +135,21 @@ export default function Reports() {
         </div>
       </section>
 
+      {estProprietaire && (
+        <div role="tablist" aria-label="Type de rapport" className="flex gap-2 print:hidden">
+          <button role="tab" aria-selected={vue === 'resume'} className={ongletClasse('resume')} onClick={() => setVue('resume')}>
+            Résumé financier
+          </button>
+          <button role="tab" aria-selected={vue === 'caisse'} className={ongletClasse('caisse')} onClick={() => setVue('caisse')}>
+            Caisse
+          </button>
+        </div>
+      )}
+
+      {vueCaisse ? (
+        <JournalCaisse />
+      ) : (
+      <>
       {erreurExport && (
         <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-800 print:hidden">
           {erreurExport}
@@ -252,6 +277,8 @@ export default function Reports() {
             </div>
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );
