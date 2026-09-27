@@ -272,6 +272,12 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# Tests uniquement : PBKDF2 (1,2 M d'itérations) coûte ~4,6 s par hachage
+# sur une machine de dev, et chaque create_user() des setUp en fait un.
+# MD5 n'est JAMAIS utilisé hors tests (TESTING, cf. plus haut).
+if TESTING:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
