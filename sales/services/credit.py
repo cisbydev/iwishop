@@ -4,6 +4,8 @@ from django.db import transaction
 from django.db.models import Sum
 from rest_framework.exceptions import ValidationError
 
+from parametres.services import devise_boutique
+
 from ..models import Remboursement, StatutPaiement, Vente
 
 
@@ -126,8 +128,9 @@ def avertissement_plafond_credit(vente):
 
     dette_totale = dette_totale_client(client)
     if dette_totale > client.plafond_credit:
+        devise = devise_boutique(vente.boutique)
         return (
-            f"Attention : la dette totale de {client.nom} ({dette_totale} FCFA) dépasse "
-            f"son plafond de crédit ({client.plafond_credit} FCFA)."
+            f"Attention : la dette totale de {client.nom} ({dette_totale} {devise}) dépasse "
+            f"son plafond de crédit ({client.plafond_credit} {devise})."
         )
     return None

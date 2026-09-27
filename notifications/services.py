@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from parametres.models import ParametresBoutique
+from parametres.services import parametres_boutique
 from sales.models import Vente
 from tenants.models import Boutique
 from .models import DestinataireNotification, Notification, TypeNotification
@@ -56,10 +56,9 @@ def verifier_dettes_en_retard():
     notifications_creees = 0
 
     for boutique in Boutique.objects.filter(actif=True):
-        # get_or_create comme ParametresBoutiqueView.get_object() : une
-        # boutique n'a pas forcément encore de ParametresBoutique créé
-        # explicitement (default=7 s'applique alors, même seuil qu'avant).
-        parametres, _ = ParametresBoutique.objects.get_or_create(boutique=boutique)
+        # Pas forcément de ParametresBoutique créé explicitement : les
+        # défauts s'appliquent alors (seuil 7 jours, devise FCFA).
+        parametres = parametres_boutique(boutique)
         seuil_retard = timezone.now() - timedelta(days=parametres.seuil_dette_retard_jours)
 
         # ANNULEE exclue : une vente annulée n'est plus une dette réelle, même
@@ -82,7 +81,7 @@ def verifier_dettes_en_retard():
                 type_notification=TypeNotification.DETTE_RETARD,
                 message=(
                     f"Dette en retard : {vente.client_credit.nom} doit "
-                    f"{vente.montant_du} FCFA depuis {jours} jours"
+                    f"{vente.montant_du} {parametres.devise} depuis {jours} jours"
                 ),
                 vente=vente,
                 destinataire_role=DestinataireNotification.PROPRIETAIRE,

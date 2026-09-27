@@ -310,6 +310,18 @@ class VerificationDettesEnRetardTests(TestCase):
         self.assertFalse(notif.lue)
         self.assertEqual(notif.destinataire_role, DestinataireNotification.PROPRIETAIRE)
         self.assertIn('Client Retard', notif.message)
+        # Sans ParametresBoutique explicite : devise par défaut.
+        self.assertIn('FCFA', notif.message)
+
+    def test_message_utilise_la_devise_de_la_boutique(self):
+        ParametresBoutique.objects.create(boutique=self.boutique, devise="EUR")
+        vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_PAR_DEFAUT + 1)
+
+        verifier_dettes_en_retard()
+
+        notif = self._notifications_dette_retard(vente).get()
+        self.assertIn('EUR', notif.message)
+        self.assertNotIn('FCFA', notif.message)
 
     def test_reexecution_sans_changement_ne_cree_pas_de_deuxieme_notification(self):
         vente = self._vente_credit(montant_du=1000, anciennete_jours=SEUIL_PAR_DEFAUT + 1)

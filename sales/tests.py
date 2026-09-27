@@ -11,6 +11,7 @@ from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase, APITransactionTestCase, APIClient
 
+from parametres.models import ParametresBoutique
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from products.models import Produit, UniteVente, ProduitPrix
 from inventory.models import MouvementStock
@@ -1214,8 +1215,23 @@ class VenteACreditCreationTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
         self.assertIn('avertissement', response.data)
+        # Sans ParametresBoutique explicite : devise par défaut.
+        self.assertIn('FCFA', response.data['avertissement'])
         vente = Vente.objects.get(pk=response.data['id'])
         self.assertEqual(vente.montant_du, Decimal("500.00"))
+
+    def test_avertissement_plafond_credit_utilise_la_devise_de_la_boutique(self):
+        ParametresBoutique.objects.create(boutique=self.boutique_a, devise="EUR")
+        self.client_credit_a.plafond_credit = Decimal("300.00")
+        self.client_credit_a.save()
+
+        response = self.api_client.post(
+            self.url_list, self._payload(quantite=5, client_credit=self.client_credit_a), format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertIn('EUR', response.data['avertissement'])
+        self.assertNotIn('FCFA', response.data['avertissement'])
 
     def test_pas_davertissement_sous_le_plafond_credit(self):
         self.client_credit_a.plafond_credit = Decimal("1000.00")

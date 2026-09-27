@@ -18,7 +18,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from accounts.permissions import IsOwner
-from parametres.models import ParametresBoutique
+from parametres.services import parametres_boutique
 from tenants.mixins import BoutiqueScopedMixin
 from sales.models import LigneVente, Vente
 from sales.utils import unites_reelles_expr
@@ -163,15 +163,6 @@ def lister_ventes_detaillees(boutique, date_debut, date_fin):
             for ligne in lignes
         ],
     }
-
-
-def parametres_boutique(boutique):
-    """get_or_create comme ParametresBoutiqueView.get_object() : une
-    boutique n'a pas forcément encore de ParametresBoutique créé
-    explicitement (default="FCFA" s'applique alors). Réutilisé par les
-    vues d'export (PDF, Excel) - une seule source pour ce pattern."""
-    parametres, _ = ParametresBoutique.objects.get_or_create(boutique=boutique)
-    return parametres
 
 
 def logo_flowable_pdf(parametres):
