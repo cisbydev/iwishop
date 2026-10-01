@@ -32,11 +32,15 @@ MOTIFS = [
      re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*://[^\s'\"/:@]+:[^\s'\"/@]+@[^\s'\"/]+")),
     ("Clé privée (bloc PEM)",
      re.compile(r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----")),
+    # Noms préfixés compris (STRIPE_API_KEY, CLOUDFLARE_R2_SECRET_KEY,
+    # R2_SECRET_ACCESS_KEY, GITHUB_TOKEN...) : l'ancien `\bAPI_KEY\b` ne
+    # voyait pas `API_KEY` précédé d'un "_" (caractère de mot). Clé
+    # éventuellement entre guillemets (JSON, dict Python).
     ("Clé/secret assigné en dur",
      re.compile(
-         r"(?i)\b(AWS_SECRET_ACCESS_KEY|AWS_ACCESS_KEY_ID|CLOUDFLARE_R2_(ACCESS|SECRET)_KEY|"
-         r"SECRET_KEY|API_KEY|ACCESS_KEY|PRIVATE_KEY|DATABASE_URL)\b\s*[:=]\s*['\"]?"
-         r"[A-Za-z0-9/+_=-]{16,}['\"]?"
+         r"(?i)\b(?:PAYDUNYA_[A-Z0-9_]+|"
+         r"[A-Z0-9_]*(?:SECRET_KEY|API_KEY|ACCESS_KEY(?:_ID)?|PRIVATE_KEY|MASTER_KEY|_TOKEN|DATABASE_URL))\b"
+         r"['\"]?\s*[:=]\s*['\"]?[A-Za-z0-9/+_=-]{16,}['\"]?"
      )),
     ("Clé d'accès AWS (AKIA...)", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("Token de service connu (Stripe/GitHub/Slack)",

@@ -30,7 +30,7 @@ class AssistantQuotaTests(APITestCase):
         self.client.force_authenticate(user=self.proprietaire)
         self.url = reverse('assistant')
 
-    @override_settings(ANTHROPIC_API_KEY='cle-de-test-factice')
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
     @patch('assistant.views.anthropic.Anthropic')
     def test_quota_atteint_refuse_la_requete_sans_appeler_anthropic(self, mock_anthropic_class):
         ParametresBoutique.objects.create(boutique=self.boutique, limite_questions_assistant_par_jour=1)
@@ -59,7 +59,7 @@ class AssistantReponseNormaleTests(APITestCase):
         self.client.force_authenticate(user=self.proprietaire)
         self.url = reverse('assistant')
 
-    @override_settings(ANTHROPIC_API_KEY='cle-de-test-factice')
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
     @patch('assistant.views.anthropic.Anthropic')
     def test_reponse_normale_cree_la_requete_et_retourne_la_reponse(self, mock_anthropic_class):
         mock_client = mock_anthropic_class.return_value
@@ -100,7 +100,7 @@ class AssistantReponseNormaleTests(APITestCase):
         response = self.client.post(self.url, {"question": "   "}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @override_settings(ANTHROPIC_API_KEY='cle-de-test-factice')
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
     @patch('assistant.views.anthropic.Anthropic')
     def test_date_mal_formee_ne_fait_pas_echouer_toute_la_requete(self, mock_anthropic_class):
         """Une exception Django brute ici remonterait au `except Exception`
@@ -150,7 +150,7 @@ class AssistantPermissionTests(APITestCase):
         Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
         self.url = reverse('assistant')
 
-    @override_settings(ANTHROPIC_API_KEY='cle-de-test-factice')
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
     @patch('assistant.views.anthropic.Anthropic')
     def test_employe_recoit_403_et_anthropic_nest_jamais_appele(self, mock_anthropic_class):
         self.client.force_authenticate(user=self.employe)
@@ -194,7 +194,7 @@ class AssistantIsolationMultiTenantTests(APITestCase):
         self.client.force_authenticate(user=self.proprietaire_a)
         self.url = reverse('assistant')
 
-    @override_settings(ANTHROPIC_API_KEY='cle-de-test-factice')
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
     @patch('assistant.views.anthropic.Anthropic')
     def test_outil_ignore_toute_tentative_de_cibler_une_autre_boutique(self, mock_anthropic_class):
         mock_client = mock_anthropic_class.return_value
