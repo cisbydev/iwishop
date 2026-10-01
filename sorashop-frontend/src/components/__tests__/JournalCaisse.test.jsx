@@ -45,12 +45,43 @@ const JOURNAL = {
     ],
     ventes: 1200.0,
     remboursements: 350.0,
+    nombre_remboursements: 3,
     total: 7777.0,
   },
   sorties: { achats: 400.0, nombre_achats: 1, depenses: 150.0, nombre_depenses: 2, total: 550.0 },
   solde_periode: 1000.0,
-  informations: { nombre_ventes: 3, credit_accorde: 800.0, ventes_synchronisees_en_differe: 1 },
+  informations: { nombre_ventes: 3, credit_accorde: 800.0, credit_restant_du: 300.0, ventes_synchronisees_en_differe: 1 },
 };
+
+// Période sans aucun mouvement : tout à 0, toutes les lignes à 0.
+const JOURNAL_VIDE = {
+  date_debut: '2026-03-10',
+  date_fin: '2026-03-10',
+  entrees: {
+    par_mode: ['ESPECES', 'MOBILE_MONEY', 'CARTE', 'AUTRE'].map((mode) => ligne(mode, 0.0, 0.0, 0.0)),
+    ventes: 0.0,
+    remboursements: 0.0,
+    nombre_remboursements: 0,
+    total: 0.0,
+  },
+  sorties: { achats: 0.0, nombre_achats: 0, depenses: 0.0, nombre_depenses: 0, total: 0.0 },
+  solde_periode: 0.0,
+  informations: { nombre_ventes: 0, credit_accorde: 0.0, credit_restant_du: 0.0, ventes_synchronisees_en_differe: 0 },
+};
+
+function journalAvec({ entrees = {}, sorties = {}, informations = {}, ...reste }) {
+  return {
+    ...JOURNAL_VIDE,
+    ...reste,
+    entrees: { ...JOURNAL_VIDE.entrees, ...entrees },
+    sorties: { ...JOURNAL_VIDE.sorties, ...sorties },
+    informations: { ...JOURNAL_VIDE.informations, ...informations },
+  };
+}
+
+function itemQuiContient(texte) {
+  return screen.getByText(texte, { exact: false }).closest('li');
+}
 
 const RESUME = {
   chiffre_affaires: 2000, nombre_ventes: 2, total_achats: 400, nombre_achats: 1,
@@ -140,6 +171,102 @@ describe('JournalCaisse', () => {
     expect(screen.queryByText('Remboursements de dettes')).not.toBeInTheDocument();
     const cartes = screen.getByRole('list', { name: 'Entrées par mode' });
     expect(within(cartes).queryByText(/Remboursements/)).not.toBeInTheDocument();
+  });
+
+  it('crédit de 6000 soldé le jour même (5000 espèces + 1000 Mobile Money) : vendu à crédit 6000, plus rien de dû', async () => {
+    mocks.get.mockResolvedValue({
+      data: journalAvec({
+        entrees: {
+          par_mode: [
+            ligne('ESPECES', 0.0, 5000.0, 5000.0),
+            ligne('MOBILE_MONEY', 0.0, 1000.0, 1000.0),
+            ligne('CARTE', 0.0, 0.0, 0.0),
+            ligne('AUTRE', 0.0, 0.0, 0.0),
+          ],
+          remboursements: 6000.0,
+          nombre_remboursements: 2,
+          total: 6000.0,
+        },
+        solde_periode: 6000.0,
+        informations: { nombre_ventes: 1, credit_accorde: 6000.0, credit_restant_du: 0.0 },
+      }),
+    });
+
+    render(<JournalCaisse />);
+    await screen.findByText('Solde de la période');
+
+    expect(itemQuiContient('Vendu à crédit sur la période')).toHaveTextContent(/6\s?000/);
+    expect(itemQuiContient("Dont encore dû aujourd'hui")).toHaveTextContent(/:\s*0\s/);
+    expect(screen.queryByText(/non encaissé/)).not.toBeInTheDocument();
+  });
+
+  it('solde à 0 en couleur neutre, ni vert ni rouge', async () => {
+    // Des mouvements qui se compensent : pas l'état vide.
+    mocks.get.mockResolvedValue({
+      data: journalAvec({
+        sorties: { achats: 1000.0, nombre_achats: 1, total: 1000.0 },
+        entrees: { ventes: 1000.0, total: 1000.0 },
+        informations: { nombre_ventes: 1 },
+        solde_periode: 0.0,
+      }),
+    });
+
+    render(<JournalCaisse />);
+    const libelle = await screen.findByText('Solde de la période');
+
+    const montant = libelle.nextElementSibling;
+    expect(montant).not.toHaveClass('text-emerald-600');
+    expect(montant).not.toHaveClass('text-red-600');
+    expect(montant).toHaveClass('text-slate-700');
+  });
+
+  it('affiche "Aucun mouvement sur cette période" au lieu des lignes à zéro', async () => {
+    mocks.get.mockResolvedValue({ data: JOURNAL_VIDE });
+
+    render(<JournalCaisse />);
+
+    expect(await screen.findByText('Aucun mouvement sur cette période.')).toBeInTheDocument();
+    expect(screen.getByText(/Période affichée/)).toBeInTheDocument();
+    expect(screen.queryByText('Solde de la période')).not.toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  it("pas d'état vide pour une vente à crédit sans acompte (0 encaissé, mais une vente)", async () => {
+    mocks.get.mockResolvedValue({
+      data: journalAvec({ informations: { nombre_ventes: 1, credit_accorde: 6000.0, credit_restant_du: 6000.0 } }),
+    });
+
+    render(<JournalCaisse />);
+
+    expect(await screen.findByText('Solde de la période')).toBeInTheDocument();
+    expect(screen.queryByText('Aucun mouvement sur cette période.')).not.toBeInTheDocument();
+    expect(itemQuiContient('Vendu à crédit sur la période')).toHaveTextContent(/6\s?000/);
+  });
+
+  it("pas d'état vide pour un remboursement de 5000 annulé par sa correction (-5000) : 0 en montant, 2 mouvements", async () => {
+    mocks.get.mockResolvedValue({
+      data: journalAvec({ entrees: { remboursements: 0.0, nombre_remboursements: 2 } }),
+    });
+
+    render(<JournalCaisse />);
+
+    expect(await screen.findByText('Solde de la période')).toBeInTheDocument();
+    expect(screen.queryByText('Aucun mouvement sur cette période.')).not.toBeInTheDocument();
+  });
+
+  it('backend pas encore déployé (credit_restant_du et nombre_remboursements absents) : ni ligne "Dont encore dû", ni état vide', async () => {
+    const ancienneReponse = structuredClone(JOURNAL_VIDE);
+    delete ancienneReponse.informations.credit_restant_du;
+    delete ancienneReponse.entrees.nombre_remboursements;
+    mocks.get.mockResolvedValue({ data: ancienneReponse });
+
+    render(<JournalCaisse />);
+
+    expect(await screen.findByText('Solde de la période')).toBeInTheDocument();
+    expect(screen.queryByText('Aucun mouvement sur cette période.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Dont encore dû/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/NaN|undefined/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Vendu à crédit sur la période/)).toBeInTheDocument();
   });
 });
 

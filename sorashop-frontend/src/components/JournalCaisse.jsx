@@ -51,6 +51,18 @@ export default function JournalCaisse() {
   // remboursements sur la période (boutique repassée en Essentiel).
   const afficherRemboursements = aAccesPremium !== false || Number(journal?.entrees.remboursements) !== 0;
 
+  // Sur les nombres de lignes, jamais sur les montants : une vente à crédit
+  // sans acompte ou un remboursement annulé par sa correction font 0 en
+  // montant mais restent des mouvements à afficher. nombre_remboursements
+  // absent (backend antérieur) : pas d'état vide, faute de pouvoir l'affirmer.
+  const aucunMouvement = journal !== null
+    && journal.informations.nombre_ventes === 0
+    && journal.entrees.nombre_remboursements === 0
+    && journal.sorties.nombre_achats === 0
+    && journal.sorties.nombre_depenses === 0;
+  const solde = Number(journal?.solde_periode);
+  const couleurSolde = solde < 0 ? 'text-red-600' : solde > 0 ? 'text-emerald-600' : 'text-slate-700';
+
   return (
     <div className="space-y-6">
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm print:hidden sm:p-6">
@@ -108,10 +120,16 @@ export default function JournalCaisse() {
             <span className="font-medium text-slate-700">{formatDate(journal.date_fin)}</span>
           </p>
 
+          {aucunMouvement ? (
+            <section className="rounded-xl border border-slate-200 bg-white p-8 text-center text-slate-500 shadow-sm">
+              Aucun mouvement sur cette période.
+            </section>
+          ) : (
+          <>
           {/* Solde de la période */}
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <p className="text-sm font-medium text-slate-500">Solde de la période</p>
-            <p className={`mt-1 text-3xl font-bold ${Number(journal.solde_periode) < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+            <p className={`mt-1 text-3xl font-bold ${couleurSolde}`}>
               {formatCurrency(journal.solde_periode, devise)}
             </p>
             <p className="mt-2 text-sm text-slate-600">
@@ -214,8 +232,14 @@ export default function JournalCaisse() {
             <ul className="mt-3 space-y-2 text-sm text-slate-600">
               <li>{journal.informations.nombre_ventes} vente(s) sur la période.</li>
               <li>
-                Vendu à crédit, non encaissé : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_accorde, devise)}</span> (non compté dans les entrées).
+                Vendu à crédit sur la période : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_accorde, devise)}</span>
               </li>
+              {/* Absent tant que le backend n'est pas déployé : ligne masquée. */}
+              {journal.informations.credit_restant_du != null && (
+                <li>
+                  Dont encore dû aujourd'hui : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_restant_du, devise)}</span>
+                </li>
+              )}
               {journal.informations.ventes_synchronisees_en_differe > 0 && (
                 <li>
                   {journal.informations.ventes_synchronisees_en_differe} vente(s) faite(s) hors connexion, comptée(s) au jour de leur synchronisation.
@@ -224,6 +248,8 @@ export default function JournalCaisse() {
               <li>Les ventes, achats et dépenses annulés sont retirés du jour où ils avaient été enregistrés.</li>
             </ul>
           </section>
+          </>
+          )}
         </>
       )}
     </div>
