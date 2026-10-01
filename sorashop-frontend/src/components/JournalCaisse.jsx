@@ -125,130 +125,130 @@ export default function JournalCaisse() {
               Aucun mouvement sur cette période.
             </section>
           ) : (
-          <>
-          {/* Solde de la période */}
-          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <p className="text-sm font-medium text-slate-500">Solde de la période</p>
-            <p className={`mt-1 text-3xl font-bold ${couleurSolde}`}>
-              {formatCurrency(journal.solde_periode, devise)}
-            </p>
-            <p className="mt-2 text-sm text-slate-600">
-              Argent encaissé moins argent sorti sur la période. Ce n'est pas le contenu de votre caisse :
-              le fond de caisse de départ n'est pas enregistré dans iwiShop.
-            </p>
-          </section>
+            <>
+              {/* Solde de la période */}
+              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <p className="text-sm font-medium text-slate-500">Solde de la période</p>
+                <p className={`mt-1 text-3xl font-bold ${couleurSolde}`}>
+                  {formatCurrency(journal.solde_periode, devise)}
+                </p>
+                <p className="mt-2 text-sm text-slate-600">
+                  Argent encaissé moins argent sorti sur la période. Ce n'est pas le contenu de votre caisse :
+                  le fond de caisse de départ n'est pas enregistré dans iwiShop.
+                </p>
+              </section>
 
-          {/* Entrées par mode */}
-          <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <h3 className="border-b border-slate-100 px-5 py-4 text-base font-semibold text-slate-900 sm:px-6">Entrées</h3>
-            {/* Téléphone : une carte par mode (le tableau à 4 colonnes est
-                illisible à 375 px). Les modes à 0 sont omis pour alléger. */}
-            <ul aria-label="Entrées par mode" className="divide-y divide-slate-100 sm:hidden">
-              {journal.entrees.par_mode.filter((ligne) => Number(ligne.total) !== 0).map((ligne) => (
-                <li key={ligne.mode_paiement ?? 'non-precise'} className="px-5 py-3">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-medium text-slate-900">{libelleModePaiement(ligne.mode_paiement)}</span>
-                    <span className="font-semibold text-slate-900">{formatCurrency(ligne.total, devise)}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Ventes {formatCurrency(ligne.ventes, devise)}
-                    {afficherRemboursements && <> · Remboursements {formatCurrency(ligne.remboursements, devise)}</>}
-                  </p>
-                </li>
-              ))}
-              {journal.entrees.par_mode.every((ligne) => Number(ligne.total) === 0) && (
-                <li className="px-5 py-3 text-sm text-slate-500">Aucune entrée sur la période.</li>
-              )}
-              <li className="flex items-baseline justify-between gap-3 bg-slate-50 px-5 py-3 font-semibold text-slate-900">
-                <span>Total encaissé</span>
-                <span>{formatCurrency(journal.entrees.total, devise)}</span>
-              </li>
-            </ul>
-            <div className="hidden overflow-x-auto sm:block">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-5 py-3 font-medium sm:px-6">Mode</th>
-                    <th className="px-3 py-3 text-right font-medium">Ventes</th>
-                    {afficherRemboursements && <th className="px-3 py-3 text-right font-medium">Remboursements de dettes</th>}
-                    <th className="px-5 py-3 text-right font-medium sm:px-6">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {journal.entrees.par_mode.map((ligne) => (
-                    <tr key={ligne.mode_paiement ?? 'non-precise'}>
-                      <td className="px-5 py-3 text-slate-700 sm:px-6">{libelleModePaiement(ligne.mode_paiement)}</td>
-                      <td className="px-3 py-3 text-right text-slate-700">{formatCurrency(ligne.ventes, devise)}</td>
-                      {afficherRemboursements && (
-                        <td className="px-3 py-3 text-right text-slate-700">{formatCurrency(ligne.remboursements, devise)}</td>
-                      )}
-                      <td className="px-5 py-3 text-right font-medium text-slate-900 sm:px-6">{formatCurrency(ligne.total, devise)}</td>
-                    </tr>
+              {/* Entrées par mode */}
+              <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+                <h3 className="border-b border-slate-100 px-5 py-4 text-base font-semibold text-slate-900 sm:px-6">Entrées</h3>
+                {/* Téléphone : une carte par mode (le tableau à 4 colonnes est
+                    illisible à 375 px). Les modes à 0 sont omis pour alléger. */}
+                <ul aria-label="Entrées par mode" className="divide-y divide-slate-100 sm:hidden">
+                  {journal.entrees.par_mode.filter((ligne) => Number(ligne.total) !== 0).map((ligne) => (
+                    <li key={ligne.mode_paiement ?? 'non-precise'} className="px-5 py-3">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="font-medium text-slate-900">{libelleModePaiement(ligne.mode_paiement)}</span>
+                        <span className="font-semibold text-slate-900">{formatCurrency(ligne.total, devise)}</span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Ventes {formatCurrency(ligne.ventes, devise)}
+                        {afficherRemboursements && <> · Remboursements {formatCurrency(ligne.remboursements, devise)}</>}
+                      </p>
+                    </li>
                   ))}
-                </tbody>
-                <tfoot className="bg-slate-50 font-semibold text-slate-900">
-                  <tr>
-                    <td className="px-5 py-3 sm:px-6">Total encaissé</td>
-                    <td className="px-3 py-3 text-right">{formatCurrency(journal.entrees.ventes, devise)}</td>
-                    {afficherRemboursements && (
-                      <td className="px-3 py-3 text-right">{formatCurrency(journal.entrees.remboursements, devise)}</td>
-                    )}
-                    <td className="px-5 py-3 text-right sm:px-6">{formatCurrency(journal.entrees.total, devise)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-            <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500 sm:px-6">
-              Ventes : montant reçu moins la monnaie rendue ; pour une vente à crédit, seul l'acompte est compté.
-            </p>
-          </section>
+                  {journal.entrees.par_mode.every((ligne) => Number(ligne.total) === 0) && (
+                    <li className="px-5 py-3 text-sm text-slate-500">Aucune entrée sur la période.</li>
+                  )}
+                  <li className="flex items-baseline justify-between gap-3 bg-slate-50 px-5 py-3 font-semibold text-slate-900">
+                    <span>Total encaissé</span>
+                    <span>{formatCurrency(journal.entrees.total, devise)}</span>
+                  </li>
+                </ul>
+                <div className="hidden overflow-x-auto sm:block">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-5 py-3 font-medium sm:px-6">Mode</th>
+                        <th className="px-3 py-3 text-right font-medium">Ventes</th>
+                        {afficherRemboursements && <th className="px-3 py-3 text-right font-medium">Remboursements de dettes</th>}
+                        <th className="px-5 py-3 text-right font-medium sm:px-6">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {journal.entrees.par_mode.map((ligne) => (
+                        <tr key={ligne.mode_paiement ?? 'non-precise'}>
+                          <td className="px-5 py-3 text-slate-700 sm:px-6">{libelleModePaiement(ligne.mode_paiement)}</td>
+                          <td className="px-3 py-3 text-right text-slate-700">{formatCurrency(ligne.ventes, devise)}</td>
+                          {afficherRemboursements && (
+                            <td className="px-3 py-3 text-right text-slate-700">{formatCurrency(ligne.remboursements, devise)}</td>
+                          )}
+                          <td className="px-5 py-3 text-right font-medium text-slate-900 sm:px-6">{formatCurrency(ligne.total, devise)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-slate-50 font-semibold text-slate-900">
+                      <tr>
+                        <td className="px-5 py-3 sm:px-6">Total encaissé</td>
+                        <td className="px-3 py-3 text-right">{formatCurrency(journal.entrees.ventes, devise)}</td>
+                        {afficherRemboursements && (
+                          <td className="px-3 py-3 text-right">{formatCurrency(journal.entrees.remboursements, devise)}</td>
+                        )}
+                        <td className="px-5 py-3 text-right sm:px-6">{formatCurrency(journal.entrees.total, devise)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                <p className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500 sm:px-6">
+                  Ventes : montant reçu moins la monnaie rendue ; pour une vente à crédit, seul l'acompte est compté.
+                </p>
+              </section>
 
-          {/* Sorties */}
-          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <h3 className="text-base font-semibold text-slate-900">Sorties</h3>
-            <dl className="mt-3 space-y-2 text-sm">
-              <div className="flex justify-between gap-2">
-                <dt className="text-slate-600">Achats ({journal.sorties.nombre_achats})</dt>
-                <dd className="font-medium text-slate-900">{formatCurrency(journal.sorties.achats, devise)}</dd>
-              </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-slate-600">Dépenses ({journal.sorties.nombre_depenses})</dt>
-                <dd className="font-medium text-slate-900">{formatCurrency(journal.sorties.depenses, devise)}</dd>
-              </div>
-              <div className="flex justify-between gap-2 border-t border-slate-100 pt-2 font-semibold">
-                <dt className="text-slate-900">Total sorti</dt>
-                <dd className="text-slate-900">{formatCurrency(journal.sorties.total, devise)}</dd>
-              </div>
-            </dl>
-            <p className="mt-3 flex gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
-              <Info className="h-4 w-4 shrink-0" />
-              Les achats et les dépenses sont considérés comme payés comptant : leur mode de paiement n'est pas enregistré.
-            </p>
-          </section>
+              {/* Sorties */}
+              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <h3 className="text-base font-semibold text-slate-900">Sorties</h3>
+                <dl className="mt-3 space-y-2 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-600">Achats ({journal.sorties.nombre_achats})</dt>
+                    <dd className="font-medium text-slate-900">{formatCurrency(journal.sorties.achats, devise)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-slate-600">Dépenses ({journal.sorties.nombre_depenses})</dt>
+                    <dd className="font-medium text-slate-900">{formatCurrency(journal.sorties.depenses, devise)}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2 border-t border-slate-100 pt-2 font-semibold">
+                    <dt className="text-slate-900">Total sorti</dt>
+                    <dd className="text-slate-900">{formatCurrency(journal.sorties.total, devise)}</dd>
+                  </div>
+                </dl>
+                <p className="mt-3 flex gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
+                  <Info className="h-4 w-4 shrink-0" />
+                  Les achats et les dépenses sont considérés comme payés comptant : leur mode de paiement n'est pas enregistré.
+                </p>
+              </section>
 
-          {/* Informations */}
-          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <h3 className="text-base font-semibold text-slate-900">À savoir</h3>
-            <ul className="mt-3 space-y-2 text-sm text-slate-600">
-              <li>{journal.informations.nombre_ventes} vente(s) sur la période.</li>
-              <li>
-                Vendu à crédit sur la période : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_accorde, devise)}</span>
-              </li>
-              {/* Absent tant que le backend n'est pas déployé : ligne masquée. */}
-              {journal.informations.credit_restant_du != null && (
-                <li>
-                  Dont encore dû aujourd'hui : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_restant_du, devise)}</span>
-                </li>
-              )}
-              {journal.informations.ventes_synchronisees_en_differe > 0 && (
-                <li>
-                  {journal.informations.ventes_synchronisees_en_differe} vente(s) faite(s) hors connexion, comptée(s) au jour de leur synchronisation.
-                </li>
-              )}
-              <li>Les ventes, achats et dépenses annulés sont retirés du jour où ils avaient été enregistrés.</li>
-            </ul>
-          </section>
-          </>
+              {/* Informations */}
+              <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                <h3 className="text-base font-semibold text-slate-900">À savoir</h3>
+                <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                  <li>{journal.informations.nombre_ventes} vente(s) sur la période.</li>
+                  <li>
+                    Vendu à crédit sur la période : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_accorde, devise)}</span>
+                  </li>
+                  {/* Absent tant que le backend n'est pas déployé : ligne masquée. */}
+                  {journal.informations.credit_restant_du != null && (
+                    <li>
+                      Dont encore dû aujourd'hui : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_restant_du, devise)}</span>
+                    </li>
+                  )}
+                  {journal.informations.ventes_synchronisees_en_differe > 0 && (
+                    <li>
+                      {journal.informations.ventes_synchronisees_en_differe} vente(s) faite(s) hors connexion, comptée(s) au jour de leur synchronisation.
+                    </li>
+                  )}
+                  <li>Les ventes, achats et dépenses annulés sont retirés du jour où ils avaient été enregistrés.</li>
+                </ul>
+              </section>
+            </>
           )}
         </>
       )}
