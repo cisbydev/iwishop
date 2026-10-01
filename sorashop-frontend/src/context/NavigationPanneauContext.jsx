@@ -1,10 +1,11 @@
-import { createContext, useContext, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   SECTIONS_PRIORITAIRES_MOBILE,
   SECTIONS_PRIORITAIRES_TABLETTE,
   partitionnerNavigation,
 } from '../navigation';
 import PanneauPlusNavigation from '../components/PanneauPlusNavigation';
+import { NavigationPanneauContext } from './navigationPanneauContextValue';
 
 const { prioritaires: prioritairesTablette, autres: autresTablette } = partitionnerNavigation(
   SECTIONS_PRIORITAIRES_TABLETTE
@@ -12,8 +13,6 @@ const { prioritaires: prioritairesTablette, autres: autresTablette } = partition
 const { prioritaires: prioritairesMobile, autres: autresMobile } = partitionnerNavigation(
   SECTIONS_PRIORITAIRES_MOBILE
 );
-
-const NavigationPanneauContext = createContext(null);
 
 export function NavigationPanneauProvider({
   activeTab,
@@ -65,12 +64,4 @@ export function NavigationPanneauProvider({
       )}
     </NavigationPanneauContext.Provider>
   );
-}
-
-export function useNavigationPanneau() {
-  const contexte = useContext(NavigationPanneauContext);
-  if (!contexte) {
-    throw new Error('useNavigationPanneau doit être utilisé à l’intérieur de NavigationPanneauProvider');
-  }
-  return contexte;
 }

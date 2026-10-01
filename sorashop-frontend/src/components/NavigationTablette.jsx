@@ -1,5 +1,5 @@
 import { MoreHorizontal } from 'lucide-react';
-import { useNavigationPanneau } from '../context/NavigationPanneauContext';
+import { useNavigationPanneau } from '../context/navigationPanneauContextValue';
 
 export default function NavigationTablette() {
   const { activeTab, onSelect, ouvrirPanneau, panneauOuvert, prioritairesTablette } = useNavigationPanneau();
