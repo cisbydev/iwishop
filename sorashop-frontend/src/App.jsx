@@ -120,7 +120,9 @@ function AppContent() {
           <AbonnementBanner />
           <VentesEnAttenteBanner />
         </GlobalBanners>
-        <header className="flex min-h-16 items-center gap-3 border-b border-slate-200/70 bg-white px-4 sm:px-6 min-[1280px]:min-h-[104px] min-[1280px]:gap-4">
+        {/* Navigation (desktop, tablette, mobile), bannières et assistant
+            masqués à l'impression : seul le contenu de la page sort. */}
+        <header className="flex min-h-16 items-center gap-3 border-b border-slate-200/70 bg-white px-4 sm:px-6 print:hidden min-[1280px]:min-h-[104px] min-[1280px]:gap-4">
           <h1 className="flex min-w-0 flex-1 items-center justify-center gap-3 min-[768px]:max-w-[13rem] min-[768px]:justify-start min-[1280px]:w-14 min-[1280px]:flex-none">
             <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-100 min-[1280px]:h-14 min-[1280px]:w-14 min-[1280px]:rounded-xl min-[1280px]:bg-white min-[1280px]:shadow-[0_3px_10px_rgba(15,23,42,0.10)] min-[1280px]:ring-slate-200/80">
               <img

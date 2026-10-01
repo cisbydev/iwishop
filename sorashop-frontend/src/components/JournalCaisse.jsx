@@ -5,6 +5,7 @@ import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { libelleModePaiement } from '../utils/modesPaiement';
+import TitreImpression from './TitreImpression';
 import { Info } from 'lucide-react';
 
 // Affichage seul : tous les montants et totaux viennent de l'API
@@ -115,7 +116,14 @@ export default function JournalCaisse() {
         </div>
       ) : (
         <>
-          <p className="text-sm text-slate-500">
+          <TitreImpression
+            titre="Journal de caisse"
+            nomBoutique={journal.boutique_nom}
+            dateDebut={journal.date_debut}
+            dateFin={journal.date_fin}
+          />
+          {/* Déjà dans le titre imprimé. */}
+          <p className="text-sm text-slate-500 print:hidden">
             Période affichée : <span className="font-medium text-slate-700">{formatDate(journal.date_debut)}</span> au{' '}
             <span className="font-medium text-slate-700">{formatDate(journal.date_fin)}</span>
           </p>

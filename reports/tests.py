@@ -70,6 +70,20 @@ class ResumeFinancierAccesTests(APITestCase):
         response = self.client.get(self.url, HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique.id))
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_vue_support_boutique_nom_de_la_boutique_consultee(self):
+        """Titre imprimé : le nom vient de la même boutique effective que les
+        chiffres, jamais d'un état côté client (paramètres chargés avant)."""
+        admin = User.objects.create_superuser(username="admin_nom", email="admin_nom@example.com", password="x")
+        Profil.objects.create(
+            user=admin, boutique=Boutique.objects.create(nom="Boutique Admin", slug="boutique-admin"),
+            est_proprietaire=True,
+        )
+        self.client.force_authenticate(user=admin)
+
+        response = self.client.get(self.url, HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique.id))
+
+        self.assertEqual(response.data['boutique_nom'], "Boutique A")
+
     def test_vue_support_boutique_introuvable_403_pas_500(self):
         """Avant la correction, un ID de Vue Support inexistant faisait
         planter la vue (Boutique.DoesNotExist non gérée -> 500)."""
@@ -1107,6 +1121,9 @@ class JournalCaisseTests(APITestCase):
         for params in cas:
             with self.subTest(params=params):
                 self.assertEqual(self.client.get(self.url, params).status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_boutique_nom_de_la_boutique_effective(self):
+        self.assertEqual(self._get().data['boutique_nom'], "Boutique Caisse")
 
     def test_periode_de_31_jours_acceptee(self):
         response = self.client.get(self.url, {"date_debut": "2026-03-01", "date_fin": "2026-03-31"})

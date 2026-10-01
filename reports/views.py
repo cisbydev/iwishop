@@ -298,7 +298,13 @@ class ResumeFinancierView(BoutiqueScopedMixin, APIView):
         # Filtres de date optionnels (?date_debut=YYYY-MM-DD&date_fin=YYYY-MM-DD)
         date_debut, date_fin = bornes_dates_rapport(request)
 
-        return Response(calculer_resume_financier(boutique, date_debut, date_fin))
+        # boutique_nom : pour le titre imprimé, depuis la même boutique
+        # effective que les chiffres (Vue Support comprise), comme le titre
+        # des exports PDF/Excel.
+        return Response({
+            **calculer_resume_financier(boutique, date_debut, date_fin),
+            "boutique_nom": boutique.nom,
+        })
 
 
 class ResumeFinancierExportPDFView(BoutiqueScopedMixin, APIView):

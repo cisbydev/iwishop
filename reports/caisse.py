@@ -178,4 +178,8 @@ class JournalCaisseView(BoutiqueScopedMixin, APIView):
     def get(self, request, *args, **kwargs):
         boutique = self._boutique_effective()
         date_debut, date_fin = bornes_journal_caisse(request)
-        return Response(calculer_journal_caisse(boutique, date_debut, date_fin))
+        # boutique_nom : titre imprimé, même boutique effective que les chiffres.
+        return Response({
+            **calculer_journal_caisse(boutique, date_debut, date_fin),
+            "boutique_nom": boutique.nom,
+        })

@@ -60,7 +60,7 @@ export default function Assistant() {
         aria-haspopup="dialog"
         aria-expanded={ouvert}
         aria-label="Ouvrir Iwi, l'assistant IA"
-        className="fixed bottom-20 right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 md:bottom-6 md:right-6"
+        className="fixed bottom-20 right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 md:bottom-6 md:right-6 print:hidden"
       >
         <Sparkles className="h-6 w-6" aria-hidden="true" />
       </button>
@@ -70,7 +70,7 @@ export default function Assistant() {
           role="dialog"
           aria-modal="true"
           aria-label="Iwi, l'assistant IA"
-          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/30 sm:items-end sm:justify-end sm:p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/30 sm:items-end sm:justify-end sm:p-4 print:hidden"
         >
           <div className="flex h-[85vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:h-[32rem] sm:max-w-md sm:rounded-2xl">
             <div className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-blue-50/60 px-4 py-3">

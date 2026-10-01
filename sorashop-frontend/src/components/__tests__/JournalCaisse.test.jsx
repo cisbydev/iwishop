@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   settings: {
-    parametres: { devise: 'FCFA' },
+    parametres: { devise: 'FCFA', nom_boutique: 'Nom des paramètres (périmé)' },
     utilisateur: { est_proprietaire: true },
     aAccesPremium: true,
   },
@@ -33,6 +33,7 @@ function ligne(mode_paiement, ventes, remboursements, total) {
 // Valeurs volontairement "incohérentes" entre elles (total ≠ somme) : le
 // composant doit afficher ce que renvoie l'API, jamais recalculer.
 const JOURNAL = {
+  boutique_nom: 'Boutique Awa',
   date_debut: '2026-03-10',
   date_fin: '2026-03-10',
   entrees: {
@@ -84,6 +85,7 @@ function itemQuiContient(texte) {
 }
 
 const RESUME = {
+  boutique_nom: 'Boutique Awa', date_debut: '2026-03-01', date_fin: '2026-03-31',
   chiffre_affaires: 2000, nombre_ventes: 2, total_achats: 400, nombre_achats: 1,
   total_depenses: 150, nombre_depenses: 2, benefice_brut: 900, benefice_net: 750,
 };
@@ -289,6 +291,57 @@ describe('Reports - onglet Caisse', () => {
     expect(await screen.findByText('Solde de la période')).toBeInTheDocument();
     // Les exports concernent le résumé financier : absents sur la caisse.
     expect(screen.queryByRole('button', { name: /Exporter en PDF/ })).not.toBeInTheDocument();
+  });
+
+  // jsdom n'applique pas le média print : on vérifie le contenu du titre et
+  // qu'il est masqué à l'écran (hidden + print:block), le rendu papier se
+  // contrôle avec Ctrl+P.
+  it('titre imprimé de la caisse : "Journal de caisse", boutique, période de l\'API ; pas celui du résumé', async () => {
+    mocks.settings.utilisateur = { est_proprietaire: true };
+    const user = userEvent.setup();
+    render(<Reports />);
+
+    await user.click(await screen.findByRole('tab', { name: 'Caisse' }));
+
+    const titre = await screen.findByRole('heading', { name: 'Journal de caisse' });
+    const entete = titre.parentElement;
+    expect(entete).toHaveClass('hidden', 'print:block');
+    expect(entete).toHaveTextContent('Boutique Awa · Période du 10/03/2026 au 10/03/2026');
+    expect(screen.queryByRole('heading', { name: 'Résumé financier' })).not.toBeInTheDocument();
+  });
+
+  it('titre imprimé du résumé : "Résumé financier", boutique, période de l\'API', async () => {
+    mocks.settings.utilisateur = { est_proprietaire: false };
+    render(<Reports />);
+
+    const titre = await screen.findByRole('heading', { name: 'Résumé financier' });
+    const entete = titre.parentElement;
+    expect(entete).toHaveClass('hidden', 'print:block');
+    expect(entete).toHaveTextContent('Boutique Awa · Période du 01/03/2026 au 31/03/2026');
+  });
+
+  it("vue support : le nom imprimé vient de la réponse du rapport, jamais des paramètres chargés au démarrage", async () => {
+    // Paramètres d'une autre boutique (chargés avant la session support) :
+    // ils ne doivent jamais apparaître dans le titre imprimé.
+    mocks.settings.utilisateur = { est_proprietaire: true };
+    const user = userEvent.setup();
+    render(<Reports />);
+
+    const titreResume = await screen.findByRole('heading', { name: 'Résumé financier' });
+    expect(titreResume.parentElement).toHaveTextContent('Boutique Awa');
+    await user.click(screen.getByRole('tab', { name: 'Caisse' }));
+    const titreCaisse = await screen.findByRole('heading', { name: 'Journal de caisse' });
+    expect(titreCaisse.parentElement).toHaveTextContent('Boutique Awa');
+    expect(screen.queryByText(/Nom des paramètres/)).not.toBeInTheDocument();
+  });
+
+  it('boutique_nom absent (backend pas encore déployé) : titre et période seuls, sans "undefined"', async () => {
+    mocks.settings.utilisateur = { est_proprietaire: false };
+    mocks.get.mockImplementation(() => Promise.resolve({ data: { ...RESUME, boutique_nom: undefined } }));
+    render(<Reports />);
+
+    const titre = await screen.findByRole('heading', { name: 'Résumé financier' });
+    expect(titre.parentElement).toHaveTextContent(/^Résumé financierPériode du 01\/03\/2026 au 31\/03\/2026$/);
   });
 
   it("l'employé n'a pas d'onglet Caisse", async () => {

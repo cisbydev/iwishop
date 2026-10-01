@@ -7,7 +7,7 @@ export default function NavigationMobile() {
   return (
     <nav
       aria-label="Navigation mobile"
-      className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-slate-200 bg-white md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-slate-200 bg-white md:hidden print:hidden"
     >
       {prioritairesMobile.map(({ id, label, Icon }) => {
         const isActive = activeTab === id;

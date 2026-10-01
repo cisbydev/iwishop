@@ -6,6 +6,7 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 import { getPlagePeriode } from '../utils/periode';
 import { telechargerBlob } from '../utils/telechargerBlob';
 import JournalCaisse from './JournalCaisse';
+import TitreImpression from './TitreImpression';
 import { DollarSign, ShoppingBag, Wallet, TrendingUp, TrendingDown, Printer, FileDown, FileSpreadsheet } from 'lucide-react';
 
 // Les deux exports (PDF, Excel) suivent exactement le même flux, seuls le
@@ -214,6 +215,13 @@ export default function Reports() {
             </div>
           ) : (
             <>
+              <TitreImpression
+                titre="Résumé financier"
+                nomBoutique={resume?.boutique_nom}
+                dateDebut={resume?.date_debut}
+                dateFin={resume?.date_fin}
+              />
+
               {/* KPIs principaux */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 flex items-center justify-between">
