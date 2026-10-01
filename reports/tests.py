@@ -16,6 +16,7 @@ from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from suppliers.models import Fournisseur
 from products.models import Produit, UniteVente, ProduitPrix
 from sales.models import Client as ClientCredit, LigneVente, Remboursement, Vente
+from sales.services.credit import enregistrer_remboursement
 from purchases.models import Achat
 from expenses.models import Depense
 from parametres.models import ParametresBoutique
@@ -955,6 +956,48 @@ class JournalCaisseTests(APITestCase):
         self.assertEqual(self._mode(data, 'MOBILE_MONEY')['ventes'], Decimal("200.00"))
         self.assertEqual(data['entrees']['total'], Decimal("200.00"))
         self.assertEqual(data['informations']['credit_accorde'], Decimal("800.00"))
+        self.assertEqual(data['informations']['credit_restant_du'], Decimal("800.00"))
+
+    def test_credit_rembourse_en_totalite_le_meme_jour_plus_rien_du(self):
+        """Cas de prod : vente à crédit de 6000 sans acompte, soldée le jour
+        même (5000 espèces + 1000 Mobile Money). Vendu à crédit 6000, mais
+        plus rien de dû - l'ancien libellé "non encaissé : 6000" était faux."""
+        vente = self._vente("6000", montant_paye="0", mode='ESPECES', credit=True)
+        enregistrer_remboursement(vente, Decimal("5000"), self.proprietaire, mode_paiement='ESPECES')
+        enregistrer_remboursement(vente, Decimal("1000"), self.proprietaire, mode_paiement='MOBILE_MONEY')
+        # Le service horodate à maintenant : on ramène les remboursements au
+        # jour testé, comme la vente.
+        Remboursement.objects.filter(vente=vente).update(date_remboursement=self._a(heure=15))
+
+        data = self._get().data
+
+        self.assertEqual(data['informations']['credit_accorde'], Decimal("6000.00"))
+        self.assertEqual(data['informations']['credit_restant_du'], Decimal("0.00"))
+        self.assertEqual(self._mode(data, 'ESPECES')['remboursements'], Decimal("5000.00"))
+        self.assertEqual(self._mode(data, 'MOBILE_MONEY')['remboursements'], Decimal("1000.00"))
+        self.assertEqual(data['entrees']['nombre_remboursements'], 2)
+        self.assertEqual(data['entrees']['total'], Decimal("6000.00"))
+
+    def test_credit_rembourse_en_partie_reste_du_actuel(self):
+        vente = self._vente("6000", montant_paye="1000", mode='ESPECES', credit=True)
+        enregistrer_remboursement(vente, Decimal("2000"), self.proprietaire, mode_paiement='ESPECES')
+
+        informations = self._get().data['informations']
+
+        self.assertEqual(informations['credit_accorde'], Decimal("5000.00"))
+        self.assertEqual(informations['credit_restant_du'], Decimal("3000.00"))
+
+    def test_remboursement_annule_par_correction_compte_deux_mouvements(self):
+        """Le frontend affiche "Aucun mouvement" sur le nombre de lignes, pas
+        sur les montants : 5000 corrigé de -5000 fait 0 mais reste visible."""
+        vente = self._vente("5000", montant_paye="0", credit=True, quand=self._a(datetime(2026, 3, 1)))
+        original = self._remboursement(vente, "5000", mode='ESPECES')
+        self._remboursement(vente, "-5000", mode='ESPECES', corrige=original)
+
+        entrees = self._get().data['entrees']
+
+        self.assertEqual(entrees['remboursements'], Decimal("0.00"))
+        self.assertEqual(entrees['nombre_remboursements'], 2)
 
     def test_remboursements_par_mode_avec_non_precise_et_correction(self):
         vente = self._vente("1000", montant_paye="0", credit=True, quand=self._a(datetime(2026, 3, 1)))

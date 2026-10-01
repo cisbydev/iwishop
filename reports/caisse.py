@@ -75,6 +75,9 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
         ligne['mode_paiement']: ligne['total']
         for ligne in remboursements.values('mode_paiement').annotate(total=Sum('montant'))
     }
+    # Nombre de lignes, corrections comprises : un remboursement annulé par
+    # sa correction fait 0 en montant mais reste deux mouvements.
+    nombre_remboursements = remboursements.count()
 
     modes = [code for code, _ in Vente.MODES_PAIEMENT]
     if remboursements_par_mode.get(None):
@@ -112,6 +115,7 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
             filter=Q(client_credit__isnull=False),
             output_field=DecimalField(max_digits=12, decimal_places=2),
         ),
+        credit_restant_du=Sum('montant_du', filter=Q(client_credit__isnull=False)),
     )
     ventes_en_differe = ventes.filter(creee_hors_ligne=True).count()
 
@@ -122,6 +126,7 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
             "par_mode": par_mode,
             "ventes": total_ventes,
             "remboursements": total_remboursements,
+            "nombre_remboursements": nombre_remboursements,
             "total": total_entrees,
         },
         "sorties": {
@@ -136,9 +141,13 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
         "solde_periode": total_entrees - total_sorties,
         "informations": {
             "nombre_ventes": infos['nombre'],
-            # Part des ventes à crédit de la période non encaissée à la vente
-            # (hors acompte) - pas dans les entrées.
+            # Part des ventes à crédit de la période non payée au moment de la
+            # vente (hors acompte), remboursements ultérieurs ignorés.
             "credit_accorde": _montant(infos['credit_accorde']),
+            # Ce qui reste dû aujourd'hui sur ces mêmes ventes (montant_du
+            # actuel, tenu à jour par sales/services/credit.py) : pas l'état
+            # à la fin de la période.
+            "credit_restant_du": _montant(infos['credit_restant_du']),
             "ventes_synchronisees_en_differe": ventes_en_differe,
         },
     }
