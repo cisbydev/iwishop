@@ -14,7 +14,9 @@ Installation (une fois par clone du repo) :
     git config core.hooksPath scripts/git-hooks
 
 Contournement volontaire (faux positif avéré) : `git commit --no-verify`
-- mécanisme standard de git, pas de bypass custom ajouté ici.
+- mécanisme standard de git. Seule exception permanente : les valeurs
+exactes listées dans EXCEPTIONS_AUTORISEES (fichier + valeur), à garder
+aussi courte que possible.
 """
 import re
 import subprocess
@@ -40,6 +42,26 @@ MOTIFS = [
     ("Token de service connu (Stripe/GitHub/Slack)",
      re.compile(r"\b(sk_live_|sk_test_|ghp_|gho_|xox[baprs]-)[A-Za-z0-9_-]{10,}\b")),
 ]
+
+# Faux positifs avérés, autorisés UNIQUEMENT dans ce fichier et pour cette
+# valeur exacte (texte trouvé par le motif) : le reste du fichier reste
+# surveillé, et la même valeur dans un autre fichier reste bloquée.
+#
+# .github/workflows/ci.yml : valeurs factices du job backend de la CI GitHub.
+# - SECRET_KEY : clé Django de test, sans aucun usage hors du runner (son
+#   nom le dit) ; la vraie SECRET_KEY de prod n'existe que sur Render.
+# - DATABASE_URL : base PostgreSQL éphémère du service `postgres` du runner
+#   (127.0.0.1, identifiants postgres/postgres par défaut de l'image),
+#   détruite à la fin du job - aucun lien avec la base de prod.
+#
+# Chaque littéral est coupé en deux chaînes accolées pour que ce fichier ne
+# déclenche pas lui-même les motifs ci-dessus quand il est commité.
+EXCEPTIONS_AUTORISEES = {
+    (".github/workflows/ci.yml", "SECRET_KEY" ": ci-test-secret-key-not-for-production-0123456789"),
+    # Le motif d'URL s'arrête au premier "/" après l'hôte : le texte trouvé
+    # n'inclut pas le nom de la base (/iwishop_test).
+    (".github/workflows/ci.yml", "postgresql://postgres:postgres" "@127.0.0.1:5432"),
+}
 
 # Défense en profondeur, en plus de la règle .gitignore /tes /test :
 # si l'un de ces deux noms était un jour ajouté de force (git add -f),
@@ -90,7 +112,7 @@ def main():
         for numero_ligne, ligne in enumerate(contenu.splitlines(), start=1):
             for categorie, motif in MOTIFS:
                 trouve = motif.search(ligne)
-                if trouve:
+                if trouve and (chemin, trouve.group(0)) not in EXCEPTIONS_AUTORISEES:
                     problemes.append((chemin, numero_ligne, categorie, masque(trouve.group(0))))
 
     if problemes:
