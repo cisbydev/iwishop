@@ -18,10 +18,10 @@ Mis à jour le 2026-10-02.
 
 Plan validé le 2026-10-02. État au 2026-10-02 :
 
-- Commit 1 (expand) : `708acdf`, poussé, CI verte. Déploiement à vérifier par Mahamadou (voir plus bas).
-- Commit 1 bis : en attente du feu vert de Mahamadou après cette vérification. Ne pas commencer avant.
-- Commit 2 : commité en local, pas poussé. Push après le feu vert.
-- Commit 3 : commité en local, pas poussé. Sa migration (table `PaiementFournisseur`) a pris le numéro 0017.
+- Commit 1 (expand) : `708acdf`, vérifié en prod par Mahamadou (Live, migrations 0015 et 0016, achat normal, caisse).
+- Commits 2 et 3 : poussés (`3c761a1`), CI verte. Déploiement à vérifier par Mahamadou.
+- Commit 1 bis (contract) : migrations 0018 (re-backfill) et 0019 (NOT NULL). Commité en local, pas poussé. Push après la vérification du déploiement des commits 2 et 3.
+- Commit 4 : plan prêt, une décision en attente (qu'est-ce qui bloque l'annulation d'un achat : une ligne de paiement, ou un total net non nul). Rien codé tant que le 1 bis n'est pas poussé et vérifié.
 
 ### Principe
 
@@ -52,7 +52,7 @@ Plan validé le 2026-10-02. État au 2026-10-02 :
 Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nouveaux champs).
 
 1. `feat(purchases)` : champs de paiement sur `Achat`, migration avec backfill (D4). `montant_paye` reste nullable en base ; le nouveau code le remplit toujours.
-1 bis. Contract, dans un commit et un déploiement séparés, une fois le commit 1 en ligne sur Render (vérifié dans le dashboard) : une migration (numérotée au moment de l'écrire) qui refait le backfill des lignes encore vides (`update ... where montant_paye is null`), puis passe `montant_paye` en NOT NULL. Adapter alors `test_base_accepte_linsert_de_lancien_code` : il insère sans `montant_paye`, ce qui sera refusé (garder la vérification des `db_default` de `statut_paiement` et `montant_du`).
+1 bis. Contract, dans un commit et un déploiement séparés, une fois le commit 1 en ligne sur Render : 0018 refait le backfill des lignes encore vides (`update ... where montant_paye is null`), 0019 passe `montant_paye` en NOT NULL.
 2. `feat(purchases)` : achat à crédit ou comptant avec acompte et mode (D1 et D3).
 3. `feat(purchases)` : paiements fournisseurs append-only (modèle, service, verrou, bornes, test de concurrence à deux threads).
 4. `feat(purchases)` : API des paiements et corrections ; annulation d'achat refusée s'il a un paiement.
@@ -98,7 +98,8 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté Mahamadou
 
-- Vérifier le déploiement du commit 1 (`708acdf`) : Render Live, migrations 0015 et 0016 appliquées, aucune erreur dans Sentry, un achat normal en prod. Puis feu vert pour pousser le commit 2 et commencer le 1 bis.
+- Vérifier le déploiement des commits 2 et 3 (`3c761a1`) : Render Live, migration 0017 dans les logs du déploiement (Events), aucune erreur dans Sentry, un achat normal en prod. Puis feu vert pour pousser le 1 bis.
+- Après le push du 1 bis : vérifier 0018 et 0019 dans les logs du déploiement, Sentry, un achat normal.
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
