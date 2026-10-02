@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -68,7 +68,7 @@ async function ouvrirFicheAvec(remboursements) {
     { id: 1, nom: 'Aïcha', telephone: '70000001', dette_totale: '600.00' },
   ]);
   mocks.obtenirHistoriqueClient.mockResolvedValue([venteAvecRemboursements(remboursements)]);
-  const user = userEvent.setup();
+  const user = userEvent.setup({ delay: null });
 
   render(<Clients />);
   await user.click(await screen.findByText('Aïcha'));
@@ -108,7 +108,7 @@ describe('Clients', () => {
   it("le formulaire d'ajout de client valide le téléphone obligatoire", async () => {
     mocks.listerClients.mockResolvedValue([]);
     mocks.listerClientsAvecDette.mockResolvedValue([]);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<Clients />);
     await screen.findByText('Aucun client enregistré.');
@@ -139,7 +139,7 @@ describe('Clients', () => {
         remboursements: [],
       },
     ]);
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<Clients />);
     await user.click(await screen.findByText('Aïcha'));
@@ -159,7 +159,7 @@ describe('Clients', () => {
       response: { status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' } },
     });
     vi.spyOn(window, 'alert').mockImplementation(() => {});
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<Clients />);
     await screen.findByText('Aucun client enregistré.');
@@ -196,7 +196,7 @@ describe('Clients', () => {
     mocks.enregistrerRemboursement.mockRejectedValue({
       response: { status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' } },
     });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
 
     render(<Clients />);
     await user.click(await screen.findByText('Aïcha'));
@@ -244,7 +244,7 @@ describe('Clients', () => {
 
     expect(mocks.corrigerRemboursement).toHaveBeenCalledWith(7, 300, 'Erreur de saisie');
     // Historique rechargé après la correction (chargement initial + rechargement).
-    expect(mocks.obtenirHistoriqueClient).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(mocks.obtenirHistoriqueClient).toHaveBeenCalledTimes(2));
   });
 
   it('la correction exige un motif', async () => {
