@@ -9,10 +9,13 @@ Mis à jour le 2026-10-02.
 - CI verte avec Vitest lancé à chaque push.
 - Hook de secrets élargi (clés préfixées : `R2_*`, `PAYDUNYA_*`, `*_API_KEY`, `*_TOKEN`...).
 - Test instable `Clients.test.jsx` réglé (`ebed005`, `504be15`).
+- `CLAUDE.md` (règles permanentes) et ce fichier créés.
+- Hook de secrets : backticks retirés de la docstring (lancé par erreur avec `sh`, ils exécutaient `git commit --no-verify`). Toujours lancer le hook avec Python.
 
 ## Prochaine fonctionnalité
 
 Dettes fournisseurs (achats à crédit) : plan à préparer, rien de codé.
+La prochaine session commence par ce plan.
 
 ## En attente, côté code (pour plus tard)
 
