@@ -3,10 +3,11 @@ from rest_framework import serializers
 from .models import Achat, LigneAchat
 from inventory.models import MouvementStock
 from products.models import Produit, UniteVente
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from tenants.profil import boutique_de
 from notifications.services import verifier_stock_bas
+from sales.models import StatutPaiement, Vente
 
 class LigneAchatSerializer(serializers.ModelSerializer):
     produit_nom = serializers.ReadOnlyField(source='produit.nom')
@@ -35,14 +36,30 @@ class AchatSerializer(serializers.ModelSerializer):
     lignes = LigneAchatSerializer(many=True)
     fournisseur_nom = serializers.ReadOnlyField(source='fournisseur.nom')
     utilisateur_nom = serializers.ReadOnlyField(source='utilisateur.username')
+    # Achat à crédit : absent => achat comptant, comportement historique
+    # inchangé (un frontend encore en cache ne l'envoie pas). Fourni =>
+    # argent versé au fournisseur à la création (acompte), entre 0 et
+    # montant_total. statut_paiement et montant_du en découlent, calculés
+    # dans create(), jamais soumis.
+    montant_paye = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal('0'), required=False
+    )
+    # Optionnel côté API (null = "non précisé", même principe que
+    # Remboursement.mode_paiement), obligatoire dans le formulaire.
+    mode_paiement = serializers.ChoiceField(
+        choices=Vente.MODES_PAIEMENT, required=False, allow_null=True
+    )
 
     class Meta:
         model = Achat
         fields = [
             'id', 'fournisseur', 'fournisseur_nom', 'date_achat', 'montant_total', 'notes',
             'statut', 'utilisateur', 'utilisateur_nom', 'lignes',
+            'montant_paye', 'mode_paiement', 'statut_paiement', 'montant_du',
         ]
-        read_only_fields = ['montant_total', 'date_achat', 'statut', 'utilisateur']
+        read_only_fields = [
+            'montant_total', 'date_achat', 'statut', 'utilisateur', 'statut_paiement', 'montant_du',
+        ]
 
     def validate_fournisseur(self, value):
         # Ne jamais supposer qu'un fournisseur soumis appartient à la
@@ -63,6 +80,7 @@ class AchatSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Cette boutique a été désactivée.")
 
         lignes_data = validated_data.pop('lignes')
+        montant_paye_soumis = validated_data.pop('montant_paye', None)
         # montant_paye provisoire : le total n'est connu qu'après les lignes
         # (même transaction, jamais visible à 0 de l'extérieur).
         achat = Achat.objects.create(
@@ -171,7 +189,45 @@ class AchatSerializer(serializers.ModelSerializer):
             )
 
         achat.montant_total = montant_total
-        # Achat comptant (seul cas possible pour l'instant) : tout est versé.
-        achat.montant_paye = montant_total
+        self._appliquer_paiement(achat, montant_paye_soumis, boutique)
         achat.save()
         return achat
+
+    def _appliquer_paiement(self, achat, montant_paye_soumis, boutique):
+        # Sans montant_paye soumis : achat comptant, tout est versé.
+        if montant_paye_soumis is None:
+            achat.montant_paye = achat.montant_total
+        elif montant_paye_soumis > achat.montant_total:
+            raise ValidationError(
+                "Le montant payé ne peut pas dépasser le montant total de l'achat."
+            )
+        else:
+            achat.montant_paye = montant_paye_soumis
+
+        achat.montant_du = achat.montant_total - achat.montant_paye
+        if achat.montant_du == 0:
+            achat.statut_paiement = StatutPaiement.PAYE
+            return
+
+        # Achat à crédit. Les erreurs ci-dessous annulent toute la création
+        # (lignes, stock, mouvements) : create() est atomique.
+        # D3 : réservé au propriétaire de la boutique active en v1 (même
+        # règle que IsOwner, qui ne s'applique qu'à une action entière).
+        user = self.context['request'].user
+        if not user.profils.filter(boutique=boutique, est_proprietaire=True).exists():
+            raise PermissionDenied(
+                "Seul le propriétaire de la boutique peut enregistrer un achat à crédit."
+            )
+        if achat.fournisseur_id is None:
+            raise ValidationError("Un achat à crédit doit avoir un fournisseur.")
+
+        if achat.montant_paye == 0:
+            # Demande contradictoire : refusée, jamais corrigée en silence.
+            if achat.mode_paiement is not None:
+                raise ValidationError(
+                    "Aucun montant n'est versé sur cet achat : il ne peut pas avoir "
+                    "de mode de paiement."
+                )
+            achat.statut_paiement = StatutPaiement.EN_ATTENTE
+        else:
+            achat.statut_paiement = StatutPaiement.PARTIEL

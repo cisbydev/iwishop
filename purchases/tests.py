@@ -831,8 +831,8 @@ class AchatAnnulationRestaurationPrixAchatTests(APITestCase):
 
 
 class AchatPaiementComptantTests(APITestCase):
-    """Dettes fournisseurs, commit 1 : sans notion de crédit côté API, un
-    achat créé reste payé comptant - comportement inchangé."""
+    """Dettes fournisseurs : sans montant_paye dans la requête (frontend
+    encore en cache), un achat reste payé comptant - comportement inchangé."""
 
     def setUp(self):
         self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-paiement-achat")
@@ -866,6 +866,9 @@ class AchatPaiementComptantTests(APITestCase):
         self.assertEqual(achat.montant_du, Decimal("0.00"))
         self.assertEqual(achat.statut_paiement, 'paye')
         self.assertIsNone(achat.mode_paiement)
+        self.assertEqual(response.data['montant_paye'], "180.00")
+        self.assertEqual(response.data['montant_du'], "0.00")
+        self.assertEqual(response.data['statut_paiement'], 'paye')
 
     def test_base_accepte_linsert_de_lancien_code(self):
         # Fenêtre de déploiement : l'ancien code sert encore les requêtes
@@ -889,6 +892,222 @@ class AchatPaiementComptantTests(APITestCase):
         self.assertEqual(achat.montant_du, Decimal("0.00"))
         self.assertIsNone(achat.montant_paye)
         self.assertIsNone(achat.mode_paiement)
+
+
+class AchatCreditTests(APITestCase):
+    """Dettes fournisseurs, achat à crédit : montant_paye (acompte) entre 0
+    et montant_total, statut_paiement et montant_du calculés par le
+    serveur. D3 : propriétaire seulement. D1 : aucun contrôle de palier."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-credit-achat")
+        self.proprio = User.objects.create_user(username="proprio_credit", password="pass1234")
+        Profil.objects.create(user=self.proprio, boutique=self.boutique, est_proprietaire=True)
+        self.employe = User.objects.create_user(username="employe_credit", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=0,
+        )
+        self.url_list = reverse('achats-list')
+        self.client.force_authenticate(user=self.proprio)
+
+    def _acheter(self, en_tetes=None, **extra):
+        # 3 x 60 = 180 de montant_total.
+        payload = {
+            "fournisseur": self.fournisseur.id,
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 3,
+                "unite": self.unite.id, "prix_unitaire_achat": "60.00",
+            }],
+        }
+        payload.update(extra)
+        return self.client.post(self.url_list, payload, format='json', **(en_tetes or {}))
+
+    def _assert_rien_cree(self):
+        self.assertEqual(Achat.objects.filter(boutique=self.boutique).count(), 0)
+        self.assertEqual(MouvementStock.objects.filter(boutique=self.boutique).count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 0)
+
+    def _abonnement(self, palier, expire=False):
+        formule = FormuleAbonnement.objects.create(nom=palier, duree_jours=30, prix=5000, palier=palier)
+        aujourdhui = timezone.localdate()
+        if expire:
+            debut, fin, statut = aujourdhui - timezone.timedelta(days=40), aujourdhui - timezone.timedelta(days=10), 'EXPIRE'
+        else:
+            debut, fin, statut = aujourdhui - timezone.timedelta(days=1), aujourdhui + timezone.timedelta(days=29), 'ACTIF'
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule, date_debut=debut, date_fin=fin, statut=statut
+        )
+
+    def test_acompte_partiel(self):
+        response = self._acheter(montant_paye="50.00", mode_paiement="ESPECES")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['montant_total'], "180.00")
+        self.assertEqual(response.data['montant_paye'], "50.00")
+        self.assertEqual(response.data['montant_du'], "130.00")
+        self.assertEqual(response.data['statut_paiement'], 'partiel')
+        self.assertEqual(response.data['mode_paiement'], 'ESPECES')
+        achat = Achat.objects.get(pk=response.data['id'])
+        self.assertEqual(achat.montant_du, Decimal("130.00"))
+        self.assertEqual(achat.statut_paiement, 'partiel')
+        # Le stock entre comme pour un achat comptant.
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 3)
+
+    def test_sans_acompte_en_attente(self):
+        response = self._acheter(montant_paye="0")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        achat = Achat.objects.get(pk=response.data['id'])
+        self.assertEqual(achat.montant_paye, Decimal("0.00"))
+        self.assertEqual(achat.montant_du, Decimal("180.00"))
+        self.assertEqual(achat.statut_paiement, 'en_attente')
+        self.assertIsNone(achat.mode_paiement)
+
+    def test_sans_acompte_mode_null_accepte(self):
+        response = self._acheter(montant_paye="0", mode_paiement=None)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(Achat.objects.get(pk=response.data['id']).mode_paiement)
+
+    def test_mode_paiement_sans_acompte_refuse(self):
+        # Demande contradictoire : refusée, pas corrigée en silence.
+        response = self._acheter(montant_paye="0", mode_paiement="ESPECES")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("mode de paiement", str(response.data))
+        self._assert_rien_cree()
+
+    def test_montant_paye_egal_au_total_est_comptant(self):
+        response = self._acheter(montant_paye="180.00", mode_paiement="MOBILE_MONEY")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        achat = Achat.objects.get(pk=response.data['id'])
+        self.assertEqual(achat.montant_du, Decimal("0.00"))
+        self.assertEqual(achat.statut_paiement, 'paye')
+        self.assertEqual(achat.mode_paiement, 'MOBILE_MONEY')
+
+    def test_mode_paiement_sans_montant_paye_conserve(self):
+        response = self._acheter(mode_paiement="CARTE")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        achat = Achat.objects.get(pk=response.data['id'])
+        self.assertEqual(achat.montant_paye, Decimal("180.00"))
+        self.assertEqual(achat.statut_paiement, 'paye')
+        self.assertEqual(achat.mode_paiement, 'CARTE')
+
+    def test_montant_paye_superieur_au_total_refuse(self):
+        response = self._acheter(montant_paye="180.01")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self._assert_rien_cree()
+
+    def test_montant_paye_negatif_refuse(self):
+        response = self._acheter(montant_paye="-1")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self._assert_rien_cree()
+
+    def test_mode_paiement_inconnu_refuse(self):
+        response = self._acheter(montant_paye="50", mode_paiement="CHEQUE")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self._assert_rien_cree()
+
+    def test_credit_sans_fournisseur_refuse(self):
+        response = self._acheter(fournisseur=None, montant_paye="50")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self._assert_rien_cree()
+
+    def test_comptant_sans_fournisseur_toujours_autorise(self):
+        response = self._acheter(fournisseur=None)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_employe_ne_peut_pas_acheter_a_credit(self):
+        self.client.force_authenticate(user=self.employe)
+
+        response = self._acheter(montant_paye="50")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self._assert_rien_cree()
+
+    def test_employe_peut_acheter_comptant_avec_montant_paye(self):
+        self.client.force_authenticate(user=self.employe)
+
+        response = self._acheter(montant_paye="180", mode_paiement="ESPECES")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_proprietaire_ailleurs_employe_ici_refuse(self):
+        # Multi-boutique : être propriétaire d'une AUTRE boutique ne suffit
+        # pas, c'est le profil de la boutique active qui compte.
+        autre = Boutique.objects.create(nom="Autre", slug="autre-credit-achat")
+        Profil.objects.create(user=self.employe, boutique=autre, est_proprietaire=True)
+        self.client.force_authenticate(user=self.employe)
+
+        response = self._acheter(
+            en_tetes={'HTTP_X_BOUTIQUE_ACTIVE': str(self.boutique.id)}, montant_paye="50"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self._assert_rien_cree()
+
+    def test_credit_autorise_hors_premium(self):
+        # D1, offre unique : un abonnement valide suffit, quel que soit le palier.
+        self._abonnement(FormuleAbonnement.Palier.ESSENTIEL)
+
+        response = self._acheter(montant_paye="50")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_credit_refuse_si_abonnement_expire(self):
+        self._abonnement(FormuleAbonnement.Palier.PREMIUM, expire=True)
+
+        response = self._acheter(montant_paye="50")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self._assert_rien_cree()
+
+    def test_statut_et_montant_du_soumis_sont_ignores(self):
+        response = self._acheter(montant_paye="50", statut_paiement='paye', montant_du="0")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        achat = Achat.objects.get(pk=response.data['id'])
+        self.assertEqual(achat.statut_paiement, 'partiel')
+        self.assertEqual(achat.montant_du, Decimal("130.00"))
+
+    def test_vue_support_lit_la_dette(self):
+        self._acheter(montant_paye="50")
+        admin = User.objects.create_superuser(username="admin_support", password="pass1234")
+        self.client.force_authenticate(user=admin)
+
+        response = self.client.get(self.url_list, HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique.id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        resultats = response.data['results'] if isinstance(response.data, dict) else response.data
+        self.assertEqual(len(resultats), 1)
+        self.assertEqual(resultats[0]['montant_du'], "130.00")
+
+    def test_vue_support_ne_peut_pas_acheter_a_credit(self):
+        admin = User.objects.create_superuser(username="admin_support", password="pass1234")
+        self.client.force_authenticate(user=admin)
+
+        response = self._acheter(
+            en_tetes={'HTTP_X_SUPPORT_BOUTIQUE': str(self.boutique.id)}, montant_paye="50"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self._assert_rien_cree()
 
 
 class AchatBackfillMontantPayeMigrationTests(TransactionTestCase):
