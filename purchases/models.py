@@ -45,12 +45,11 @@ class Achat(models.Model):
     # montant_total pour un achat comptant). Pas de défaut : chaque chemin
     # de création doit dire ce qui a été payé. Les achats antérieurs à ce
     # champ ont été remplis avec montant_total (migration 0016), tous
-    # étaient payés comptant. Nullable en base seulement le temps du
-    # déploiement (l'ancien code crée encore des achats sans ce champ) :
-    # le passage en NOT NULL viendra dans un déploiement séparé.
+    # étaient payés comptant. NOT NULL en base depuis 0019, dans un
+    # déploiement séparé (expand / contract, cf. CLAUDE.md) : 0018 a d'abord
+    # rempli les achats créés par l'ancien code pendant le premier.
     montant_paye = models.DecimalField(
-        max_digits=12, decimal_places=2, null=True,
-        validators=[MinValueValidator(Decimal('0'))]
+        max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0'))]
     )
     # null = "non précisé" : les achats antérieurs à ce champ ne sont jamais
     # supposés payés en espèces (même principe que Remboursement).

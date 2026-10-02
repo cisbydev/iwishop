@@ -48,8 +48,6 @@ def enregistrer_paiement(achat, montant, utilisateur, mode_paiement=None):
 
     if achat.statut == 'ANNULE':
         raise ValidationError("Impossible de payer un achat annulé.")
-    # Vérifié avant tout calcul : couvre aussi un achat créé par l'ancien
-    # code pendant un déploiement (montant_paye vide, mais comptant).
     if achat.montant_du <= 0:
         raise ValidationError("Cet achat n'a pas de dette à payer.")
     if montant <= 0:

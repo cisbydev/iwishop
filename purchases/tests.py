@@ -4,7 +4,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.db import connection
+from django.db import IntegrityError, connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Sum
 from django.test import TestCase, TransactionTestCase
@@ -876,28 +876,42 @@ class AchatPaiementComptantTests(APITestCase):
         self.assertEqual(response.data['montant_du'], "0.00")
         self.assertEqual(response.data['statut_paiement'], 'paye')
 
-    def test_base_accepte_linsert_de_lancien_code(self):
-        # Fenêtre de déploiement : l'ancien code sert encore les requêtes
-        # après le migrate. SQL brut avec seulement les colonnes d'avant
-        # 0015 : via le modèle, les default= Python masqueraient un défaut
-        # absent en base. À adapter au passage en NOT NULL de montant_paye
-        # (1 bis, cf. docs/EN_COURS.md).
+    def _inserer_en_sql(self, avec_montant_paye):
+        # SQL brut : via le modèle, les default= Python masqueraient un
+        # défaut absent en base (cf. CLAUDE.md, Migrations).
+        colonnes = ["boutique_id", "fournisseur_id", "utilisateur_id", "date_achat", "montant_total", "notes", "statut"]
+        valeurs = [self.boutique.id, self.fournisseur.id, self.user.id, timezone.now(), Decimal("100"), None, 'VALIDE']
+        if avec_montant_paye:
+            colonnes.append("montant_paye")
+            valeurs.append(Decimal("100"))
         with connection.cursor() as cursor:
             cursor.execute(
-                f"INSERT INTO {Achat._meta.db_table} "
-                "(boutique_id, fournisseur_id, utilisateur_id, date_achat, montant_total, notes, statut) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                [self.boutique.id, self.fournisseur.id, self.user.id, timezone.now(),
-                 Decimal("100"), None, 'VALIDE'],
+                f"INSERT INTO {Achat._meta.db_table} ({', '.join(colonnes)}) "
+                f"VALUES ({', '.join(['%s'] * len(valeurs))})",
+                valeurs,
             )
+
+    def test_db_default_de_statut_paiement_et_montant_du(self):
+        # Un INSERT qui n'envoie ni statut_paiement ni montant_du reçoit
+        # les défauts de la base (db_default), pas une IntegrityError.
+        self._inserer_en_sql(avec_montant_paye=True)
 
         achats = Achat.objects.filter(boutique=self.boutique)
         self.assertEqual(achats.count(), 1)
         achat = achats.get()
         self.assertEqual(achat.statut_paiement, 'paye')
         self.assertEqual(achat.montant_du, Decimal("0.00"))
-        self.assertIsNone(achat.montant_paye)
+        self.assertEqual(achat.montant_paye, Decimal("100.00"))
         self.assertIsNone(achat.mode_paiement)
+
+    def test_insert_sans_montant_paye_refuse(self):
+        # Contract (1 bis) : montant_paye est NOT NULL en base. Le code en
+        # ligne avant ce déploiement l'envoie toujours (commit 1).
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                self._inserer_en_sql(avec_montant_paye=False)
+
+        self.assertEqual(Achat.objects.filter(boutique=self.boutique).count(), 0)
 
 
 class AchatCreditTests(APITestCase):
@@ -1171,6 +1185,61 @@ class AchatBackfillMontantPayeMigrationTests(TransactionTestCase):
         self.assertEqual(Achat.objects.get(pk=achat.pk).montant_paye, Decimal("300.00"))
 
 
+class AchatRebackfillMontantPayeMigrationTests(TransactionTestCase):
+    """1 bis (contract) : 0018 refait le backfill des achats restés sans
+    montant_paye (créés par l'ancien code pendant la fenêtre de
+    déploiement du commit 1, tous comptant), sans toucher aux achats déjà
+    renseignés, puis 0019 passe la colonne en NOT NULL."""
+
+    AVANT = [('purchases', '0017_paiementfournisseur')]
+    APRES = [('purchases', '0019_alter_achat_montant_paye_notnull')]
+
+    def _migrer(self, cible):
+        executor = MigrationExecutor(connection)
+        executor.migrate(cible)
+        return executor.loader.project_state(cible).apps
+
+    def tearDown(self):
+        # Toujours rendre un schéma à jour aux tests suivants.
+        self._migrer(MigrationExecutor(connection).loader.graph.leaf_nodes())
+
+    def test_rebackfill_puis_not_null(self):
+        apps = self._migrer(self.AVANT)
+        Boutique = apps.get_model('tenants', 'Boutique')
+        Achat = apps.get_model('purchases', 'Achat')
+        boutique = Boutique.objects.create(nom="Boutique", slug="boutique-rebackfill-achat")
+        fenetre = Achat.objects.create(boutique=boutique, montant_total=Decimal("120"), montant_paye=None)
+        credit = Achat.objects.create(
+            boutique=boutique, montant_total=Decimal("300"), montant_paye=Decimal("50"),
+            montant_du=Decimal("250"), statut_paiement='partiel',
+        )
+        self.assertEqual(Achat.objects.filter(montant_paye__isnull=True).count(), 1)
+
+        apps = self._migrer(self.APRES)
+        Achat = apps.get_model('purchases', 'Achat')
+
+        self.assertEqual(Achat.objects.filter(montant_paye__isnull=True).count(), 0)
+        self.assertEqual(Achat.objects.get(pk=fenetre.pk).montant_paye, Decimal("120.00"))
+        credit = Achat.objects.get(pk=credit.pk)
+        self.assertEqual(credit.montant_paye, Decimal("50.00"))
+        self.assertEqual(credit.montant_du, Decimal("250.00"))
+        self.assertEqual(credit.statut_paiement, 'partiel')
+        self.assertFalse(Achat._meta.get_field('montant_paye').null)
+
+    def test_retour_arriere_puis_reapplication(self):
+        apps = self._migrer(self.APRES)
+        Boutique = apps.get_model('tenants', 'Boutique')
+        Achat = apps.get_model('purchases', 'Achat')
+        boutique = Boutique.objects.create(nom="Boutique", slug="boutique-retour-rebackfill")
+        achat = Achat.objects.create(boutique=boutique, montant_total=Decimal("80"), montant_paye=Decimal("30"))
+
+        self._migrer(self.AVANT)
+        apps = self._migrer(self.APRES)
+        Achat = apps.get_model('purchases', 'Achat')
+
+        self.assertEqual(Achat.objects.get(pk=achat.pk).montant_paye, Decimal("30.00"))
+
+
 class PaiementFournisseurServiceTests(TestCase):
     """Dettes fournisseurs, commit 3 : paiements append-only, dette
     recalculée sous le verrou depuis l'acompte et les paiements."""
@@ -1248,16 +1317,6 @@ class PaiementFournisseurServiceTests(TestCase):
         )
 
         self._assert_refuse(self._payer, "50", achat=comptant)
-
-    def test_paiement_achat_de_lancien_code_refuse(self):
-        # Achat créé pendant la fenêtre de déploiement : montant_paye vide,
-        # db_default sur montant_du et statut_paiement (comptant).
-        ancien = Achat.objects.create(
-            boutique=self.boutique, fournisseur=self.fournisseur, montant_total=Decimal("300"),
-            montant_paye=None,
-        )
-
-        self._assert_refuse(self._payer, "50", achat=ancien)
 
     def test_mode_paiement_non_precise_accepte(self):
         paiement = self._payer("50", mode_paiement=None)
