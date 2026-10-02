@@ -1036,7 +1036,7 @@ class JournalCaisseTests(APITestCase):
 
     def test_sorties_et_solde_de_la_periode(self):
         self._vente("1000", montant_paye="1000")
-        achat = Achat.objects.create(boutique=self.boutique, montant_total=Decimal("400"))
+        achat = Achat.objects.create(boutique=self.boutique, montant_total=Decimal("400"), montant_paye=Decimal("400"))
         Achat.objects.filter(pk=achat.pk).update(date_achat=self._a())
         Depense.objects.create(
             boutique=self.boutique, titre="Loyer", montant=Decimal("150"), date_depense=self.JOUR.date()
@@ -1051,7 +1051,9 @@ class JournalCaisseTests(APITestCase):
 
     def test_ventes_achats_depenses_annules_exclus(self):
         self._vente("1000", montant_paye="1000", statut='ANNULEE')
-        achat = Achat.objects.create(boutique=self.boutique, montant_total=Decimal("400"), statut='ANNULE')
+        achat = Achat.objects.create(
+            boutique=self.boutique, montant_total=Decimal("400"), montant_paye=Decimal("400"), statut='ANNULE'
+        )
         Achat.objects.filter(pk=achat.pk).update(date_achat=self._a())
         Depense.objects.create(
             boutique=self.boutique, titre="Loyer", montant=Decimal("150"),

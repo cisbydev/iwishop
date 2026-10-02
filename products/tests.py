@@ -264,7 +264,7 @@ class ProduitDestroyProtegeParHistoriqueTests(APITestCase):
 
     def test_suppression_refusee_si_lie_a_un_achat(self):
         produit = self._creer_produit("Produit acheté")
-        achat = Achat.objects.create(boutique=self.boutique)
+        achat = Achat.objects.create(boutique=self.boutique, montant_paye=0)
         LigneAchat.objects.create(
             boutique=self.boutique, achat=achat, produit=produit, quantite=5,
             unite=self.unite, facteur_conversion_applique=Decimal("1.000"),

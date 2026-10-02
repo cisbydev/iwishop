@@ -63,8 +63,11 @@ class AchatSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Cette boutique a été désactivée.")
 
         lignes_data = validated_data.pop('lignes')
+        # montant_paye provisoire : le total n'est connu qu'après les lignes
+        # (même transaction, jamais visible à 0 de l'extérieur).
         achat = Achat.objects.create(
-            boutique=boutique, utilisateur=self.context['request'].user, **validated_data
+            boutique=boutique, utilisateur=self.context['request'].user,
+            montant_paye=0, **validated_data
         )
 
         montant_total = 0
@@ -168,5 +171,7 @@ class AchatSerializer(serializers.ModelSerializer):
             )
 
         achat.montant_total = montant_total
+        # Achat comptant (seul cas possible pour l'instant) : tout est versé.
+        achat.montant_paye = montant_total
         achat.save()
         return achat

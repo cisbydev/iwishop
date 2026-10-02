@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.contrib.auth.models import User
 from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
@@ -75,7 +77,7 @@ class AchatFournisseurIsolationTests(APITestCase):
         AchatAnnulationTests) - donc a fortiori impossible de réassigner le
         fournisseur vers une autre boutique."""
         self.client.force_authenticate(user=self.user_b)
-        achat = Achat.objects.create(boutique=self.boutique_b, fournisseur=self.fournisseur_b)
+        achat = Achat.objects.create(boutique=self.boutique_b, fournisseur=self.fournisseur_b, montant_paye=0)
         url_detail = reverse('achats-detail', args=[achat.id])
         response = self.client.patch(url_detail, {"fournisseur": self.fournisseur_a.id}, format='json')
 
@@ -382,7 +384,7 @@ class AchatAbonnementExpireTests(APITestCase):
         (lecture toujours permise, audit complémentaire point 1 bis) :
         vérifie l'appel explicite ajouté, sans quoi la faille serait
         réintroduite."""
-        achat = Achat.objects.create(boutique=self.boutique, fournisseur=self.fournisseur)
+        achat = Achat.objects.create(boutique=self.boutique, fournisseur=self.fournisseur, montant_paye=0)
         LigneAchat.objects.create(
             boutique=self.boutique, achat=achat, produit=self.produit, quantite=3,
             unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
@@ -543,7 +545,7 @@ class AchatListQueryCountTests(APITestCase):
     def _creer_achats(self, n, lignes_par_achat=2):
         for i in range(n):
             achat = Achat.objects.create(
-                boutique=self.boutique, fournisseur=self.fournisseur, utilisateur=self.user,
+                boutique=self.boutique, fournisseur=self.fournisseur, utilisateur=self.user, montant_paye=0,
             )
             for j in range(lignes_par_achat):
                 produit = Produit.objects.create(
@@ -826,3 +828,119 @@ class AchatAnnulationRestaurationPrixAchatTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.prix_achat, Decimal("0.00"))
+
+
+class AchatPaiementComptantTests(APITestCase):
+    """Dettes fournisseurs, commit 1 : sans notion de crédit côté API, un
+    achat créé reste payé comptant - comportement inchangé."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-paiement-achat")
+        self.user = User.objects.create_user(username="proprio_paiement", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=0,
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_achat_cree_est_paye_comptant(self):
+        payload = {
+            "fournisseur": self.fournisseur.id,
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 3,
+                "unite": self.unite.id, "prix_unitaire_achat": "60.00",
+            }],
+        }
+        response = self.client.post(reverse('achats-list'), payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        achat = Achat.objects.get(pk=response.data['id'])
+        self.assertEqual(achat.montant_total, Decimal("180.00"))
+        self.assertEqual(achat.montant_paye, Decimal("180.00"))
+        self.assertEqual(achat.montant_du, Decimal("0.00"))
+        self.assertEqual(achat.statut_paiement, 'paye')
+        self.assertIsNone(achat.mode_paiement)
+
+    def test_base_accepte_linsert_de_lancien_code(self):
+        # Fenêtre de déploiement : l'ancien code sert encore les requêtes
+        # après le migrate. SQL brut avec seulement les colonnes d'avant
+        # 0015 : via le modèle, les default= Python masqueraient un défaut
+        # absent en base. À adapter au passage en NOT NULL de montant_paye
+        # (1 bis, cf. docs/EN_COURS.md).
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"INSERT INTO {Achat._meta.db_table} "
+                "(boutique_id, fournisseur_id, utilisateur_id, date_achat, montant_total, notes, statut) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                [self.boutique.id, self.fournisseur.id, self.user.id, timezone.now(),
+                 Decimal("100"), None, 'VALIDE'],
+            )
+
+        achats = Achat.objects.filter(boutique=self.boutique)
+        self.assertEqual(achats.count(), 1)
+        achat = achats.get()
+        self.assertEqual(achat.statut_paiement, 'paye')
+        self.assertEqual(achat.montant_du, Decimal("0.00"))
+        self.assertIsNone(achat.montant_paye)
+        self.assertIsNone(achat.mode_paiement)
+
+
+class AchatBackfillMontantPayeMigrationTests(TransactionTestCase):
+    """D4 : 0016 remplit montant_paye = montant_total pour les achats
+    existants (tous payés comptant avant ce champ), annulés compris. Le
+    retour arrière doit marcher."""
+
+    AVANT_BACKFILL = [('purchases', '0015_achat_paiement')]
+    APRES_BACKFILL = [('purchases', '0016_backfill_achat_montant_paye')]
+    AVANT_CHAMPS = [('purchases', '0014_alter_ligneachat_quantite')]
+
+    def _migrer(self, cible):
+        executor = MigrationExecutor(connection)
+        executor.migrate(cible)
+        return executor.loader.project_state(cible).apps
+
+    def tearDown(self):
+        # Toujours rendre un schéma à jour aux tests suivants.
+        self._migrer(MigrationExecutor(connection).loader.graph.leaf_nodes())
+
+    def test_backfill_montant_paye_egal_montant_total(self):
+        apps = self._migrer(self.AVANT_BACKFILL)
+        Boutique = apps.get_model('tenants', 'Boutique')
+        Achat = apps.get_model('purchases', 'Achat')
+        boutique = Boutique.objects.create(nom="Boutique", slug="boutique-backfill-achat")
+        valide = Achat.objects.create(boutique=boutique, montant_total=Decimal("400"))
+        annule = Achat.objects.create(boutique=boutique, montant_total=Decimal("250"), statut='ANNULE')
+        self.assertEqual(Achat.objects.filter(montant_paye__isnull=True).count(), 2)
+
+        apps = self._migrer(self.APRES_BACKFILL)
+        Achat = apps.get_model('purchases', 'Achat')
+
+        self.assertEqual(Achat.objects.filter(montant_paye__isnull=True).count(), 0)
+        valide = Achat.objects.get(pk=valide.pk)
+        annule = Achat.objects.get(pk=annule.pk)
+        self.assertEqual(valide.montant_paye, Decimal("400.00"))
+        self.assertEqual(annule.montant_paye, Decimal("250.00"))
+        for achat in (valide, annule):
+            self.assertEqual(achat.statut_paiement, 'paye')
+            self.assertEqual(achat.montant_du, Decimal("0.00"))
+            self.assertIsNone(achat.mode_paiement)
+
+    def test_retour_arriere_puis_reapplication(self):
+        apps = self._migrer(self.AVANT_CHAMPS)
+        Boutique = apps.get_model('tenants', 'Boutique')
+        Achat = apps.get_model('purchases', 'Achat')
+        boutique = Boutique.objects.create(nom="Boutique", slug="boutique-retour-achat")
+        achat = Achat.objects.create(boutique=boutique, montant_total=Decimal("300"))
+
+        apps = self._migrer(self.APRES_BACKFILL)
+        apps = self._migrer(self.AVANT_CHAMPS)
+        apps = self._migrer(self.APRES_BACKFILL)
+        Achat = apps.get_model('purchases', 'Achat')
+
+        self.assertEqual(Achat.objects.get(pk=achat.pk).montant_paye, Decimal("300.00"))

@@ -5,6 +5,7 @@ from django.db import models
 from suppliers.models import Fournisseur
 from products.models import Produit
 from inventory.models import MouvementStock
+from sales.models import StatutPaiement, Vente
 from django.db import transaction
 
 class Achat(models.Model):
@@ -27,6 +28,35 @@ class Achat(models.Model):
     # on l'annule via une écriture inverse qui retire le stock ajouté et
     # marque ce statut, sans jamais effacer l'historique.
     statut = models.CharField(max_length=20, choices=STATUTS, default='VALIDE')
+
+    # Dettes fournisseurs (achat à crédit). Mêmes choix que Vente pour que
+    # le journal de caisse ventile achats et ventes sur les mêmes modes.
+    # statut_paiement et montant_du sont recalculés par le service, jamais
+    # saisis ; un achat comptant reste 'paye' avec montant_du = 0.
+    # db_default en plus de default : default= n'est appliqué que par
+    # Python, et l'ancien code, qui n'envoie pas ces colonnes, sert encore
+    # les requêtes pendant le déploiement (cf. CLAUDE.md, Migrations).
+    statut_paiement = models.CharField(
+        max_length=20, choices=StatutPaiement.choices,
+        default=StatutPaiement.PAYE, db_default=StatutPaiement.PAYE
+    )
+    montant_du = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_default=0)
+    # Argent versé au fournisseur à la création de l'achat (acompte, ou
+    # montant_total pour un achat comptant). Pas de défaut : chaque chemin
+    # de création doit dire ce qui a été payé. Les achats antérieurs à ce
+    # champ ont été remplis avec montant_total (migration 0016), tous
+    # étaient payés comptant. Nullable en base seulement le temps du
+    # déploiement (l'ancien code crée encore des achats sans ce champ) :
+    # le passage en NOT NULL viendra dans un déploiement séparé.
+    montant_paye = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True,
+        validators=[MinValueValidator(Decimal('0'))]
+    )
+    # null = "non précisé" : les achats antérieurs à ce champ ne sont jamais
+    # supposés payés en espèces (même principe que Remboursement).
+    mode_paiement = models.CharField(
+        max_length=30, choices=Vente.MODES_PAIEMENT, null=True, blank=True
+    )
 
     def __str__(self):
         fournisseur_nom = self.fournisseur.nom if self.fournisseur else "Inconnu"
