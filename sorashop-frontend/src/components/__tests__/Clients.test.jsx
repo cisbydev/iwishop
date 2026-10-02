@@ -76,6 +76,14 @@ async function ouvrirFicheAvec(remboursements) {
   return user;
 }
 
+// Remplit un champ en un seul collage plutôt que touche par touche :
+// aucun test ne vérifie un comportement pendant la frappe, et chaque
+// touche simulée coûte cher sous charge (délai de 5 s dépassé).
+async function saisir(user, champ, texte) {
+  await user.click(champ);
+  await user.paste(texte);
+}
+
 describe('Clients', () => {
   beforeEach(() => {
     mocks.listerClients.mockReset();
@@ -114,7 +122,7 @@ describe('Clients', () => {
     await screen.findByText('Aucun client enregistré.');
 
     await user.click(screen.getAllByRole('button', { name: /Ajouter un client/ })[0]);
-    await user.type(screen.getByLabelText('Nom du client'), 'Nouveau Client');
+    await saisir(user, screen.getByLabelText('Nom du client'), 'Nouveau Client');
     // Téléphone volontairement laissé vide.
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
 
@@ -145,7 +153,7 @@ describe('Clients', () => {
     await user.click(await screen.findByText('Aïcha'));
 
     const champMontant = await screen.findByLabelText('Enregistrer un remboursement');
-    await user.type(champMontant, '1500');
+    await saisir(user, champMontant, '1500');
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
 
     expect(await screen.findByText(/dépasse le montant dû/)).toBeInTheDocument();
@@ -165,8 +173,8 @@ describe('Clients', () => {
     await screen.findByText('Aucun client enregistré.');
 
     await user.click(screen.getAllByRole('button', { name: /Ajouter un client/ })[0]);
-    await user.type(screen.getByLabelText('Nom du client'), 'Nouveau Client');
-    await user.type(screen.getByLabelText('Téléphone'), '70000005');
+    await saisir(user, screen.getByLabelText('Nom du client'), 'Nouveau Client');
+    await saisir(user, screen.getByLabelText('Téléphone'), '70000005');
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
 
     expect(await screen.findByText(/palier Premium/)).toBeInTheDocument();
@@ -202,7 +210,7 @@ describe('Clients', () => {
     await user.click(await screen.findByText('Aïcha'));
 
     const champMontant = await screen.findByLabelText('Enregistrer un remboursement');
-    await user.type(champMontant, '100');
+    await saisir(user, champMontant, '100');
     await user.selectOptions(screen.getByLabelText('Mode de paiement du remboursement'), 'ESPECES');
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
 
@@ -238,8 +246,8 @@ describe('Clients', () => {
     await user.click(screen.getByRole('button', { name: 'Corriger' }));
     const champMontant = screen.getByLabelText('Nouveau montant');
     await user.clear(champMontant);
-    await user.type(champMontant, '300');
-    await user.type(screen.getByLabelText('Motif de la correction'), 'Erreur de saisie');
+    await saisir(user, champMontant, '300');
+    await saisir(user, screen.getByLabelText('Motif de la correction'), 'Erreur de saisie');
     await user.click(screen.getByRole('button', { name: 'Valider la correction' }));
 
     expect(mocks.corrigerRemboursement).toHaveBeenCalledWith(7, 300, 'Erreur de saisie');
@@ -253,7 +261,7 @@ describe('Clients', () => {
     await user.click(screen.getByRole('button', { name: 'Corriger' }));
     const champMontant = screen.getByLabelText('Nouveau montant');
     await user.clear(champMontant);
-    await user.type(champMontant, '300');
+    await saisir(user, champMontant, '300');
     await user.click(screen.getByRole('button', { name: 'Valider la correction' }));
 
     expect(await screen.findByText('Le motif de la correction est obligatoire.')).toBeInTheDocument();
@@ -266,8 +274,8 @@ describe('Clients', () => {
     await user.click(screen.getByRole('button', { name: 'Corriger' }));
     const champMontant = screen.getByLabelText('Nouveau montant');
     await user.clear(champMontant);
-    await user.type(champMontant, '1200');
-    await user.type(screen.getByLabelText('Motif de la correction'), 'Erreur');
+    await saisir(user, champMontant, '1200');
+    await saisir(user, screen.getByLabelText('Motif de la correction'), 'Erreur');
     await user.click(screen.getByRole('button', { name: 'Valider la correction' }));
 
     expect(await screen.findByText(/ferait dépasser le montant dû/)).toBeInTheDocument();
@@ -277,7 +285,7 @@ describe('Clients', () => {
   it('le formulaire de remboursement exige le mode de paiement', async () => {
     const user = await ouvrirFicheAvec([]);
 
-    await user.type(screen.getByLabelText('Enregistrer un remboursement'), '100');
+    await saisir(user, screen.getByLabelText('Enregistrer un remboursement'), '100');
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
 
     expect(await screen.findByText('Choisissez le mode de paiement.')).toBeInTheDocument();
@@ -288,7 +296,7 @@ describe('Clients', () => {
     mocks.enregistrerRemboursement.mockResolvedValue({ id: 9 });
     const user = await ouvrirFicheAvec([]);
 
-    await user.type(screen.getByLabelText('Enregistrer un remboursement'), '100');
+    await saisir(user, screen.getByLabelText('Enregistrer un remboursement'), '100');
     await user.selectOptions(screen.getByLabelText('Mode de paiement du remboursement'), 'MOBILE_MONEY');
     await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
 
