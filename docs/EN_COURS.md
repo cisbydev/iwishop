@@ -11,15 +11,22 @@ Mis à jour le 2026-10-02.
 - Test instable `Clients.test.jsx` réglé (`ebed005`, `504be15`).
 - `CLAUDE.md` (règles permanentes) et ce fichier créés.
 - Hook de secrets : backticks retirés de la docstring (lancé par erreur avec `sh`, ils exécutaient `git commit --no-verify`). Toujours lancer le hook avec Python.
+- D1 tranchée : offre unique (`d6dc1f9`).
+- `CLAUDE.md` : section Migrations (la base accepte l'ancien et le nouveau code pendant un déploiement, `db_default`, test en SQL brut) (`298086f`).
 
-## Prochaine fonctionnalité : dettes fournisseurs (achats à crédit)
+## En cours : dettes fournisseurs (achats à crédit)
 
-Plan validé le 2026-10-02, rien de codé. Le chantier commence à la prochaine session.
+Plan validé le 2026-10-02. État au 2026-10-02 :
+
+- Commit 1 (expand) : `708acdf`, poussé, CI verte. Déploiement à vérifier par Mahamadou (voir plus bas).
+- Commit 1 bis : en attente du feu vert de Mahamadou après cette vérification. Ne pas commencer avant.
+- Commit 2 : commité en local, pas poussé. Push après le feu vert.
 
 ### Principe
 
 - `Achat` reçoit `statut_paiement` (défaut `paye`), `montant_du` (défaut 0), `montant_paye` (backfill puis NOT NULL, voir D4) et `mode_paiement` (nullable, null = « non précisé »).
 - Sans `montant_paye` dans la requête, l'achat est comptant : même comportement qu'aujourd'hui, y compris pour un frontend encore en cache. Un achat à crédit exige un fournisseur.
+- Une demande contradictoire est refusée (400), jamais corrigée en silence : par exemple un `mode_paiement` avec un acompte à 0.
 - `PaiementFournisseur` est append-only, calqué sur `Remboursement` : corrections chaînées à l'original, `mode_paiement`, `enregistre_par`, isolation par `achat__boutique`.
 - Le service `purchases/services/dette.py` est dupliqué depuis `sales/services/credit.py`, sans abstraction commune en v1 : on ne refactore pas le crédit client dans ce chantier. `select_for_update` sur l'`Achat`, et 0 ≤ total payé ≤ `montant_total`.
 - L'annulation d'un achat est refusée s'il a déjà un paiement. L'acompte ne se corrige pas : on annule l'achat et on le ressaisit.
@@ -89,6 +96,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté Mahamadou
 
+- Vérifier le déploiement du commit 1 (`708acdf`) : Render Live, migrations 0015 et 0016 appliquées, aucune erreur dans Sentry, un achat normal en prod. Puis feu vert pour pousser le commit 2 et commencer le 1 bis.
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
