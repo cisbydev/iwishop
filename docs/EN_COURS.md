@@ -32,7 +32,7 @@ Plan validé le 2026-10-02, rien de codé. Le chantier commence à la prochaine 
 - D1 (décidé le 2026-10-02) : offre unique, voir le chantier « Offre unique » plus bas. Aucun contrôle de palier pour les dettes fournisseurs : seulement le contrôle d'abonnement valide existant (`_verifier_acces`), comme pour les autres écritures.
 - D2 : échéances et notifications plus tard (`date_echeance` nullable, additive).
 - D3 : créer un achat à crédit est réservé au propriétaire en v1. Enregistrer un paiement fournisseur est permis à l'employé aussi, avec « Enregistré par » visible sur chaque paiement. Corriger un paiement est réservé au propriétaire.
-- D4 : backfill `montant_paye = montant_total` pour les achats existants (une seule requête `update` avec `F()`), puis passage en NOT NULL. Un NULL ne veut dire qu'« inconnu ». Migration réversible, avec un test du backfill.
+- D4 : backfill `montant_paye = montant_total` pour les achats existants (une seule requête `update` avec `F()`), puis passage en NOT NULL. Un NULL ne veut dire qu'« inconnu ». Migration réversible, avec un test du backfill. Le NOT NULL vient dans un deuxième temps (commit 1 bis), car `migrate` tourne pendant que l'ancien code sert encore les requêtes.
 - D5 : la suppression d'un fournisseur est refusée tant qu'il reste une dette (contrôle dans la vue, sans migration).
 - D6 : tuile au dashboard et outil pour l'assistant plus tard.
 - D7 : journal, « À savoir » : crédit fournisseur obtenu et dette fournisseurs restante.
@@ -43,7 +43,8 @@ Plan validé le 2026-10-02, rien de codé. Le chantier commence à la prochaine 
 
 Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nouveaux champs).
 
-1. `feat(purchases)` : champs de paiement sur `Achat`, migration avec backfill (D4).
+1. `feat(purchases)` : champs de paiement sur `Achat`, migration avec backfill (D4). `montant_paye` reste nullable en base ; le nouveau code le remplit toujours.
+1 bis. Contract, dans un commit et un déploiement séparés, une fois le commit 1 en ligne sur Render (vérifié dans le dashboard) : migration 0017 qui refait le backfill des lignes encore vides (`update ... where montant_paye is null`), puis passe `montant_paye` en NOT NULL. Adapter alors `test_base_accepte_linsert_de_lancien_code` : il insère sans `montant_paye`, ce qui sera refusé (garder la vérification des `db_default` de `statut_paiement` et `montant_du`).
 2. `feat(purchases)` : achat à crédit ou comptant avec acompte et mode (D1 et D3).
 3. `feat(purchases)` : paiements fournisseurs append-only (modèle, service, verrou, bornes, test de concurrence à deux threads).
 4. `feat(purchases)` : API des paiements et corrections ; annulation d'achat refusée s'il a un paiement.

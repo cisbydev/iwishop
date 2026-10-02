@@ -25,7 +25,14 @@ L'état du travail en cours est dans `docs/EN_COURS.md`, pas ici.
 - Mouvements append-only : on ne modifie ni ne supprime, on corrige par un mouvement chaîné à l'original.
 - `montant_du` et le statut de paiement sont recalculés, jamais saisis.
 - `select_for_update` sur les écritures concurrentes.
-- Migrations : par défaut additives (champs nullables, sans réécriture). Toute migration qui modifie ou supprime des données existantes doit être discutée avant.
+
+## Migrations
+
+- Par défaut additives (champs nullables, sans réécriture). Toute migration qui modifie ou supprime des données existantes doit être discutée avant.
+- La base doit accepter l'ancien et le nouveau code pendant un déploiement : sur Render, `build.sh` lance `migrate` pendant que l'ancien code sert encore les requêtes.
+- Donc un NOT NULL, une suppression ou un renommage se fait en deux temps (expand / contract), dans deux déploiements séparés : d'abord l'ajout nullable et le code qui remplit ; puis, une fois ce code en ligne, la contrainte, avec un nouveau backfill des lignes restées vides.
+- Un `default=` Django n'est pas un défaut de base de données : il est appliqué par Python, et l'ancien code n'envoie pas la colonne. Une colonne NOT NULL ajoutée prend un `db_default=` (en plus de `default=`).
+- Le test de compatibilité imite l'ancien code pour de vrai : un INSERT en SQL brut avec seulement les anciennes colonnes, vu échouer sans le correctif.
 
 ## Frontend
 
