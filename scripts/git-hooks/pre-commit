@@ -13,7 +13,7 @@ volontairement, pour ne pas inciter à contourner via --no-verify).
 Installation (une fois par clone du repo) :
     git config core.hooksPath scripts/git-hooks
 
-Contournement volontaire (faux positif avéré) : `git commit --no-verify`
+Contournement volontaire (faux positif avéré) : git commit --no-verify
 - mécanisme standard de git. Seule exception permanente : les valeurs
 exactes listées dans EXCEPTIONS_AUTORISEES (fichier + valeur), à garder
 aussi courte que possible.
