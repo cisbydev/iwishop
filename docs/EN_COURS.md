@@ -29,7 +29,7 @@ Plan validé le 2026-10-02, rien de codé. Le chantier commence à la prochaine 
 
 ### Décisions
 
-- **D1, Premium ou non : à décider avant le commit 2.**
+- D1 (décidé le 2026-10-02) : offre unique, voir le chantier « Offre unique » plus bas. Aucun contrôle de palier pour les dettes fournisseurs : seulement le contrôle d'abonnement valide existant (`_verifier_acces`), comme pour les autres écritures.
 - D2 : échéances et notifications plus tard (`date_echeance` nullable, additive).
 - D3 : créer un achat à crédit est réservé au propriétaire en v1. Enregistrer un paiement fournisseur est permis à l'employé aussi, avec « Enregistré par » visible sur chaque paiement. Corriger un paiement est réservé au propriétaire.
 - D4 : backfill `montant_paye = montant_total` pour les achats existants (une seule requête `update` avec `F()`), puis passage en NOT NULL. Un NULL ne veut dire qu'« inconnu ». Migration réversible, avec un test du backfill.
@@ -53,7 +53,16 @@ Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nou
 8. `feat(frontend)` : dettes et paiements dans Fournisseurs.
 9. `feat(frontend)` : journal de caisse, sorties par mode, bandeau adapté.
 
-## Fonctionnalités réservées au Premium (état au 2026-10-02)
+## Chantier suivant : offre unique
+
+Décidé le 2026-10-02 : iWiShop passe à une offre unique. Un abonnement valide donne accès à toutes les fonctionnalités, sans palier Essentiel ou Premium. À faire après les dettes fournisseurs. Plan d'abord, rien de codé.
+
+- Retirer `verifier_acces_premium` du crédit client (les 4 appels : `sales/serializers.py` `VenteSerializer.create`, `sales/views.py` `ClientViewSet.perform_create`, `RemboursementViewSet.perform_create` et `RemboursementViewSet.corriger`), et l'affichage frontend lié (bannière, boutons grisés, colonne masquée du journal). Voir l'inventaire ci-dessous.
+- Garder le contrôle d'abonnement valide (`_verifier_acces`).
+- Inventorier ce qui dépend encore des paliers : formules en base, PayDunya, pages de prix, tests.
+- Règle aussi le point « boutique redescendue du Premium » (section « En attente, côté code »).
+
+## Fonctionnalités réservées au Premium (état au 2026-10-02, à retirer par le chantier « offre unique »)
 
 Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`), qui s'appuie sur `Boutique.a_acces_premium()` (`tenants/models.py`) : abonnement valide et formule de palier `PREMIUM`. Il ne bloque que les écritures ; la lecture reste toujours permise.
 
