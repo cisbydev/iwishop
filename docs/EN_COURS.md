@@ -21,6 +21,7 @@ Plan validé le 2026-10-02. État au 2026-10-02 :
 - Commit 1 (expand) : `708acdf`, poussé, CI verte. Déploiement à vérifier par Mahamadou (voir plus bas).
 - Commit 1 bis : en attente du feu vert de Mahamadou après cette vérification. Ne pas commencer avant.
 - Commit 2 : commité en local, pas poussé. Push après le feu vert.
+- Commit 3 : commité en local, pas poussé. Sa migration (table `PaiementFournisseur`) a pris le numéro 0017.
 
 ### Principe
 
@@ -51,7 +52,7 @@ Plan validé le 2026-10-02. État au 2026-10-02 :
 Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nouveaux champs).
 
 1. `feat(purchases)` : champs de paiement sur `Achat`, migration avec backfill (D4). `montant_paye` reste nullable en base ; le nouveau code le remplit toujours.
-1 bis. Contract, dans un commit et un déploiement séparés, une fois le commit 1 en ligne sur Render (vérifié dans le dashboard) : migration 0017 qui refait le backfill des lignes encore vides (`update ... where montant_paye is null`), puis passe `montant_paye` en NOT NULL. Adapter alors `test_base_accepte_linsert_de_lancien_code` : il insère sans `montant_paye`, ce qui sera refusé (garder la vérification des `db_default` de `statut_paiement` et `montant_du`).
+1 bis. Contract, dans un commit et un déploiement séparés, une fois le commit 1 en ligne sur Render (vérifié dans le dashboard) : une migration (numérotée au moment de l'écrire) qui refait le backfill des lignes encore vides (`update ... where montant_paye is null`), puis passe `montant_paye` en NOT NULL. Adapter alors `test_base_accepte_linsert_de_lancien_code` : il insère sans `montant_paye`, ce qui sera refusé (garder la vérification des `db_default` de `statut_paiement` et `montant_du`).
 2. `feat(purchases)` : achat à crédit ou comptant avec acompte et mode (D1 et D3).
 3. `feat(purchases)` : paiements fournisseurs append-only (modèle, service, verrou, bornes, test de concurrence à deux threads).
 4. `feat(purchases)` : API des paiements et corrections ; annulation d'achat refusée s'il a un paiement.
@@ -88,6 +89,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 ## En attente, côté code (pour plus tard)
 
 - Chantier séparé : une boutique redescendue du Premium ne peut plus enregistrer les remboursements de ses clients (`RemboursementViewSet.perform_create`), ce qui fausse sa caisse.
+- Chantier séparé : `sales/services/credit.py` (`enregistrer_remboursement`) semble accepter un nouveau remboursement sur une vente annulée (seule la correction vérifie `ANNULEE`). À vérifier avec un test, puis corriger (refus, comme `enregistrer_paiement` côté fournisseurs).
 - `date_annulation` sur Vente/Achat/Dépense, avant toute vraie clôture de caisse (voir `reports/caisse.py`).
 - Export PDF/Excel du journal de caisse.
 - Montants JSON en float à migrer en chaînes : tous les rapports ensemble, jamais un par un.
