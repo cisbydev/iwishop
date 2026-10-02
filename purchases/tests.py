@@ -1,12 +1,17 @@
+import threading
+import time
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.test import TransactionTestCase
+from django.db.models import Sum
+from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
 
@@ -15,7 +20,8 @@ from suppliers.models import Fournisseur
 from products.models import Produit, UniteVente, ProduitPrix
 from inventory.models import MouvementStock
 from sales.models import LigneVente
-from .models import Achat, LigneAchat
+from .models import Achat, LigneAchat, PaiementFournisseur
+from .services.dette import corriger_paiement, enregistrer_paiement
 
 
 class AchatFournisseurIsolationTests(APITestCase):
@@ -1163,3 +1169,293 @@ class AchatBackfillMontantPayeMigrationTests(TransactionTestCase):
         Achat = apps.get_model('purchases', 'Achat')
 
         self.assertEqual(Achat.objects.get(pk=achat.pk).montant_paye, Decimal("300.00"))
+
+
+class PaiementFournisseurServiceTests(TestCase):
+    """Dettes fournisseurs, commit 3 : paiements append-only, dette
+    recalculée sous le verrou depuis l'acompte et les paiements."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-paiement-fournisseur")
+        self.user = User.objects.create_user(username="proprio_dette", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        # 300 d'achat, 100 d'acompte : dette initiale 200.
+        self.achat = self._achat_a_credit(montant_total="300", montant_paye="100")
+
+    def _achat_a_credit(self, montant_total, montant_paye):
+        montant_total, montant_paye = Decimal(montant_total), Decimal(montant_paye)
+        return Achat.objects.create(
+            boutique=self.boutique, fournisseur=self.fournisseur,
+            montant_total=montant_total, montant_paye=montant_paye,
+            montant_du=montant_total - montant_paye,
+            statut_paiement='partiel' if montant_paye > 0 else 'en_attente',
+        )
+
+    def _payer(self, montant, achat=None, mode_paiement='ESPECES'):
+        return enregistrer_paiement(
+            achat or self.achat, Decimal(montant), self.user, mode_paiement=mode_paiement
+        )
+
+    def _corriger(self, paiement, nouveau_montant, motif="Erreur de saisie"):
+        return corriger_paiement(paiement, Decimal(nouveau_montant), motif, self.user)
+
+    def _assert_refuse(self, fonction, *args, nb_lignes_attendu=0, **kwargs):
+        with self.assertRaises(ValidationError):
+            fonction(*args, **kwargs)
+        self.assertEqual(PaiementFournisseur.objects.count(), nb_lignes_attendu)
+
+    def _recharger(self):
+        self.achat.refresh_from_db()
+        return self.achat
+
+    # --- enregistrer_paiement ---
+
+    def test_paiement_partiel(self):
+        paiement = self._payer("50")
+
+        self.assertEqual(PaiementFournisseur.objects.count(), 1)
+        self.assertEqual(paiement.enregistre_par, self.user)
+        self.assertEqual(paiement.mode_paiement, 'ESPECES')
+        achat = self._recharger()
+        self.assertEqual(achat.montant_du, Decimal("150.00"))
+        self.assertEqual(achat.statut_paiement, 'partiel')
+
+    def test_paiement_qui_solde_la_dette(self):
+        self._payer("200")
+
+        achat = self._recharger()
+        self.assertEqual(achat.montant_du, Decimal("0.00"))
+        self.assertEqual(achat.statut_paiement, 'paye')
+
+    def test_paiement_superieur_au_du_refuse(self):
+        self._assert_refuse(self._payer, "200.01")
+        self.assertEqual(self._recharger().montant_du, Decimal("200.00"))
+
+    def test_paiement_nul_ou_negatif_refuse(self):
+        self._assert_refuse(self._payer, "0")
+        self._assert_refuse(self._payer, "-10")
+
+    def test_paiement_achat_annule_refuse(self):
+        Achat.objects.filter(pk=self.achat.pk).update(statut='ANNULE')
+
+        self._assert_refuse(self._payer, "50")
+
+    def test_paiement_achat_comptant_refuse(self):
+        comptant = Achat.objects.create(
+            boutique=self.boutique, fournisseur=self.fournisseur,
+            montant_total=Decimal("300"), montant_paye=Decimal("300"),
+        )
+
+        self._assert_refuse(self._payer, "50", achat=comptant)
+
+    def test_paiement_achat_de_lancien_code_refuse(self):
+        # Achat créé pendant la fenêtre de déploiement : montant_paye vide,
+        # db_default sur montant_du et statut_paiement (comptant).
+        ancien = Achat.objects.create(
+            boutique=self.boutique, fournisseur=self.fournisseur, montant_total=Decimal("300"),
+            montant_paye=None,
+        )
+
+        self._assert_refuse(self._payer, "50", achat=ancien)
+
+    def test_mode_paiement_non_precise_accepte(self):
+        paiement = self._payer("50", mode_paiement=None)
+
+        self.assertIsNone(paiement.mode_paiement)
+
+    # --- corriger_paiement ---
+
+    def test_correction_append_only(self):
+        paiement = self._payer("80")
+
+        correction, achat, total = self._corriger(paiement, "50")
+
+        self.assertEqual(PaiementFournisseur.objects.count(), 2)
+        paiement.refresh_from_db()
+        self.assertEqual(paiement.montant, Decimal("80.00"))
+        self.assertIsNone(paiement.paiement_corrige)
+        self.assertEqual(correction.paiement_corrige, paiement)
+        self.assertEqual(correction.montant, Decimal("-30.00"))
+        self.assertEqual(correction.motif_correction, "Erreur de saisie")
+        self.assertEqual(total, Decimal("50.00"))
+        self.assertEqual(achat.montant_du, Decimal("150.00"))
+        self.assertEqual(self._recharger().montant_du, Decimal("150.00"))
+
+    def test_correction_reprend_le_mode_de_loriginal(self):
+        paiement = self._payer("80", mode_paiement='MOBILE_MONEY')
+
+        correction, _, _ = self._corriger(paiement, "50")
+
+        self.assertEqual(correction.mode_paiement, 'MOBILE_MONEY')
+
+    def test_seconde_correction_sur_le_montant_effectif(self):
+        paiement = self._payer("80")
+        self._corriger(paiement, "50")
+
+        correction, achat, _ = self._corriger(paiement, "60")
+
+        self.assertEqual(correction.montant, Decimal("10.00"))
+        self.assertEqual(correction.paiement_corrige, paiement)
+        self.assertEqual(achat.montant_du, Decimal("140.00"))
+
+    def test_correction_dune_correction_refusee(self):
+        paiement = self._payer("80")
+        correction, _, _ = self._corriger(paiement, "50")
+
+        self._assert_refuse(self._corriger, correction, "40", nb_lignes_attendu=2)
+
+    def test_correction_sans_motif_refusee(self):
+        paiement = self._payer("80")
+
+        self._assert_refuse(self._corriger, paiement, "50", motif="   ", nb_lignes_attendu=1)
+
+    def test_correction_identique_refusee(self):
+        paiement = self._payer("80")
+
+        self._assert_refuse(self._corriger, paiement, "80", nb_lignes_attendu=1)
+
+    def test_correction_nouveau_montant_negatif_refusee(self):
+        paiement = self._payer("80")
+
+        self._assert_refuse(self._corriger, paiement, "-1", nb_lignes_attendu=1)
+
+    def test_correction_qui_depasse_la_dette_refusee(self):
+        paiement = self._payer("80")
+        self._payer("100")
+
+        # Dette initiale 200 : 80 -> 101 ferait 201 de paiements.
+        self._assert_refuse(self._corriger, paiement, "101", nb_lignes_attendu=2)
+        self.assertEqual(self._recharger().montant_du, Decimal("20.00"))
+
+    def test_correction_achat_annule_refusee(self):
+        paiement = self._payer("80")
+        Achat.objects.filter(pk=self.achat.pk).update(statut='ANNULE')
+
+        self._assert_refuse(self._corriger, paiement, "50", nb_lignes_attendu=1)
+
+    def test_correction_a_zero_sans_acompte_revient_en_attente(self):
+        achat = self._achat_a_credit(montant_total="300", montant_paye="0")
+        paiement = self._payer("300", achat=achat)
+        achat.refresh_from_db()
+        self.assertEqual(achat.statut_paiement, 'paye')
+
+        _, achat, total = self._corriger(paiement, "0")
+
+        self.assertEqual(total, Decimal("0"))
+        self.assertEqual(achat.montant_du, Decimal("300.00"))
+        self.assertEqual(achat.statut_paiement, 'en_attente')
+
+    def test_correction_a_zero_avec_acompte_reste_partiel(self):
+        paiement = self._payer("200")
+        self.assertEqual(self._recharger().statut_paiement, 'paye')
+
+        _, achat, _ = self._corriger(paiement, "0")
+
+        self.assertEqual(achat.montant_du, Decimal("200.00"))
+        self.assertEqual(achat.statut_paiement, 'partiel')
+
+    def test_montant_du_egal_au_recalcul_depuis_les_lignes(self):
+        p1 = self._payer("40")
+        p2 = self._payer("70", mode_paiement='CARTE')
+        self._corriger(p1, "25")
+        self._payer("15")
+        self._corriger(p2, "90")
+        self._corriger(p1, "30")
+
+        achat = self._recharger()
+        self.assertEqual(PaiementFournisseur.objects.filter(achat=achat).count(), 6)
+        total_lignes = PaiementFournisseur.objects.filter(achat=achat).aggregate(
+            total=Sum('montant')
+        )['total']
+        # 30 + 90 + 15 = 135 versés après l'acompte.
+        self.assertEqual(total_lignes, Decimal("135.00"))
+        self.assertEqual(achat.montant_du, achat.montant_total - achat.montant_paye - total_lignes)
+        self.assertEqual(achat.montant_du, Decimal("65.00"))
+        self.assertEqual(achat.statut_paiement, 'partiel')
+
+
+class PaiementFournisseurConcurrenceTests(TransactionTestCase):
+    """Deux paiements concurrents sur la même dette, avec deux vraies
+    connexions PostgreSQL. L'entrelacement est forcé : A s'arrête juste
+    avant de créer sa ligne (verrou pris, vérifications faites), B démarre,
+    et A n'est libéré qu'une fois B terminé ou bloqué sur un verrou. Avec
+    select_for_update, B attend A puis voit la dette réduite et est
+    refusé ; sans, B passe et la dette est payée deux fois."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-concurrence-dette")
+        self.user = User.objects.create_user(username="proprio_concurrence_dette", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.achat = Achat.objects.create(
+            boutique=self.boutique, fournisseur=fournisseur,
+            montant_total=Decimal("150"), montant_paye=Decimal("0"),
+            montant_du=Decimal("150"), statut_paiement='en_attente',
+        )
+
+    def _attente_sur_verrou(self, pid):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", [pid])
+            ligne = cursor.fetchone()
+        return ligne is not None and ligne[0] == 'Lock'
+
+    def test_deux_paiements_concurrents_ne_payent_pas_deux_fois(self):
+        create_original = PaiementFournisseur.objects.create
+        a_en_pause = threading.Event()
+        liberer_a = threading.Event()
+        pid_b = []
+        resultats = {}
+        verrou = threading.Lock()
+        appels = []
+
+        def create_avec_pause(**kwargs):
+            with verrou:
+                appels.append(kwargs['montant'])
+                premier = len(appels) == 1
+            if premier:
+                a_en_pause.set()
+                liberer_a.wait(timeout=10)
+            return create_original(**kwargs)
+
+        def payer(nom):
+            try:
+                if nom == 'b':
+                    with connection.cursor() as cursor:
+                        cursor.execute("SELECT pg_backend_pid()")
+                        pid_b.append(cursor.fetchone()[0])
+                enregistrer_paiement(self.achat, Decimal("100"), self.user)
+                resultats[nom] = 'ok'
+            except ValidationError as erreur:
+                resultats[nom] = str(erreur.detail[0])
+            except Exception as erreur:
+                resultats[nom] = repr(erreur)
+            finally:
+                connection.close()
+
+        with patch.object(PaiementFournisseur.objects, 'create', side_effect=create_avec_pause):
+            thread_a = threading.Thread(target=payer, args=('a',))
+            thread_a.start()
+            self.assertTrue(a_en_pause.wait(timeout=10), resultats)
+
+            thread_b = threading.Thread(target=payer, args=('b',))
+            thread_b.start()
+            limite = time.monotonic() + 10
+            b_bloque = False
+            while time.monotonic() < limite and thread_b.is_alive():
+                if pid_b and self._attente_sur_verrou(pid_b[0]):
+                    b_bloque = True
+                    break
+                time.sleep(0.01)
+
+            liberer_a.set()
+            thread_a.join(timeout=15)
+            thread_b.join(timeout=15)
+
+        self.assertTrue(b_bloque, f"B aurait dû attendre le verrou de A : {resultats}")
+        self.assertEqual(resultats.get('a'), 'ok', resultats)
+        self.assertIn("dépasse le montant dû", resultats.get('b', ''), resultats)
+        self.assertEqual(PaiementFournisseur.objects.filter(achat=self.achat).count(), 1)
+        self.achat.refresh_from_db()
+        self.assertEqual(self.achat.montant_du, Decimal("50.00"))
+        self.assertEqual(self.achat.statut_paiement, 'partiel')

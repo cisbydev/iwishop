@@ -93,3 +93,41 @@ class LigneAchat(models.Model):
 
     def __str__(self):
         return f"{self.quantite} {self.unite.nom} de {self.produit.nom} pour Achat #{self.achat.id}"
+
+
+class PaiementFournisseur(models.Model):
+    """Paiement d'une dette fournisseur (achat à crédit), après la création
+    de l'achat - l'acompte, lui, reste sur Achat.montant_paye. Calqué sur
+    sales.Remboursement : append-only, jamais modifié ni supprimé."""
+    achat = models.ForeignKey(Achat, on_delete=models.PROTECT, related_name='paiements')
+    # Pas de validateur de signe : une correction porte un écart, qui peut
+    # être négatif. Les bornes sont imposées par le service
+    # (purchases.services.dette).
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    # D9 : date du serveur, pas de paiement antidaté en v1.
+    date_paiement = models.DateTimeField(auto_now_add=True)
+    enregistre_par = models.ForeignKey(User, on_delete=models.PROTECT)
+    # Correction append-only : une nouvelle ligne porte l'écart et pointe
+    # toujours vers l'ORIGINAL, jamais vers une autre correction (cf.
+    # purchases.services.dette.corriger_paiement).
+    paiement_corrige = models.ForeignKey(
+        'self', on_delete=models.PROTECT, null=True, blank=True, related_name='corrections'
+    )
+    # Obligatoire quand paiement_corrige est rempli - imposé par le
+    # service, pas en base.
+    motif_correction = models.TextField(blank=True, default='')
+    # null = "non précisé", comme Remboursement.mode_paiement. Une
+    # correction reprend le mode de son original.
+    mode_paiement = models.CharField(
+        max_length=30, choices=Vente.MODES_PAIEMENT, null=True, blank=True
+    )
+
+    class Meta:
+        verbose_name = "Paiement fournisseur"
+        verbose_name_plural = "Paiements fournisseurs"
+        ordering = ['date_paiement', 'id']
+
+    def __str__(self):
+        if self.paiement_corrige_id:
+            return f"Correction {self.montant} du paiement #{self.paiement_corrige_id} sur Achat #{self.achat_id}"
+        return f"Paiement {self.montant} sur Achat #{self.achat_id}"
