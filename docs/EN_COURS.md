@@ -24,9 +24,10 @@ Plan validé le 2026-10-02. État au 2026-10-03 :
 - Commit 4 : `9131791` (`formater_montant`) et `e8e71fd` (API des paiements), poussés (`515153b`), CI verte.
 - Commit 5 : `16e3f4d`, poussé (`0fc48d1`), CI verte. Render Live vérifié par Mahamadou (ce déploiement inclut aussi le commit 4).
 - Commit 6 : `7cd88cc`, poussé (`29e03bd`), CI verte. Vérifié en prod par Mahamadou : Render Live, caisse du 01/10 identique à avant.
-- Commit 7 : `2e25e34`, poussé (`f72d73b`), CI verte. Déploiement Vercel à tester par Mahamadou (voir plus bas).
-- Commit 7 bis : `38e2584`, validé par Mahamadou, **non poussé** : Mahamadou teste d'abord le commit 7 en prod. lint, build et 164 tests Vitest OK en local, 5 mutations détectées, captures à 375 px et en desktop.
-- Prochaine étape : petit chantier « bouton flottant » (priorité, avant le commit 9), voir plus bas.
+- Commit 7 : `2e25e34`, poussé (`f72d73b`), CI verte. Vérifié en prod par Mahamadou le 2026-10-03 : achat à crédit de 1000 avec 300 versés en espèces, reste dû de 700 FCFA affiché après l'enregistrement, badge sous le fournisseur, 300 dans les sorties de la caisse du jour.
+- Commit 7 bis : `38e2584`, validé par Mahamadou, à pousser avec le correctif du bouton flottant. lint, build et 164 tests Vitest OK en local, 5 mutations détectées, captures à 375 px et en desktop.
+- Petit chantier « bouton flottant » (priorité, avant le commit 9) : correctif `ed7c70c`, voir plus bas.
+- Prochaine étape : plan du commit 9.
 
 ### Principe
 
@@ -78,9 +79,10 @@ Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nou
 
 ## Petit chantier prioritaire : bouton flottant de l'assistant
 
-Passé en priorité le 2026-10-03, avant le commit 9 : depuis le 7 bis, à 375 px, le bouton flottant recouvre un champ obligatoire (le sélecteur « Mode de paiement » du formulaire d'achat), en plus du « Montant Total ». Plan révisé le 2026-10-03, **à valider**, rien de codé.
+Passé en priorité le 2026-10-03, avant le commit 9 : depuis le 7 bis, à 375 px, le bouton flottant recouvre un champ obligatoire (le sélecteur « Mode de paiement » du formulaire d'achat), en plus du « Montant Total ». Plan révisé validé le 2026-10-03. Correctif : `ed7c70c`.
 
 - Décision (2026-10-03) : Iwi reste visible sur mobile (argument de vente, commerçants surtout sur téléphone). On essaie d'abord la solution la plus simple : agrandir la marge basse de `main` (`App.jsx`), sur mobile et en desktop, pour que la fin de toute page puisse défiler au-dessus du bouton. Les champs du milieu de page se dégagent en défilant, comme avec tout bouton flottant. Si ça ne suffit pas, on reparlera de l'en-tête.
+- Décision (2026-10-03) : le cas « milieu de page » est accepté, y compris pour Valider à 375 px (il se dégage en défilant). On ne reparle de l'en-tête que si des commerçants s'en plaignent.
 - Constat : `Assistant.jsx`, bouton de 56 px en `fixed bottom-20 right-4` (mobile), `md:bottom-6 md:right-6`. Son haut est à 136 px du bas de l'écran sur mobile, 80 px en desktop. La marge basse de `main` n'est que de 96 px (`pb-24`) sur mobile et 24 px (`md:pb-6`) en desktop : même tout en bas d'une page, les derniers 40 px (mobile) ou 56 px (desktop) du contenu restent sous le bouton.
 - Correctif prévu : `pb-36` (144 px) sur mobile et `md:pb-24` (96 px) en desktop, soit 8 px et 16 px de marge au-dessus du bouton. Une seule ligne de `App.jsx`, valable pour toutes les pages.
 - Mesure Playwright faite le 2026-10-03, avant correctif (API simulée, panier d'une ligne, historique de 2 achats puis vide) :
@@ -90,6 +92,7 @@ Passé en priorité le 2026-10-03, avant le commit 9 : depuis le 7 bis, à 375 p
   - Mesure Playwright, à 375 px et en desktop, sur Achats, vue échouer avant le correctif : défilement jusqu'en bas de la page, le bas du contenu de `main` est au-dessus du haut du bouton Iwi, et aucun champ ni bouton n'est sous Iwi (en desktop : plus de « Annuler l'achat #40 »).
   - Formulaire d'achat à 375 px : il existe une position de défilement où tous ses champs et Valider sont hors du bouton Iwi (vrai avant et après : constat, pas preuve du correctif).
   - Captures d'Achats à 375 px et en desktop, en fin de page.
+- Résultat (2026-10-03) : la mesure échouait avant le correctif (4 échecs) et passe après. En fin de page, bas du contenu à 668 px pour un bouton à 676 px (375 px), 804 px pour 820 px en desktop, aucun élément sous le bouton. Le constat « milieu de page » passe avant et après. Le script Playwright n'est pas dans la CI (jsdom ne calcule pas la mise en page). Un commentaire dans `Assistant.jsx` rappelle le lien entre la position du bouton et la marge de `main`.
 
 ## Chantier suivant : offre unique
 
@@ -132,7 +135,6 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté Mahamadou
 
-- Tester le commit 7 en prod (Vercel) : un achat à crédit depuis le téléphone, le badge « À crédit · reste X » dans l'historique, et la caisse du jour. Ensuite seulement, push du 7 bis (`38e2584`).
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
