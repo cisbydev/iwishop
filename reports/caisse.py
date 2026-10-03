@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 
 from accounts.permissions import IsOwner
 from expenses.models import Depense
-from purchases.models import Achat
+from purchases.models import Achat, PaiementFournisseur
 from sales.models import Remboursement, Vente
 from tenants.mixins import BoutiqueScopedMixin
 from .views import bornes_dates_rapport
@@ -32,7 +32,8 @@ def _montant(valeur):
 
 def calculer_journal_caisse(boutique, date_debut, date_fin):
     """Entrées (ventes + remboursements de dettes, par mode), sorties
-    (achats + dépenses) et solde de la période.
+    (argent versé pour les achats, par mode, + dépenses) et solde de la
+    période.
 
     - Encaissé d'une vente = montant_paye - monnaie_rendue : montant_net
       pour une vente comptant, l'acompte pour une vente à crédit.
@@ -40,8 +41,19 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
       (remboursements antérieurs au champ, jamais supposés en espèces). Les
       corrections (montant négatif) portent le mode de leur original et se
       compensent donc dans le bon mode.
-    - Achats et dépenses : supposés payés comptant, sans mode (aucun champ
-      mode_paiement sur ces modèles) - le frontend l'indique à l'écran.
+    - Achats : argent réellement versé. L'acompte (montant_paye) compte à
+      la date de l'achat ; les paiements fournisseurs (corrections
+      comprises) à leur propre date. Un achat comptant a montant_paye =
+      montant_total : chiffres identiques à ceux d'avant les dettes
+      fournisseurs. mode_paiement null = "non précisé" (achats antérieurs
+      au champ, jamais supposés en espèces).
+    - Paiements d'un achat annulé (option A, décidée le 2026-10-03) :
+      comptés à leur date. L'annulation n'est possible que si leur total
+      net vaut 0 (AchatViewSet.annuler), donc ils se compensent, et les
+      périodes passées ne bougent plus. L'acompte d'un achat annulé, lui,
+      disparaît du jour de l'achat (limite connue ci-dessous).
+    - Dépenses : supposées payées comptant, sans mode (aucun champ
+      mode_paiement) - le frontend l'indique à l'écran.
     - Découpage par journée : `__date` convertit dans TIME_ZONE (global,
       Africa/Bamako, UTC+0). Toutes les boutiques sont en UTC+0 à ce jour ;
       une boutique dans un autre fuseau exigerait un fuseau par boutique.
@@ -79,7 +91,8 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
     # sa correction fait 0 en montant mais reste deux mouvements.
     nombre_remboursements = remboursements.count()
 
-    modes = [code for code, _ in Vente.MODES_PAIEMENT]
+    codes_modes = [code for code, _ in Vente.MODES_PAIEMENT]
+    modes = list(codes_modes)
     if remboursements_par_mode.get(None):
         modes.append(None)  # "Non précisé", seulement s'il y en a
     par_mode = []
@@ -97,14 +110,50 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
     total_remboursements = sum((ligne["remboursements"] for ligne in par_mode), ZERO)
     total_entrees = total_ventes + total_remboursements
 
-    achats = Achat.objects.filter(
+    achats_periode = Achat.objects.filter(
         boutique=boutique, statut='VALIDE', date_achat__date__range=[date_debut, date_fin],
-    ).aggregate(total=Sum('montant_total'), nombre=Count('id'))
+    )
+    achats = achats_periode.aggregate(
+        acomptes=Sum('montant_paye'),
+        nombre=Count('id'),
+        credit_obtenu=Sum(
+            F('montant_total') - F('montant_paye'), output_field=DecimalField(max_digits=12, decimal_places=2)
+        ),
+        dette_restante=Sum('montant_du'),
+    )
+    acomptes_par_mode = {
+        ligne['mode_paiement']: ligne['total']
+        for ligne in achats_periode.values('mode_paiement').annotate(total=Sum('montant_paye'))
+    }
+    # Option A : pas de filtre sur le statut de l'achat (cf. docstring).
+    paiements = PaiementFournisseur.objects.filter(
+        achat__boutique=boutique, date_paiement__date__range=[date_debut, date_fin],
+    )
+    paiements_par_mode = {
+        ligne['mode_paiement']: ligne['total']
+        for ligne in paiements.values('mode_paiement').annotate(total=Sum('montant'))
+    }
+    # Nombre de lignes, corrections comprises (même principe que
+    # nombre_remboursements).
+    nombre_paiements_fournisseurs = paiements.count()
+
+    modes_achats = list(codes_modes)
+    if acomptes_par_mode.get(None) or paiements_par_mode.get(None):
+        modes_achats.append(None)  # "Non précisé", seulement s'il y en a
+    achats_par_mode = [
+        {
+            "mode_paiement": mode,
+            "montant": _montant(acomptes_par_mode.get(mode)) + _montant(paiements_par_mode.get(mode)),
+        }
+        for mode in modes_achats
+    ]
     # date_depense (date saisie par le commerçant), comme le résumé financier.
     depenses = Depense.objects.filter(
         boutique=boutique, statut='VALIDEE', date_depense__range=[date_debut, date_fin],
     ).aggregate(total=Sum('montant'), nombre=Count('id'))
-    total_achats = _montant(achats['total'])
+    total_acomptes = _montant(achats['acomptes'])
+    total_paiements_fournisseurs = _montant(sum(paiements_par_mode.values(), ZERO))
+    total_achats = total_acomptes + total_paiements_fournisseurs
     total_depenses = _montant(depenses['total'])
     total_sorties = total_achats + total_depenses
 
@@ -130,8 +179,14 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
             "total": total_entrees,
         },
         "sorties": {
+            # Argent versé pour les achats : acomptes + paiements
+            # fournisseurs (même clé qu'avant, cf. docstring).
             "achats": total_achats,
             "nombre_achats": achats['nombre'],
+            "acomptes_achats": total_acomptes,
+            "paiements_fournisseurs": total_paiements_fournisseurs,
+            "nombre_paiements_fournisseurs": nombre_paiements_fournisseurs,
+            "achats_par_mode": achats_par_mode,
             "depenses": total_depenses,
             "nombre_depenses": depenses['nombre'],
             "total": total_sorties,
@@ -149,6 +204,12 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
             # à la fin de la période.
             "credit_restant_du": _montant(infos['credit_restant_du']),
             "ventes_synchronisees_en_differe": ventes_en_differe,
+            # D7, même logique que credit_accorde / credit_restant_du : part
+            # des achats de la période non payée à l'achat, et ce qui en
+            # reste dû aujourd'hui. La dette totale par fournisseur est dans
+            # l'écran Fournisseurs.
+            "credit_fournisseur_obtenu": _montant(achats['credit_obtenu']),
+            "dette_fournisseurs_restante": _montant(achats['dette_restante']),
         },
     }
 

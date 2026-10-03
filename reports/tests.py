@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 from io import BytesIO
@@ -17,7 +17,8 @@ from suppliers.models import Fournisseur
 from products.models import Produit, UniteVente, ProduitPrix
 from sales.models import Client as ClientCredit, LigneVente, Remboursement, Vente
 from sales.services.credit import enregistrer_remboursement
-from purchases.models import Achat
+from purchases.models import Achat, PaiementFournisseur
+from purchases.services.dette import corriger_paiement, enregistrer_paiement
 from expenses.models import Depense
 from parametres.models import ParametresBoutique
 from .views import calculer_resume_financier
@@ -1131,3 +1132,220 @@ class JournalCaisseTests(APITestCase):
         response = self.client.get(self.url, {"date_debut": "2026-03-01", "date_fin": "2026-03-31"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class JournalCaisseAchatsTests(APITestCase):
+    """Dettes fournisseurs, commit 6 : dans le journal de caisse, les achats
+    en sorties = argent réellement versé (acompte à la date de l'achat,
+    paiements fournisseurs à leur date), par mode. Un achat comptant donne
+    exactement les mêmes chiffres qu'avant."""
+
+    JOUR = datetime(2026, 3, 10)
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Caisse Achats", slug="boutique-caisse-achats")
+        self.proprietaire = User.objects.create_user(username="caisse_achats_proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.client.force_authenticate(user=self.proprietaire)
+        self.url = reverse('journal-caisse')
+
+    # --- helpers ---
+
+    def _a(self, decalage_jours=0, heure=12):
+        jour = self.JOUR + timedelta(days=decalage_jours)
+        return datetime(jour.year, jour.month, jour.day, heure, 0, tzinfo=ZoneInfo('Africa/Bamako'))
+
+    def _get(self, du=0, au=None):
+        au = du if au is None else au
+        debut = (self.JOUR + timedelta(days=du)).date().isoformat()
+        fin = (self.JOUR + timedelta(days=au)).date().isoformat()
+        response = self.client.get(self.url, {"date_debut": debut, "date_fin": fin})
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        return response.data
+
+    def _achat(self, total, acompte, mode=None, statut='VALIDE', jour=0, boutique=None, fournisseur=None):
+        total, acompte = Decimal(total), Decimal(acompte)
+        achat = Achat.objects.create(
+            boutique=boutique or self.boutique, fournisseur=fournisseur or self.fournisseur,
+            montant_total=total, montant_paye=acompte, montant_du=total - acompte,
+            mode_paiement=mode, statut=statut,
+            statut_paiement='paye' if acompte == total else ('partiel' if acompte > 0 else 'en_attente'),
+        )
+        Achat.objects.filter(pk=achat.pk).update(date_achat=self._a(jour))
+        achat.refresh_from_db()
+        return achat
+
+    def _payer(self, achat, montant, mode, jour):
+        paiement = enregistrer_paiement(achat, Decimal(montant), self.proprietaire, mode_paiement=mode)
+        PaiementFournisseur.objects.filter(pk=paiement.pk).update(date_paiement=self._a(jour))
+        return paiement
+
+    def _corriger(self, paiement, nouveau_montant, jour):
+        correction, _, _ = corriger_paiement(paiement, Decimal(nouveau_montant), "Erreur", self.proprietaire)
+        PaiementFournisseur.objects.filter(pk=correction.pk).update(date_paiement=self._a(jour))
+        return correction
+
+    def _par_mode(self, data):
+        return {ligne['mode_paiement']: ligne['montant'] for ligne in data['sorties']['achats_par_mode']}
+
+    # --- non-régression ---
+
+    def test_non_regression_achats_comptant(self):
+        # Achats comptant uniquement (montant_paye = montant_total) : toutes
+        # les clés d'avant les dettes fournisseurs gardent leurs valeurs.
+        vente = Vente.objects.create(
+            boutique=self.boutique, montant_total=Decimal("1000"), montant_net=Decimal("1000"),
+            montant_paye=Decimal("1000"), mode_paiement='ESPECES',
+        )
+        Vente.objects.filter(pk=vente.pk).update(date_vente=self._a())
+        self._achat("400", "400")
+        self._achat("250", "250", mode='MOBILE_MONEY')
+        Depense.objects.create(
+            boutique=self.boutique, titre="Loyer", montant=Decimal("150"), date_depense=self.JOUR.date()
+        )
+
+        data = self._get()
+
+        attendu = {
+            "date_debut": self.JOUR.date(),
+            "date_fin": self.JOUR.date(),
+            "boutique_nom": "Boutique Caisse Achats",
+            "solde_periode": Decimal("200.00"),
+        }
+        for cle, valeur in attendu.items():
+            self.assertEqual(data[cle], valeur, cle)
+        self.assertEqual(data['entrees'], {
+            "par_mode": [
+                {"mode_paiement": 'ESPECES', "ventes": Decimal("1000.00"), "remboursements": Decimal("0.00"), "total": Decimal("1000.00")},
+                {"mode_paiement": 'MOBILE_MONEY', "ventes": Decimal("0.00"), "remboursements": Decimal("0.00"), "total": Decimal("0.00")},
+                {"mode_paiement": 'CARTE', "ventes": Decimal("0.00"), "remboursements": Decimal("0.00"), "total": Decimal("0.00")},
+                {"mode_paiement": 'AUTRE', "ventes": Decimal("0.00"), "remboursements": Decimal("0.00"), "total": Decimal("0.00")},
+            ],
+            "ventes": Decimal("1000.00"),
+            "remboursements": Decimal("0.00"),
+            "nombre_remboursements": 0,
+            "total": Decimal("1000.00"),
+        })
+        anciennes_sorties = {
+            "achats": Decimal("650.00"), "nombre_achats": 2,
+            "depenses": Decimal("150.00"), "nombre_depenses": 1,
+            "total": Decimal("800.00"),
+        }
+        for cle, valeur in anciennes_sorties.items():
+            self.assertEqual(data['sorties'][cle], valeur, cle)
+        anciennes_informations = {
+            "nombre_ventes": 1, "credit_accorde": Decimal("0.00"),
+            "credit_restant_du": Decimal("0.00"), "ventes_synchronisees_en_differe": 0,
+        }
+        for cle, valeur in anciennes_informations.items():
+            self.assertEqual(data['informations'][cle], valeur, cle)
+        # Les nouvelles clés, cohérentes avec un achat comptant.
+        self.assertEqual(data['sorties']['acomptes_achats'], Decimal("650.00"))
+        self.assertEqual(data['sorties']['paiements_fournisseurs'], Decimal("0.00"))
+        self.assertEqual(data['sorties']['nombre_paiements_fournisseurs'], 0)
+        self.assertEqual(data['informations']['credit_fournisseur_obtenu'], Decimal("0.00"))
+        self.assertEqual(data['informations']['dette_fournisseurs_restante'], Decimal("0.00"))
+
+    # --- acompte et paiements ---
+
+    def test_acompte_compte_a_la_date_de_lachat(self):
+        self._achat("300", "50", mode='ESPECES')
+
+        data = self._get()
+
+        self.assertEqual(data['sorties']['achats'], Decimal("50.00"))
+        self.assertEqual(data['sorties']['acomptes_achats'], Decimal("50.00"))
+        self.assertEqual(data['sorties']['nombre_achats'], 1)
+        self.assertEqual(data['sorties']['total'], Decimal("50.00"))
+        self.assertEqual(data['solde_periode'], Decimal("-50.00"))
+        self.assertEqual(data['informations']['credit_fournisseur_obtenu'], Decimal("250.00"))
+        self.assertEqual(data['informations']['dette_fournisseurs_restante'], Decimal("250.00"))
+
+    def test_paiements_a_leur_date_et_correction_le_jour_dapres(self):
+        achat = self._achat("300", "0", jour=0)
+        paiement = self._payer(achat, "100", 'MOBILE_MONEY', jour=2)
+        self._corriger(paiement, "0", jour=3)
+
+        jour_achat = self._get(0)
+        jour_paiement = self._get(2)
+        jour_correction = self._get(3)
+        periode = self._get(0, 3)
+
+        self.assertEqual(jour_achat['sorties']['achats'], Decimal("0.00"))
+        self.assertEqual(jour_achat['sorties']['nombre_paiements_fournisseurs'], 0)
+        self.assertEqual(jour_paiement['sorties']['achats'], Decimal("100.00"))
+        self.assertEqual(jour_paiement['sorties']['paiements_fournisseurs'], Decimal("100.00"))
+        self.assertEqual(jour_paiement['sorties']['nombre_paiements_fournisseurs'], 1)
+        self.assertEqual(jour_paiement['sorties']['nombre_achats'], 0)
+        self.assertEqual(self._par_mode(jour_paiement)['MOBILE_MONEY'], Decimal("100.00"))
+        self.assertEqual(jour_correction['sorties']['achats'], Decimal("-100.00"))
+        self.assertEqual(self._par_mode(jour_correction)['MOBILE_MONEY'], Decimal("-100.00"))
+        self.assertEqual(periode['sorties']['achats'], Decimal("0.00"))
+        self.assertEqual(periode['sorties']['nombre_paiements_fournisseurs'], 2)
+
+    def test_par_mode_avec_non_precise(self):
+        self._achat("400", "400")                                   # ancien comptant : mode inconnu
+        credit = self._achat("300", "50", mode='ESPECES')
+        self._payer(credit, "100", 'MOBILE_MONEY', jour=0)
+
+        data = self._get()
+
+        self.assertEqual(self._par_mode(data), {
+            'ESPECES': Decimal("50.00"), 'MOBILE_MONEY': Decimal("100.00"),
+            'CARTE': Decimal("0.00"), 'AUTRE': Decimal("0.00"), None: Decimal("400.00"),
+        })
+        self.assertEqual(sum(self._par_mode(data).values()), data['sorties']['achats'])
+        self.assertEqual(data['sorties']['achats'], Decimal("550.00"))
+
+    def test_ligne_non_precise_absente_sil_ny_en_a_pas(self):
+        self._achat("300", "300", mode='CARTE')
+
+        modes = [ligne['mode_paiement'] for ligne in self._get()['sorties']['achats_par_mode']]
+
+        self.assertEqual(modes, ['ESPECES', 'MOBILE_MONEY', 'CARTE', 'AUTRE'])
+
+    def test_paiements_dun_achat_annule_comptes_a_leur_date(self):
+        # Option A : les lignes de paiement restent à leur date ; leur total
+        # net vaut 0 (condition de l'annulation). L'acompte de l'achat
+        # annulé disparaît du jour de l'achat (limite connue : pas de
+        # date_annulation).
+        achat = self._achat("300", "50", mode='ESPECES', jour=0)
+        paiement = self._payer(achat, "100", 'ESPECES', jour=1)
+        self._corriger(paiement, "0", jour=2)
+        Achat.objects.filter(pk=achat.pk).update(statut='ANNULE')
+
+        self.assertEqual(self._get(0)['sorties']['achats'], Decimal("0.00"))
+        self.assertEqual(self._get(1)['sorties']['achats'], Decimal("100.00"))
+        self.assertEqual(self._get(2)['sorties']['achats'], Decimal("-100.00"))
+        periode = self._get(0, 3)
+        self.assertEqual(periode['sorties']['achats'], Decimal("0.00"))
+        self.assertEqual(periode['sorties']['nombre_paiements_fournisseurs'], 2)
+        self.assertEqual(periode['sorties']['nombre_achats'], 0)
+
+    def test_dette_restante_baisse_apres_un_paiement_ulterieur(self):
+        achat = self._achat("300", "0", jour=0)
+        self._payer(achat, "120", 'ESPECES', jour=5)
+
+        data = self._get(0)
+
+        self.assertEqual(data['sorties']['achats'], Decimal("0.00"))
+        self.assertEqual(data['informations']['credit_fournisseur_obtenu'], Decimal("300.00"))
+        # Ce qui reste dû aujourd'hui sur les achats de la période.
+        self.assertEqual(data['informations']['dette_fournisseurs_restante'], Decimal("180.00"))
+
+    def test_donnees_dune_autre_boutique_jamais_comptees(self):
+        autre = Boutique.objects.create(nom="Autre", slug="autre-caisse-achats")
+        autre_proprio = User.objects.create_user(username="autre_caisse_achats", password="pass1234")
+        Profil.objects.create(user=autre_proprio, boutique=autre, est_proprietaire=True)
+        achat_autre = self._achat(
+            "500", "100", mode='ESPECES', boutique=autre,
+            fournisseur=Fournisseur.objects.create(boutique=autre, nom="F"),
+        )
+        enregistrer_paiement(achat_autre, Decimal("50"), autre_proprio, mode_paiement='ESPECES')
+
+        data = self._get()
+
+        self.assertEqual(data['sorties']['achats'], Decimal("0.00"))
+        self.assertEqual(data['sorties']['nombre_paiements_fournisseurs'], 0)
+        self.assertEqual(data['informations']['dette_fournisseurs_restante'], Decimal("0.00"))
