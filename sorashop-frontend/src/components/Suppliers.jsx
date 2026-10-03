@@ -3,13 +3,17 @@ import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
 import { getErrorMessage } from '../services/errorUtils';
-import { Plus, Truck, Pencil, Trash2, Phone, MapPin } from 'lucide-react';
+import { formatCurrency, couleurBadgeDette } from '../utils/formatters';
+import { listerFournisseursAvecDette } from '../services/fournisseurs';
+import FicheFournisseur from './FicheFournisseur';
+import { Plus, Truck, Pencil, Trash2, Phone, MapPin, Wallet } from 'lucide-react';
 
 const FORM_VIDE = { nom: '', telephone: '', adresse: '' };
 
 export default function Suppliers() {
   const { actif: modeSupport, boutiqueId } = useSupportView();
-  const { utilisateur } = useSettings();
+  const { parametres, utilisateur } = useSettings();
+  const devise = parametres?.devise || 'FCFA';
   const estProprietaire = utilisateur?.est_proprietaire;
   const [fournisseurs, setFournisseurs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,6 +22,9 @@ export default function Suppliers() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(FORM_VIDE);
+  const [dettesParFournisseurId, setDettesParFournisseurId] = useState(new Map());
+  const [erreurDettes, setErreurDettes] = useState('');
+  const [fournisseurSelectionne, setFournisseurSelectionne] = useState(null);
 
   const updateForm = (champ, valeur) => setForm(prev => ({ ...prev, [champ]: valeur }));
 
@@ -35,9 +42,29 @@ export default function Suppliers() {
     }
   };
 
+  // Indépendant de la liste : une erreur ici n'empêche pas de gérer les
+  // fournisseurs. 404 = route absente (backend antérieur aux dettes
+  // fournisseurs) : rien à signaler. Toute autre erreur est affichée, pour
+  // ne pas laisser croire qu'il n'y a aucune dette.
+  const fetchDettes = async () => {
+    setErreurDettes('');
+    try {
+      const liste = await listerFournisseursAvecDette();
+      setDettesParFournisseurId(new Map(liste.map((f) => [
+        f.id, { total: f.dette_totale, plusAncienneDette: f.plus_ancienne_dette },
+      ])));
+    } catch (err) {
+      setDettesParFournisseurId(new Map());
+      if (err?.response?.status !== 404) {
+        console.error("Erreur chargement dettes fournisseurs", err);
+        setErreurDettes('Impossible de charger les dettes fournisseurs.');
+      }
+    }
+  };
+
   useEffect(() => {
     const loadFournisseurs = async () => {
-      await fetchFournisseurs();
+      await Promise.all([fetchFournisseurs(), fetchDettes()]);
     };
 
     void loadFournisseurs();
@@ -128,6 +155,9 @@ export default function Suppliers() {
             <Plus className="h-5 w-5" /> Ajouter un fournisseur
           </button>
         </div>
+        {erreurDettes && (
+          <p role="status" className="mt-4 text-sm text-amber-800">{erreurDettes}</p>
+        )}
       </section>
 
       {fournisseurs.length === 0 ? (
@@ -152,14 +182,24 @@ export default function Suppliers() {
               ? 'mx-auto max-w-[56rem] md:grid-cols-2'
               : 'md:grid-cols-2 xl:grid-cols-3'
         }`}>
-          {fournisseurs.map((f) => (
+          {fournisseurs.map((f) => {
+            const dette = dettesParFournisseurId.get(f.id);
+            return (
             <div key={f.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 ring-1 ring-blue-100">
                     <Truck className="h-5 w-5" />
                   </div>
-                  <h3 className="truncate font-semibold text-slate-900">{f.nom}</h3>
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold text-slate-900">{f.nom}</h3>
+                    {/* Dette de l'API (avec_dette), ancienneté colorée comme pour les clients. */}
+                    {dette && (
+                      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-semibold ${couleurBadgeDette(dette.plusAncienneDette)}`}>
+                        Doit {formatCurrency(dette.total, devise)}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <button
@@ -199,9 +239,30 @@ export default function Suppliers() {
                   <p className="italic text-slate-400">Aucune coordonnée renseignée</p>
                 )}
               </div>
+              <button
+                type="button"
+                onClick={() => setFournisseurSelectionne(f)}
+                aria-label={`Dettes et paiements du fournisseur ${f.nom}`}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+              >
+                <Wallet className="h-4 w-4" /> Dettes et paiements
+              </button>
             </div>
-          ))}
+            );
+          })}
         </div>
+      )}
+
+      {fournisseurSelectionne && (
+        <FicheFournisseur
+          fournisseur={fournisseurSelectionne}
+          dette={dettesParFournisseurId.get(fournisseurSelectionne.id)}
+          devise={devise}
+          modeSupport={modeSupport}
+          estProprietaire={estProprietaire}
+          onClose={() => setFournisseurSelectionne(null)}
+          onPaiementEnregistre={fetchDettes}
+        />
       )}
 
       {/* Modal d'ajout / modification de fournisseur */}
