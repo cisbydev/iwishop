@@ -4,6 +4,13 @@ export async function listerFournisseursAvecDette() {
   return getAll('fournisseurs/avec_dette/');
 }
 
+// Total dû à tous les fournisseurs de la boutique, calculé par le backend
+// (8 bis) : { dette_totale, nombre_fournisseurs }.
+export async function obtenirDetteTotaleFournisseurs() {
+  const response = await api.get('fournisseurs/dette_totale/');
+  return response.data;
+}
+
 // Achats créés à crédit (annulés compris), avec leurs paiements groupés par
 // le backend : montant_effectif et total_paiements y sont déjà calculés.
 export async function obtenirHistoriqueFournisseur(id) {

@@ -4,7 +4,7 @@ import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { formatCurrency, couleurBadgeDette } from '../utils/formatters';
-import { listerFournisseursAvecDette } from '../services/fournisseurs';
+import { listerFournisseursAvecDette, obtenirDetteTotaleFournisseurs } from '../services/fournisseurs';
 import FicheFournisseur from './FicheFournisseur';
 import { Plus, Truck, Pencil, Trash2, Phone, MapPin, Wallet } from 'lucide-react';
 
@@ -24,6 +24,8 @@ export default function Suppliers() {
   const [form, setForm] = useState(FORM_VIDE);
   const [dettesParFournisseurId, setDettesParFournisseurId] = useState(new Map());
   const [erreurDettes, setErreurDettes] = useState('');
+  const [totalDettes, setTotalDettes] = useState(null);
+  const [erreurTotal, setErreurTotal] = useState('');
   const [fournisseurSelectionne, setFournisseurSelectionne] = useState(null);
 
   const updateForm = (champ, valeur) => setForm(prev => ({ ...prev, [champ]: valeur }));
@@ -62,9 +64,27 @@ export default function Suppliers() {
     }
   };
 
+  // Même traitement des erreurs que fetchDettes, avec son propre message :
+  // l'un peut échouer sans l'autre.
+  const fetchTotal = async () => {
+    setErreurTotal('');
+    try {
+      setTotalDettes(await obtenirDetteTotaleFournisseurs());
+    } catch (err) {
+      setTotalDettes(null);
+      if (err?.response?.status !== 404) {
+        console.error("Erreur chargement total des dettes fournisseurs", err);
+        setErreurTotal('Impossible de charger le total dû aux fournisseurs.');
+      }
+    }
+  };
+
+  // Après un paiement ou une correction : badges et total ensemble.
+  const rechargerDettes = () => Promise.all([fetchDettes(), fetchTotal()]);
+
   useEffect(() => {
     const loadFournisseurs = async () => {
-      await Promise.all([fetchFournisseurs(), fetchDettes()]);
+      await Promise.all([fetchFournisseurs(), fetchDettes(), fetchTotal()]);
     };
 
     void loadFournisseurs();
@@ -143,6 +163,20 @@ export default function Suppliers() {
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">Fournisseurs</h2>
             <p className="mt-2 text-sm text-slate-600">Gérez vos fournisseurs et leurs informations de contact.</p>
+            {/* Total de l'API (8 bis), jamais la somme des badges. Champs
+                absents : rien n'est affiché. */}
+            {totalDettes?.dette_totale != null && totalDettes?.nombre_fournisseurs != null && (
+              <p className="mt-3 text-sm text-slate-700">
+                {totalDettes.nombre_fournisseurs === 0 ? (
+                  'Aucune dette fournisseur en cours.'
+                ) : (
+                  <>
+                    Total dû : <span className="font-semibold text-red-700">{formatCurrency(totalDettes.dette_totale, devise)}</span>
+                    {' '}à {totalDettes.nombre_fournisseurs} {totalDettes.nombre_fournisseurs === 1 ? 'fournisseur' : 'fournisseurs'}
+                  </>
+                )}
+              </p>
+            )}
           </div>
           <button
             onClick={ouvrirAjout}
@@ -157,6 +191,9 @@ export default function Suppliers() {
         </div>
         {erreurDettes && (
           <p role="status" className="mt-4 text-sm text-amber-800">{erreurDettes}</p>
+        )}
+        {erreurTotal && (
+          <p role="status" className="mt-2 text-sm text-amber-800">{erreurTotal}</p>
         )}
       </section>
 
@@ -261,7 +298,7 @@ export default function Suppliers() {
           modeSupport={modeSupport}
           estProprietaire={estProprietaire}
           onClose={() => setFournisseurSelectionne(null)}
-          onPaiementEnregistre={fetchDettes}
+          onPaiementEnregistre={rechargerDettes}
         />
       )}
 

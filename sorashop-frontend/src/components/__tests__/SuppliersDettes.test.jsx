@@ -78,7 +78,15 @@ function historique() {
   ];
 }
 
-function mockerApi({ avecDette = () => Promise.resolve(AVEC_DETTE), historiqueFn = historique } = {}) {
+// Total volontairement différent de la somme des badges (4000) : l'écran
+// affiche la valeur de l'API, jamais une somme.
+const TOTAL = { dette_totale: '9999.00', nombre_fournisseurs: 1 };
+
+function mockerApi({
+  avecDette = () => Promise.resolve(AVEC_DETTE),
+  historiqueFn = historique,
+  detteTotale = () => Promise.resolve({ data: TOTAL }),
+} = {}) {
   mocks.getAll.mockImplementation((endpoint) => {
     if (endpoint === 'fournisseurs/') return Promise.resolve(FOURNISSEURS);
     if (endpoint === 'fournisseurs/avec_dette/') return avecDette();
@@ -86,6 +94,7 @@ function mockerApi({ avecDette = () => Promise.resolve(AVEC_DETTE), historiqueFn
   });
   mocks.get.mockImplementation((url) => {
     if (url === 'fournisseurs/5/historique/') return Promise.resolve({ data: historiqueFn() });
+    if (url === 'fournisseurs/dette_totale/') return detteTotale();
     return Promise.reject({ response: { status: 404 } });
   });
 }
@@ -95,6 +104,10 @@ async function coller(user, champ, texte) {
   await user.clear(champ);
   await user.click(champ);
   await user.paste(texte);
+}
+
+function appelsA(url) {
+  return mocks.get.mock.calls.filter(([u]) => u === url).length;
 }
 
 function carte(nom) {
@@ -227,7 +240,7 @@ describe('Fournisseurs : fiche des dettes et paiements', () => {
 
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
     expect(mocks.post).toHaveBeenCalledWith('achats/paiements/', { achat: 41, montant: '1000', mode_paiement: 'ESPECES' });
-    await waitFor(() => expect(mocks.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(appelsA('fournisseurs/5/historique/')).toBe(2));
     await waitFor(() => expect(
       mocks.getAll.mock.calls.filter(([url]) => url === 'fournisseurs/avec_dette/').length,
     ).toBe(appelsAvecDette + 1));
@@ -317,5 +330,108 @@ describe('Fournisseurs : fiche des dettes et paiements', () => {
     const fiche = await ouvrirFiche(user);
     expect(within(fiche).queryByText(/undefined|NaN/)).not.toBeInTheDocument();
     expect(within(achat(fiche, 41)).getAllByText(/Paiements/)[0]).not.toHaveTextContent(/total/);
+  });
+});
+
+describe('Fournisseurs : total dû à tous les fournisseurs (8 ter)', () => {
+  function ligneTotal() {
+    return screen.getByText(/^Total dû :/).closest('p');
+  }
+
+  it("affiche le total et le nombre de l'API, pas la somme des badges", async () => {
+    mockerApi();
+    render(<Suppliers />);
+
+    await screen.findByText(/^Total dû :/);
+    expect(ligneTotal()).toHaveTextContent(/^Total dû : 9\s999 FCFA à 1 fournisseur$/);
+    // Le badge (4000) est bien là, mais le total n'en est pas la somme.
+    expect(within(carte('Grossiste Diallo')).getByText(/^Doit 4\s000 FCFA$/)).toBeInTheDocument();
+  });
+
+  it('pluriel : « à 3 fournisseurs »', async () => {
+    mockerApi({ detteTotale: () => Promise.resolve({ data: { dette_totale: '12500.00', nombre_fournisseurs: 3 } }) });
+    render(<Suppliers />);
+
+    await screen.findByText(/^Total dû :/);
+    expect(ligneTotal()).toHaveTextContent(/^Total dû : 12\s500 FCFA à 3 fournisseurs$/);
+  });
+
+  it('dette à 0 : « Aucune dette fournisseur en cours. »', async () => {
+    mockerApi({
+      avecDette: () => Promise.resolve([]),
+      detteTotale: () => Promise.resolve({ data: { dette_totale: '0.00', nombre_fournisseurs: 0 } }),
+    });
+    render(<Suppliers />);
+
+    expect(await screen.findByText('Aucune dette fournisseur en cours.')).toBeInTheDocument();
+    expect(screen.queryByText(/^Total dû/)).not.toBeInTheDocument();
+  });
+
+  it('route absente (404, backend antérieur) : rien affiché, aucun message, liste utilisable', async () => {
+    mockerApi({ detteTotale: () => Promise.reject({ response: { status: 404 } }) });
+    render(<Suppliers />);
+
+    await screen.findByText('Grossiste Diallo');
+    await waitFor(() => expect(appelsA('fournisseurs/dette_totale/')).toBe(1));
+    expect(screen.queryByText(/^Total dû/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Aucune dette fournisseur en cours.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Impossible de charger le total dû aux fournisseurs.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dettes et paiements du fournisseur Grossiste Diallo' })).toBeInTheDocument();
+  });
+
+  it('erreur réseau : message discret, liste et badges utilisables', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockerApi({ detteTotale: () => Promise.reject(new Error('Network Error')) });
+    render(<Suppliers />);
+
+    expect(await screen.findByText('Impossible de charger le total dû aux fournisseurs.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Dettes et paiements du fournisseur Grossiste Diallo' })).toBeInTheDocument();
+    expect(await within(carte('Grossiste Diallo')).findByText(/^Doit 4\s000 FCFA$/)).toBeInTheDocument();
+    // Chaque appel gère sa propre erreur : rien n'est dit des badges.
+    expect(screen.queryByText('Impossible de charger les dettes fournisseurs.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Total dû/)).not.toBeInTheDocument();
+  });
+
+  it('erreur du serveur (500) : même message discret', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockerApi({ detteTotale: () => Promise.reject({ response: { status: 500 } }) });
+    render(<Suppliers />);
+
+    expect(await screen.findByText('Impossible de charger le total dû aux fournisseurs.')).toBeInTheDocument();
+    expect(screen.getByText('Grossiste Diallo')).toBeInTheDocument();
+  });
+
+  it('le total est rechargé après un paiement, avec la nouvelle valeur de l\'API', async () => {
+    let appel = 0;
+    mockerApi({
+      detteTotale: () => {
+        appel += 1;
+        return Promise.resolve({ data: { dette_totale: appel === 1 ? '9999.00' : '8999.00', nombre_fournisseurs: 1 } });
+      },
+    });
+    mocks.post.mockResolvedValue({ data: { id: 80 } });
+    const user = userEvent.setup();
+    render(<Suppliers />);
+
+    await screen.findByText(/^Total dû :/);
+    const fiche = await ouvrirFiche(user);
+    const a41 = achat(fiche, 41);
+    await coller(user, within(a41).getByLabelText('Enregistrer un paiement'), '1000');
+    await user.selectOptions(within(a41).getByLabelText('Mode de paiement'), 'ESPECES');
+    await user.click(within(a41).getByRole('button', { name: 'Enregistrer' }));
+
+    await waitFor(() => expect(appelsA('fournisseurs/dette_totale/')).toBe(2));
+    await waitFor(() => expect(ligneTotal()).toHaveTextContent(/^Total dû : 8\s999 FCFA à 1 fournisseur$/));
+  });
+
+  it('champs absents dans la réponse : rien affiché, ni « undefined » ni « NaN »', async () => {
+    mockerApi({ detteTotale: () => Promise.resolve({ data: {} }) });
+    render(<Suppliers />);
+
+    await screen.findByText('Grossiste Diallo');
+    await waitFor(() => expect(appelsA('fournisseurs/dette_totale/')).toBe(1));
+    expect(screen.queryByText(/^Total dû/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Aucune dette fournisseur en cours.')).not.toBeInTheDocument();
+    expect(screen.queryByText(/undefined|NaN/)).not.toBeInTheDocument();
   });
 });
