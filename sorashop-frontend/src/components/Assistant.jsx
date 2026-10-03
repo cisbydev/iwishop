@@ -54,6 +54,9 @@ export default function Assistant() {
 
   return (
     <>
+      {/* Position et taille liées à la marge basse de <main> (App.jsx,
+          pb-36 / md:pb-24) : si le bouton est déplacé ou agrandi, revoir
+          cette marge pour que la fin de chaque page défile au-dessus. */}
       <button
         type="button"
         onClick={() => setOuvert(true)}

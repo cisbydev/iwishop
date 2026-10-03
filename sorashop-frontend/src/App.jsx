@@ -166,7 +166,9 @@ function AppContent() {
 
         <NavigationMobile />
 
-        <main className="flex-1 px-4 pt-4 pb-24 sm:px-6 sm:pt-6 md:pb-6">
+        {/* Marge basse plus haute que le bouton flottant de l'assistant
+            (Assistant.jsx) : la fin de chaque page peut défiler au-dessus. */}
+        <main className="flex-1 px-4 pt-4 pb-36 sm:px-6 sm:pt-6 md:pb-24">
           <div className="mx-auto max-w-7xl">
             {activeTab === 'dashboard' && <Dashboard onNouvelleVente={() => setActiveTab('sales')} />}
             {activeTab === 'sales' && <Sales onNaviguerVersAbonnement={allerVersAbonnement} />}
