@@ -39,6 +39,7 @@ L'état du travail en cours est dans `docs/EN_COURS.md`, pas ici.
 
 - Aucun calcul de montant : afficher les valeurs renvoyées par l'API.
 - Supporter un champ absent (Render et Vercel se déploient de façon décalée).
+- Couches (z-index) : 40 = éléments flottants (barre de navigation du bas, bouton d'Iwi) ; 50 = fenêtres, panneaux, menus, et bannières globales (collées en haut) ; 60 = fenêtre d'installation de l'app. `z-10` est permis seulement à l'intérieur d'une zone qui défile (comme l'en-tête du tableau de Stock). Tout nouvel élément positionné doit s'y ranger. À couche égale, l'élément rendu le plus bas dans le DOM passe devant.
 
 ## Commits
 
