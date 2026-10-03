@@ -8,6 +8,7 @@ from django.db import transaction
 from tenants.profil import boutique_de
 from notifications.services import verifier_stock_bas
 from sales.models import StatutPaiement, Vente
+from suppliers.models import Fournisseur
 
 class LigneAchatSerializer(serializers.ModelSerializer):
     produit_nom = serializers.ReadOnlyField(source='produit.nom')
@@ -81,6 +82,27 @@ class AchatSerializer(serializers.ModelSerializer):
 
         lignes_data = validated_data.pop('lignes')
         montant_paye_soumis = validated_data.pop('montant_paye', None)
+
+        # D5 : verrouille le fournisseur avant d'insérer l'achat. Les clés
+        # étrangères Django ne sont vérifiées qu'au commit : sans ce verrou,
+        # une suppression concurrente ne voit pas l'achat en cours et
+        # supprime le fournisseur (l'achat échoue alors au commit). Avec
+        # lui, la suppression attend la fin de l'achat et voit sa dette
+        # (cf. FournisseurViewSet.perform_destroy). Pris avant les produits :
+        # même ordre partout, pas d'interblocage. NO KEY UPDATE suffit : il
+        # entre en conflit avec le FOR UPDATE de la suppression.
+        fournisseur = validated_data.get('fournisseur')
+        if fournisseur is not None:
+            try:
+                Fournisseur.objects.select_for_update(no_key=True).get(pk=fournisseur.pk)
+            except Fournisseur.DoesNotExist:
+                # Supprimé entre la validation et le verrou : même réponse
+                # qu'un fournisseur inexistant (code et message du champ).
+                message = self.fields['fournisseur'].error_messages['does_not_exist']
+                raise ValidationError(
+                    {'fournisseur': [message.format(pk_value=fournisseur.pk)]}, code='does_not_exist'
+                )
+
         # montant_paye provisoire : le total n'est connu qu'après les lignes
         # (même transaction, jamais visible à 0 de l'extérieur).
         achat = Achat.objects.create(
