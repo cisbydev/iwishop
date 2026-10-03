@@ -13,7 +13,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.reverse import reverse
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from suppliers.models import Fournisseur
@@ -1518,3 +1518,423 @@ class PaiementFournisseurConcurrenceTests(TransactionTestCase):
         self.achat.refresh_from_db()
         self.assertEqual(self.achat.montant_du, Decimal("50.00"))
         self.assertEqual(self.achat.statut_paiement, 'partiel')
+
+
+class PaiementFournisseurApiTests(APITestCase):
+    """Dettes fournisseurs, commit 4 : API des paiements et corrections
+    (D3 : paiement par l'employé aussi, correction par le propriétaire ;
+    D1 : abonnement valide seulement) et annulation d'achat (option B :
+    bloquée si le total net des paiements est différent de 0)."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-api-paiement")
+        self.proprio = User.objects.create_user(username="proprio_api_paiement", password="pass1234")
+        Profil.objects.create(user=self.proprio, boutique=self.boutique, est_proprietaire=True)
+        self.employe = User.objects.create_user(username="employe_api_paiement", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=0,
+        )
+        self.url_paiements = reverse('paiements-fournisseur-list')
+        self.client.force_authenticate(user=self.proprio)
+        # Achat à crédit par l'API : 3 x 60 = 180, acompte 50, dû 130, stock 3.
+        response = self.client.post(reverse('achats-list'), {
+            "fournisseur": self.fournisseur.id, "montant_paye": "50", "mode_paiement": "ESPECES",
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 3,
+                "unite": self.unite.id, "prix_unitaire_achat": "60.00",
+            }],
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.achat = Achat.objects.get(pk=response.data['id'])
+
+    def _payer(self, montant="30", achat=None, **extra):
+        payload = {"achat": (achat or self.achat).id, "montant": montant, "mode_paiement": "ESPECES"}
+        payload.update(extra)
+        return self.client.post(self.url_paiements, payload, format='json')
+
+    def _corriger(self, paiement_id, nouveau_montant="20", motif="Erreur de saisie", **en_tetes):
+        payload = {"nouveau_montant": nouveau_montant}
+        if motif is not None:
+            payload["motif"] = motif
+        return self.client.post(
+            reverse('paiements-fournisseur-corriger', args=[paiement_id]), payload, format='json', **en_tetes
+        )
+
+    def _annuler(self):
+        return self.client.post(reverse('achats-annuler', args=[self.achat.id]))
+
+    def _nb_paiements(self):
+        return PaiementFournisseur.objects.filter(achat__boutique=self.boutique).count()
+
+    def _abonnement(self, palier, expire=False):
+        formule = FormuleAbonnement.objects.create(nom=palier, duree_jours=30, prix=5000, palier=palier)
+        aujourdhui = timezone.localdate()
+        if expire:
+            debut, fin, statut = aujourdhui - timezone.timedelta(days=40), aujourdhui - timezone.timedelta(days=10), 'EXPIRE'
+        else:
+            debut, fin, statut = aujourdhui - timezone.timedelta(days=1), aujourdhui + timezone.timedelta(days=29), 'ACTIF'
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule, date_debut=debut, date_fin=fin, statut=statut
+        )
+
+    def _achat_autre_boutique(self):
+        autre = Boutique.objects.create(nom="Autre", slug="autre-api-paiement")
+        user_autre = User.objects.create_user(username="proprio_autre_paiement", password="pass1234")
+        Profil.objects.create(user=user_autre, boutique=autre, est_proprietaire=True)
+        achat = Achat.objects.create(
+            boutique=autre, fournisseur=Fournisseur.objects.create(boutique=autre, nom="F"),
+            montant_total=Decimal("100"), montant_paye=Decimal("0"),
+            montant_du=Decimal("100"), statut_paiement='en_attente',
+        )
+        return achat, user_autre
+
+    # --- enregistrer un paiement ---
+
+    def test_proprietaire_enregistre_un_paiement(self):
+        response = self._payer("30")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['montant'], "30.00")
+        self.assertEqual(response.data['enregistre_par'], self.proprio.id)
+        self.assertEqual(response.data['mode_paiement'], 'ESPECES')
+        self.assertEqual(self._nb_paiements(), 1)
+        self.achat.refresh_from_db()
+        self.assertEqual(self.achat.montant_du, Decimal("100.00"))
+        self.assertEqual(self.achat.statut_paiement, 'partiel')
+
+    def test_employe_enregistre_un_paiement(self):
+        self.client.force_authenticate(user=self.employe)
+
+        response = self._payer("30")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['enregistre_par_nom'], 'employe_api_paiement')
+
+    def test_enregistre_par_du_payload_ignore(self):
+        response = self._payer("30", enregistre_par=self.employe.id)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(PaiementFournisseur.objects.get().enregistre_par, self.proprio)
+
+    def test_montant_superieur_au_du_refuse(self):
+        response = self._payer("130.01")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._nb_paiements(), 0)
+
+    def test_montant_nul_refuse(self):
+        response = self._payer("0")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('montant', response.data)
+        self.assertEqual(self._nb_paiements(), 0)
+
+    def test_mode_inconnu_refuse(self):
+        response = self._payer("30", mode_paiement="CHEQUE")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._nb_paiements(), 0)
+
+    def test_achat_autre_boutique_introuvable(self):
+        # 404 et non 403 : un 403 révélerait que l'achat existe ailleurs
+        # (cf. CLAUDE.md, Sécurité).
+        achat_autre, _ = self._achat_autre_boutique()
+
+        response = self._payer("30", achat=achat_autre)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(PaiementFournisseur.objects.count(), 0)
+        achat_autre.refresh_from_db()
+        self.assertEqual(achat_autre.montant_du, Decimal("100.00"))
+
+    def test_achat_autre_boutique_meme_reponse_quinexistant(self):
+        achat_autre, _ = self._achat_autre_boutique()
+        id_inexistant = Achat.objects.order_by('-pk').first().pk + 1000
+
+        autre = self._payer("30", achat=achat_autre)
+        inexistant = self.client.post(
+            self.url_paiements, {"achat": id_inexistant, "montant": "30"}, format='json'
+        )
+
+        self.assertEqual(inexistant.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(autre.status_code, inexistant.status_code)
+        self.assertEqual(autre.data, inexistant.data)
+
+    def test_paiement_refuse_si_abonnement_expire(self):
+        self._abonnement(FormuleAbonnement.Palier.PREMIUM, expire=True)
+
+        response = self._payer("30")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._nb_paiements(), 0)
+
+    def test_paiement_autorise_hors_premium(self):
+        # D1, offre unique : un abonnement valide suffit, quel que soit le palier.
+        self._abonnement(FormuleAbonnement.Palier.ESSENTIEL)
+
+        response = self._payer("30")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_vue_support_ne_peut_pas_payer(self):
+        admin = User.objects.create_superuser(username="admin_support_paiement", password="pass1234")
+        self.client.force_authenticate(user=admin)
+
+        response = self.client.post(
+            self.url_paiements, {"achat": self.achat.id, "montant": "30"},
+            format='json', HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique.id),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._nb_paiements(), 0)
+
+    def test_non_authentifie_refuse(self):
+        self.client.force_authenticate(user=None)
+
+        response = self._payer("30")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(self._nb_paiements(), 0)
+
+    def test_pas_de_liste_des_paiements(self):
+        # L'historique passe par les fournisseurs (commit 5), jamais par une
+        # liste globale.
+        self._payer("30")
+
+        response = self.client.get(self.url_paiements)
+
+        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    # --- corriger un paiement ---
+
+    def test_proprietaire_corrige_un_paiement(self):
+        paiement_id = self._payer("30").data['id']
+
+        response = self._corriger(paiement_id, "20")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['montant'], "-10.00")
+        self.assertEqual(response.data['paiement_corrige'], paiement_id)
+        self.assertEqual(response.data['motif_correction'], "Erreur de saisie")
+        self.assertEqual(response.data['total_paiements'], "20.00")
+        self.assertEqual(response.data['montant_du'], "110.00")
+        self.assertEqual(response.data['statut_paiement'], 'partiel')
+        self.assertEqual(self._nb_paiements(), 2)
+
+    def test_employe_ne_peut_pas_corriger(self):
+        paiement_id = self._payer("30").data['id']
+        self.client.force_authenticate(user=self.employe)
+
+        response = self._corriger(paiement_id, "20")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._nb_paiements(), 1)
+
+    def test_correction_paiement_autre_boutique_introuvable(self):
+        achat_autre, user_autre = self._achat_autre_boutique()
+        paiement_autre = enregistrer_paiement(achat_autre, Decimal("30"), user_autre)
+
+        response = self._corriger(paiement_autre.id, "0")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(PaiementFournisseur.objects.filter(achat=achat_autre).count(), 1)
+
+    def test_vue_support_ne_peut_pas_corriger(self):
+        paiement_id = self._payer("30").data['id']
+        admin = User.objects.create_superuser(username="admin_support_correction", password="pass1234")
+        self.client.force_authenticate(user=admin)
+
+        response = self._corriger(paiement_id, "20", HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self._nb_paiements(), 1)
+
+    def test_correction_sans_motif_refusee(self):
+        paiement_id = self._payer("30").data['id']
+
+        response = self._corriger(paiement_id, "20", motif=None)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._nb_paiements(), 1)
+
+    def test_correction_dune_correction_refusee(self):
+        paiement_id = self._payer("30").data['id']
+        correction_id = self._corriger(paiement_id, "20").data['id']
+
+        response = self._corriger(correction_id, "10")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._nb_paiements(), 2)
+
+    # --- annulation d'un achat (option B) ---
+
+    def _assert_achat_intact(self):
+        self.achat.refresh_from_db()
+        self.assertEqual(self.achat.statut, 'VALIDE')
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 3)
+        self.assertEqual(
+            MouvementStock.objects.filter(boutique=self.boutique, type_mouvement='SORTIE').count(), 0
+        )
+
+    def test_annulation_refusee_si_paiement_net(self):
+        self._payer("100")
+
+        response = self._annuler()
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Même formatage que le frontend (formatCurrency) : pas de "100.00".
+        self.assertIn("100 FCFA ont déjà été versés", str(response.data))
+        self.assertNotIn("100.00", str(response.data))
+        self.assertIn("corrigez ces paiements à 0", str(response.data))
+        self._assert_achat_intact()
+
+    def test_annulation_acceptee_apres_correction_a_zero(self):
+        paiement_id = self._payer("100").data['id']
+        self._corriger(paiement_id, "0")
+
+        response = self._annuler()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.achat.refresh_from_db()
+        self.assertEqual(self.achat.statut, 'ANNULE')
+        # Les lignes restent (append-only), leur total net vaut 0.
+        self.assertEqual(self._nb_paiements(), 2)
+
+    def test_annulation_acceptee_avec_acompte_seul(self):
+        response = self._annuler()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.achat.refresh_from_db()
+        self.assertEqual(self.achat.statut, 'ANNULE')
+
+    def test_paiement_apres_annulation_refuse(self):
+        self._annuler()
+
+        response = self._payer("30")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self._nb_paiements(), 0)
+
+    # --- routes ---
+
+    def test_routes_des_achats_intactes(self):
+        self.assertEqual(self.url_paiements, '/api/achats/paiements/')
+
+        liste = self.client.get(reverse('achats-list'))
+        detail = self.client.get(reverse('achats-detail', args=[self.achat.id]))
+
+        self.assertEqual(liste.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.data['id'], self.achat.id)
+
+
+class AnnulationAchatPaiementConcurrenceTests(TransactionTestCase):
+    """Annulation et paiement concurrents sur le même achat, avec deux
+    vraies connexions PostgreSQL et un entrelacement forcé : le paiement
+    s'arrête juste avant de créer sa ligne (verrou de l'achat pris),
+    l'annulation démarre et doit attendre ce verrou. Une fois le paiement
+    committé, elle voit l'argent versé et est refusée."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-concurrence-annulation")
+        self.user = User.objects.create_user(username="proprio_concurrence_annulation", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("60"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=3,
+        )
+        self.achat = Achat.objects.create(
+            boutique=self.boutique, fournisseur=fournisseur,
+            montant_total=Decimal("180"), montant_paye=Decimal("0"),
+            montant_du=Decimal("180"), statut_paiement='en_attente',
+        )
+        LigneAchat.objects.create(
+            boutique=self.boutique, achat=self.achat, produit=self.produit, quantite=3,
+            unite=unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_unitaire_achat=Decimal("60.00"),
+        )
+
+    def _attente_sur_verrou(self, pid):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", [pid])
+            ligne = cursor.fetchone()
+        return ligne is not None and ligne[0] == 'Lock'
+
+    def test_annulation_attend_le_paiement_puis_est_refusee(self):
+        create_original = PaiementFournisseur.objects.create
+        paiement_en_pause = threading.Event()
+        liberer_paiement = threading.Event()
+        pid_annulation = []
+        resultats = {}
+
+        def create_avec_pause(**kwargs):
+            paiement_en_pause.set()
+            liberer_paiement.wait(timeout=10)
+            return create_original(**kwargs)
+
+        def payer():
+            try:
+                enregistrer_paiement(self.achat, Decimal("100"), self.user)
+                resultats['paiement'] = 'ok'
+            except Exception as erreur:
+                resultats['paiement'] = repr(erreur)
+            finally:
+                connection.close()
+
+        def annuler():
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    pid_annulation.append(cursor.fetchone()[0])
+                client = APIClient()
+                client.force_authenticate(user=self.user)
+                response = client.post(reverse('achats-annuler', args=[self.achat.id]))
+                resultats['annulation'] = (response.status_code, str(response.data))
+            except Exception as erreur:
+                resultats['annulation'] = repr(erreur)
+            finally:
+                connection.close()
+
+        with patch.object(PaiementFournisseur.objects, 'create', side_effect=create_avec_pause):
+            thread_paiement = threading.Thread(target=payer)
+            thread_paiement.start()
+            self.assertTrue(paiement_en_pause.wait(timeout=10), resultats)
+
+            thread_annulation = threading.Thread(target=annuler)
+            thread_annulation.start()
+            limite = time.monotonic() + 10
+            annulation_bloquee = False
+            while time.monotonic() < limite and thread_annulation.is_alive():
+                if pid_annulation and self._attente_sur_verrou(pid_annulation[0]):
+                    annulation_bloquee = True
+                    break
+                time.sleep(0.01)
+
+            liberer_paiement.set()
+            thread_paiement.join(timeout=15)
+            thread_annulation.join(timeout=15)
+
+        self.assertTrue(annulation_bloquee, f"L'annulation aurait dû attendre le verrou : {resultats}")
+        self.assertEqual(resultats.get('paiement'), 'ok', resultats)
+        code, message = resultats.get('annulation', (None, ''))
+        self.assertEqual(code, status.HTTP_400_BAD_REQUEST, resultats)
+        self.assertIn("corrigez ces paiements à 0", message)
+        self.achat.refresh_from_db()
+        self.assertEqual(self.achat.statut, 'VALIDE')
+        self.assertEqual(self.achat.montant_du, Decimal("80.00"))
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 3)
+        self.assertEqual(PaiementFournisseur.objects.filter(achat=self.achat).count(), 1)

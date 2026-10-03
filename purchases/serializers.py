@@ -1,9 +1,9 @@
 from decimal import Decimal, ROUND_HALF_UP
 from rest_framework import serializers
-from .models import Achat, LigneAchat
+from .models import Achat, LigneAchat, PaiementFournisseur
 from inventory.models import MouvementStock
 from products.models import Produit, UniteVente
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from django.db import transaction
 from tenants.profil import boutique_de
 from notifications.services import verifier_stock_bas
@@ -231,3 +231,60 @@ class AchatSerializer(serializers.ModelSerializer):
             achat.statut_paiement = StatutPaiement.EN_ATTENTE
         else:
             achat.statut_paiement = StatutPaiement.PARTIEL
+
+
+class AchatDeLaBoutiqueField(serializers.PrimaryKeyRelatedField):
+    """Un achat d'une autre boutique est traité comme inexistant : même 404,
+    même message, pour ne jamais révéler qu'il existe ailleurs (cf.
+    CLAUDE.md, Sécurité). Un 400 « n'existe pas » pour l'un et un autre
+    code pour l'autre suffirait à le révéler."""
+
+    def get_queryset(self):
+        return Achat.objects.filter(boutique=boutique_de(self.context['request']))
+
+    def to_internal_value(self, data):
+        try:
+            return self.get_queryset().get(pk=data)
+        except Achat.DoesNotExist:
+            raise NotFound("Achat introuvable.")
+        except (TypeError, ValueError):
+            self.fail('incorrect_type', data_type=type(data).__name__)
+
+
+class PaiementFournisseurSerializer(serializers.ModelSerializer):
+    achat = AchatDeLaBoutiqueField()
+    # enregistre_par n'est jamais accepté depuis la requête : la vue le
+    # prend dans request.user et le passe au service (même principe que
+    # RemboursementSerializer).
+    enregistre_par = serializers.PrimaryKeyRelatedField(read_only=True)
+    enregistre_par_nom = serializers.ReadOnlyField(source='enregistre_par.username')
+    # Optionnel côté API (null = "non précisé"), obligatoire dans le
+    # formulaire. Déclaré explicitement : celui déduit du modèle
+    # accepterait aussi une chaîne vide.
+    mode_paiement = serializers.ChoiceField(
+        choices=Vente.MODES_PAIEMENT, required=False, allow_null=True
+    )
+
+    class Meta:
+        model = PaiementFournisseur
+        fields = [
+            'id', 'achat', 'montant', 'date_paiement', 'enregistre_par', 'enregistre_par_nom',
+            'paiement_corrige', 'motif_correction', 'mode_paiement',
+        ]
+        # Une correction ne se crée que via l'action `corriger` (écart
+        # calculé côté serveur), jamais par un POST direct.
+        read_only_fields = ['date_paiement', 'paiement_corrige', 'motif_correction']
+
+    def validate_montant(self, value):
+        # Premier contrôle, pour un message lié au champ. Le service
+        # revérifie tout sous le verrou de l'achat (montant <= dû compris).
+        if value <= 0:
+            raise serializers.ValidationError("Le montant doit être strictement positif.")
+        return value
+
+
+class CorrectionPaiementSerializer(serializers.Serializer):
+    # Entrée de PaiementFournisseurViewSet.corriger : le montant que le
+    # paiement aurait dû avoir (0 = il n'a jamais eu lieu), pas l'écart.
+    nouveau_montant = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0)
+    motif = serializers.CharField()

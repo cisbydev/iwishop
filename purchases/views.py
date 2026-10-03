@@ -1,5 +1,5 @@
 from decimal import Decimal, ROUND_HALF_UP
-from rest_framework import mixins, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -11,8 +11,10 @@ from notifications.services import verifier_stock_bas
 from inventory.models import MouvementStock
 from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
-from .models import Achat, LigneAchat
-from .serializers import AchatSerializer
+from parametres.services import formater_montant
+from .models import Achat, LigneAchat, PaiementFournisseur
+from .serializers import AchatSerializer, CorrectionPaiementSerializer, PaiementFournisseurSerializer
+from .services.dette import corriger_paiement, enregistrer_paiement, total_paiements
 
 
 def _dernier_prix_achat_valide(produit, boutique):
@@ -113,6 +115,17 @@ class AchatViewSet(
             achat = Achat.objects.select_for_update().get(pk=achat_verifie.pk)
             if achat.statut == 'ANNULE':
                 raise ValidationError("Cet achat est déjà annulé.")
+            # Option B : seul l'argent réellement versé après la création
+            # bloque l'annulation (total net des paiements, corrections
+            # comprises). Un paiement corrigé à 0 n'a pas eu lieu : l'achat
+            # redevient annulable. L'acompte seul ne bloque pas. Lu sous le
+            # verrou de l'achat, comme dans enregistrer_paiement().
+            verse = total_paiements(achat)
+            if verse != 0:
+                raise ValidationError(
+                    f"{formater_montant(verse, achat.boutique)} ont déjà été versés au fournisseur "
+                    "sur cet achat : corrigez ces paiements à 0 avant de l'annuler."
+                )
 
             lignes = list(achat.lignes.all())
 
@@ -173,3 +186,67 @@ class AchatViewSet(
 
         serializer = self.get_serializer(achat)
         return Response(serializer.data)
+
+
+class PaiementFournisseurViewSet(
+    BoutiqueScopedMixin,
+    RestrictedActionsForOwnerMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    # Calqué sur RemboursementViewSet. Immutable : ni update ni destroy,
+    # une erreur se corrige via `corriger` (ligne d'écart, append-only).
+    # Pas de liste ici : l'historique passe par les fournisseurs (commit 5).
+    queryset = PaiementFournisseur.objects.select_related('achat', 'enregistre_par')
+    serializer_class = PaiementFournisseurSerializer
+    permission_classes = [IsAuthenticated]
+    # D3 : enregistrer un paiement est permis à l'employé, le corriger est
+    # réservé au propriétaire.
+    actions_reservees_proprietaire = ('corriger',)
+    # Pas de champ `boutique` direct : l'isolation passe par l'achat payé.
+    boutique_lookup = 'achat__boutique'
+
+    def perform_create(self, serializer):
+        # BoutiqueScopedMixin.perform_create ferait serializer.save(boutique=...) :
+        # PaiementFournisseur n'a pas ce champ, on ne l'appelle donc pas.
+        # D1 (offre unique) : abonnement valide seulement, aucun palier.
+        self._verifier_acces(self._boutique_effective())
+        # L'achat appartient forcément à la boutique active : le champ
+        # `achat` (AchatDeLaBoutiqueField) renvoie 404 sinon.
+        achat = serializer.validated_data['achat']
+
+        # Toute la logique (verrou, bornes, recalcul de la dette) vit dans
+        # le service : jamais de serializer.save() direct ici.
+        serializer.instance = enregistrer_paiement(
+            achat=achat,
+            montant=serializer.validated_data['montant'],
+            utilisateur=self.request.user,
+            mode_paiement=serializer.validated_data.get('mode_paiement'),
+        )
+
+    @action(detail=True, methods=['post'])
+    def corriger(self, request, pk=None):
+        # Écriture comptable : mêmes contrôles d'accès que perform_create.
+        boutique = self._boutique_effective()
+        self._verifier_acces(boutique)
+        # get_object() applique le scoping boutique (boutique_lookup) : le
+        # paiement d'une autre boutique renvoie 404.
+        paiement = self.get_object()
+
+        entree = CorrectionPaiementSerializer(data=request.data)
+        entree.is_valid(raise_exception=True)
+        correction, achat, total = corriger_paiement(
+            paiement=paiement,
+            nouveau_montant=entree.validated_data['nouveau_montant'],
+            motif=entree.validated_data['motif'],
+            utilisateur=request.user,
+        )
+
+        # État de l'achat joint à la réponse (le frontend rafraîchit son
+        # affichage sans requête supplémentaire), montants en chaînes.
+        montant = serializers.DecimalField(max_digits=12, decimal_places=2)
+        data = PaiementFournisseurSerializer(correction).data
+        data['total_paiements'] = montant.to_representation(total)
+        data['montant_du'] = montant.to_representation(achat.montant_du)
+        data['statut_paiement'] = achat.statut_paiement
+        return Response(data, status=status.HTTP_201_CREATED)

@@ -15,8 +15,10 @@ from ..models import Achat, PaiementFournisseur
 # pouvoir dériver de ce qui a réellement été versé.
 
 
-def _total_paiements(achat):
-    # Originaux et corrections confondus : une correction porte un écart.
+def total_paiements(achat):
+    """Total net versé au fournisseur après la création de l'achat
+    (l'acompte n'en fait pas partie). Originaux et corrections confondus :
+    une correction porte un écart. Sert aussi à AchatViewSet.annuler."""
     return achat.paiements.aggregate(total=Sum('montant'))['total'] or Decimal('0')
 
 
@@ -28,11 +30,11 @@ def _recalculer_dette(achat):
     """Recalcule montant_du et statut_paiement depuis l'acompte et les
     paiements enregistrés, puis les sauvegarde. À appeler sous le verrou
     de l'achat."""
-    total_paiements = _total_paiements(achat)
-    achat.montant_du = _dette_initiale(achat) - total_paiements
+    verse = total_paiements(achat)
+    achat.montant_du = _dette_initiale(achat) - verse
     if achat.montant_du == 0:
         achat.statut_paiement = StatutPaiement.PAYE
-    elif achat.montant_paye + total_paiements > 0:
+    elif achat.montant_paye + verse > 0:
         achat.statut_paiement = StatutPaiement.PARTIEL
     else:
         achat.statut_paiement = StatutPaiement.EN_ATTENTE
@@ -97,7 +99,7 @@ def corriger_paiement(paiement, nouveau_montant, motif, utilisateur):
 
     # Bornes : 0 <= total des paiements <= dette initiale, c.-à-d.
     # 0 <= acompte + paiements <= montant_total.
-    nouveau_total = _total_paiements(achat) + delta
+    nouveau_total = total_paiements(achat) + delta
     if nouveau_total < 0:
         raise ValidationError("Cette correction rendrait le total payé sur l'achat négatif.")
     if nouveau_total > _dette_initiale(achat):
