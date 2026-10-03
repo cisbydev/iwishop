@@ -1,4 +1,5 @@
 from copy import deepcopy
+from decimal import Decimal
 from io import BytesIO
 
 from PIL import Image
@@ -14,6 +15,7 @@ from rest_framework.test import APITestCase
 
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from .models import ParametresBoutique
+from .services import formater_montant
 
 
 UPLOAD_TEST_STORAGES = deepcopy(settings.STORAGES)
@@ -223,3 +225,31 @@ class ParametresBoutiqueLogoUploadTests(APITestCase):
         response = self.client.patch(self.url, {"logo": image_valide()}, format='multipart')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class FormaterMontantTests(APITestCase):
+    """Même rendu que formatCurrency (frontend, Intl fr-FR) : 0 à 2
+    décimales, virgule décimale, espace fine insécable (U+202F) entre les
+    milliers, devise de la boutique."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-formater-montant")
+
+    def test_sans_decimales_inutiles(self):
+        self.assertEqual(formater_montant(Decimal("100.00"), self.boutique), "100 FCFA")
+
+    def test_milliers_et_decimales(self):
+        self.assertEqual(
+            formater_montant(Decimal("1234567.50"), self.boutique), "1\u202f234\u202f567,5 FCFA"
+        )
+
+    def test_centimes(self):
+        self.assertEqual(formater_montant(Decimal("0.05"), self.boutique), "0,05 FCFA")
+
+    def test_negatif(self):
+        self.assertEqual(formater_montant(Decimal("-1500"), self.boutique), "-1\u202f500 FCFA")
+
+    def test_devise_de_la_boutique(self):
+        ParametresBoutique.objects.create(boutique=self.boutique, devise="EUR")
+
+        self.assertEqual(formater_montant(Decimal("12.30"), self.boutique), "12,3 EUR")
