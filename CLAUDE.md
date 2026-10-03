@@ -25,6 +25,7 @@ L'état du travail en cours est dans `docs/EN_COURS.md`, pas ici.
 - Mouvements append-only : on ne modifie ni ne supprime, on corrige par un mouvement chaîné à l'original.
 - `montant_du` et le statut de paiement sont recalculés, jamais saisis.
 - `select_for_update` sur les écritures concurrentes.
+- Les clés étrangères Django sont vérifiées au commit : pour protéger une ligne liée pendant une écriture, il faut la verrouiller explicitement.
 
 ## Migrations
 
