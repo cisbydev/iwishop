@@ -19,9 +19,9 @@ Mis à jour le 2026-10-02.
 Plan validé le 2026-10-02. État au 2026-10-02 :
 
 - Commit 1 (expand) : `708acdf`, vérifié en prod par Mahamadou (Live, migrations 0015 et 0016, achat normal, caisse).
-- Commits 2 et 3 : poussés (`3c761a1`), CI verte. Déploiement à vérifier par Mahamadou.
-- Commit 1 bis (contract) : migrations 0018 (re-backfill) et 0019 (NOT NULL). Commité en local, pas poussé. Push après la vérification du déploiement des commits 2 et 3.
-- Commit 4 : plan prêt, une décision en attente (qu'est-ce qui bloque l'annulation d'un achat : une ligne de paiement, ou un total net non nul). Rien codé tant que le 1 bis n'est pas poussé et vérifié.
+- Commits 2 et 3 : `3c761a1`, vérifiés en prod par Mahamadou (Live, migration 0017, test en prod).
+- Commit 1 bis (contract) : `24ed0e8` (migrations 0018 re-backfill et 0019 NOT NULL), poussé (`576d522`), CI verte. Déploiement à vérifier par Mahamadou.
+- Commit 4 : commité en local, pas poussé. Push après la vérification du déploiement du 1 bis.
 
 ### Principe
 
@@ -55,9 +55,9 @@ Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nou
 1 bis. Contract, dans un commit et un déploiement séparés, une fois le commit 1 en ligne sur Render : 0018 refait le backfill des lignes encore vides (`update ... where montant_paye is null`), 0019 passe `montant_paye` en NOT NULL.
 2. `feat(purchases)` : achat à crédit ou comptant avec acompte et mode (D1 et D3).
 3. `feat(purchases)` : paiements fournisseurs append-only (modèle, service, verrou, bornes, test de concurrence à deux threads).
-4. `feat(purchases)` : API des paiements et corrections ; annulation d'achat refusée s'il a un paiement.
+4. `feat(purchases)` : API des paiements et corrections ; annulation d'achat refusée si le total net des paiements est différent de 0 (option B, décidée le 2026-10-03 : un paiement corrigé à 0 n'a pas eu lieu ; l'acompte seul ne bloque pas).
 5. `feat(suppliers)` : dettes par fournisseur (`avec_dette`, `historique`), suppression bloquée s'il reste une dette.
-6. `feat(reports)` : journal de caisse, sorties = argent versé, par mode, avec non-régression.
+6. `feat(reports)` : journal de caisse, sorties = argent versé, par mode, avec non-régression. À trancher ici : les lignes de paiement d'un achat annulé (total net 0) sont-elles comptées à leur date ou exclues ? Penchant de Mahamadou : à leur date (les périodes passées ne bougent plus).
 7. `feat(frontend)` : achat à crédit dans le formulaire d'achat.
 8. `feat(frontend)` : dettes et paiements dans Fournisseurs.
 9. `feat(frontend)` : journal de caisse, sorties par mode, bandeau adapté.
@@ -90,6 +90,9 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 - Chantier séparé : une boutique redescendue du Premium ne peut plus enregistrer les remboursements de ses clients (`RemboursementViewSet.perform_create`), ce qui fausse sa caisse.
 - Chantier séparé : `sales/services/credit.py` (`enregistrer_remboursement`) semble accepter un nouveau remboursement sur une vente annulée (seule la correction vérifie `ANNULEE`). À vérifier avec un test, puis corriger (refus, comme `enregistrer_paiement` côté fournisseurs).
+- Chantier séparé : l'annulation d'une vente suit l'option A (`VenteViewSet.annuler` refuse dès que `vente.remboursements.exists()`, même si les remboursements sont corrigés à 0). L'aligner sur l'option B des achats (refus seulement si le total net remboursé est différent de 0, message qui dit comment s'en sortir), pour que ventes et achats se comportent de la même façon.
+- Chantier séparé : objets d'une autre boutique qui renvoient autre chose qu'un 404 identique à celui d'un objet inexistant (règle de `CLAUDE.md`, Sécurité). `RemboursementViewSet.perform_create` renvoie 403 (« Cette vente n'appartient pas à votre boutique », `sales/views.py`). Même problème relevé ailleurs, à inventorier : `products/views.py` (403 sur produit et unité), et des serializers qui répondent 400 « n'appartient pas à votre boutique », message différent de celui d'un id inexistant (`sales`, `purchases` dont `validate_fournisseur`, `inventory`, `products`). Modèle à suivre : `AchatDeLaBoutiqueField` (`purchases/serializers.py`).
+- Chantier séparé : messages et exports du backend qui affichent un montant brut (`100.00 FCFA`) au lieu du rendu de l'app. Passer par `formater_montant` (`parametres/services.py`, même rendu que `formatCurrency`) : avertissement de plafond (`sales/services/credit.py`, `avertissement_plafond_credit`), notification de dette (`notifications/services.py`), export PDF du résumé financier et des ventes détaillées (`reports/views.py`, format `:.2f`). Les exports Excel (`#,##0.00` dans `reports/views.py`) sont des formats de cellule numériques : à examiner à part.
 - `date_annulation` sur Vente/Achat/Dépense, avant toute vraie clôture de caisse (voir `reports/caisse.py`).
 - Export PDF/Excel du journal de caisse.
 - Montants JSON en float à migrer en chaînes : tous les rapports ensemble, jamais un par un.
@@ -98,8 +101,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté Mahamadou
 
-- Vérifier le déploiement des commits 2 et 3 (`3c761a1`) : Render Live, migration 0017 dans les logs du déploiement (Events), aucune erreur dans Sentry, un achat normal en prod. Puis feu vert pour pousser le 1 bis.
-- Après le push du 1 bis : vérifier 0018 et 0019 dans les logs du déploiement, Sentry, un achat normal.
+- Vérifier le déploiement du 1 bis (`576d522`) : Render Live, 0018 et 0019 dans les logs du déploiement (Events), aucune erreur dans Sentry, un achat normal en prod. Puis feu vert pour pousser le commit 4.
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.

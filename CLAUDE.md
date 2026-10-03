@@ -54,3 +54,4 @@ L'état du travail en cours est dans `docs/EN_COURS.md`, pas ici.
 - Ne jamais contourner le hook de secrets (`scripts/git-hooks/pre-commit`) sans accord.
 - Exceptions du hook limitées aux valeurs exactes.
 - Aucun secret dans ce fichier.
+- Un objet d'une autre boutique renvoie 404, jamais 403 : même code et même message qu'un objet inexistant, sinon la réponse révèle qu'il existe ailleurs.
