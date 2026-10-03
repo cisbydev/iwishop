@@ -54,13 +54,18 @@ export default function JournalCaisse() {
 
   // Sur les nombres de lignes, jamais sur les montants : une vente à crédit
   // sans acompte ou un remboursement annulé par sa correction font 0 en
-  // montant mais restent des mouvements à afficher. nombre_remboursements
-  // absent (backend antérieur) : pas d'état vide, faute de pouvoir l'affirmer.
+  // montant mais restent des mouvements à afficher. nombre_remboursements ou
+  // nombre_paiements_fournisseurs absent (backend antérieur) : pas d'état
+  // vide, faute de pouvoir l'affirmer.
   const aucunMouvement = journal !== null
     && journal.informations.nombre_ventes === 0
     && journal.entrees.nombre_remboursements === 0
     && journal.sorties.nombre_achats === 0
+    && journal.sorties.nombre_paiements_fournisseurs === 0
     && journal.sorties.nombre_depenses === 0;
+  // Achats = argent réellement versé, par mode (dettes fournisseurs). Absent
+  // (backend antérieur) : ancien affichage, achats supposés payés comptant.
+  const achatsParMode = journal?.sorties.achats_par_mode;
   const solde = Number(journal?.solde_periode);
   const couleurSolde = solde < 0 ? 'text-red-600' : solde > 0 ? 'text-emerald-600' : 'text-slate-700';
 
@@ -216,9 +221,26 @@ export default function JournalCaisse() {
                 <h3 className="text-base font-semibold text-slate-900">Sorties</h3>
                 <dl className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between gap-2">
-                    <dt className="text-slate-600">Achats ({journal.sorties.nombre_achats})</dt>
+                    <dt className="text-slate-600">
+                      {achatsParMode ? 'Achats' : `Achats (${journal.sorties.nombre_achats})`}
+                    </dt>
                     <dd className="font-medium text-slate-900">{formatCurrency(journal.sorties.achats, devise)}</dd>
                   </div>
+                  {journal.sorties.acomptes_achats != null && (
+                    <div className="flex justify-between gap-2 pl-4 text-xs">
+                      <dt className="text-slate-500">Payé à l'achat ({journal.sorties.nombre_achats})</dt>
+                      <dd className="text-slate-700">{formatCurrency(journal.sorties.acomptes_achats, devise)}</dd>
+                    </div>
+                  )}
+                  {journal.sorties.paiements_fournisseurs != null && (
+                    <div className="flex justify-between gap-2 pl-4 text-xs">
+                      <dt className="text-slate-500">
+                        Dettes fournisseurs payées
+                        {journal.sorties.nombre_paiements_fournisseurs != null && ` (${journal.sorties.nombre_paiements_fournisseurs})`}
+                      </dt>
+                      <dd className="text-slate-700">{formatCurrency(journal.sorties.paiements_fournisseurs, devise)}</dd>
+                    </div>
+                  )}
                   <div className="flex justify-between gap-2">
                     <dt className="text-slate-600">Dépenses ({journal.sorties.nombre_depenses})</dt>
                     <dd className="font-medium text-slate-900">{formatCurrency(journal.sorties.depenses, devise)}</dd>
@@ -228,9 +250,28 @@ export default function JournalCaisse() {
                     <dd className="text-slate-900">{formatCurrency(journal.sorties.total, devise)}</dd>
                   </div>
                 </dl>
+                {achatsParMode && (
+                  <div className="mt-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Achats par mode de paiement</p>
+                    {/* Modes à 0 masqués sur téléphone, comme pour les entrées. */}
+                    <ul aria-label="Achats par mode" className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-100 text-sm">
+                      {achatsParMode.map((ligne) => (
+                        <li
+                          key={ligne.mode_paiement ?? 'non-precise'}
+                          className={`justify-between gap-3 px-3 py-2 ${Number(ligne.montant) === 0 ? 'hidden sm:flex' : 'flex'}`}
+                        >
+                          <span className="text-slate-700">{libelleModePaiement(ligne.mode_paiement)}</span>
+                          <span className="font-medium text-slate-900">{formatCurrency(ligne.montant, devise)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 <p className="mt-3 flex gap-2 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">
                   <Info className="h-4 w-4 shrink-0" />
-                  Les achats et les dépenses sont considérés comme payés comptant : leur mode de paiement n'est pas enregistré.
+                  {achatsParMode
+                    ? "Achats : argent réellement versé (à l'achat et dettes fournisseurs payées), par mode. « Non précisé » : achats enregistrés avant le suivi du mode de paiement. Les dépenses sont considérées comme payées comptant : leur mode n'est pas enregistré."
+                    : "Les achats et les dépenses sont considérés comme payés comptant : leur mode de paiement n'est pas enregistré."}
                 </p>
               </section>
 
@@ -248,12 +289,23 @@ export default function JournalCaisse() {
                       Dont encore dû aujourd'hui : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_restant_du, devise)}</span>
                     </li>
                   )}
+                  {/* D7, même libellé que pour les clients. Absent (backend
+                      antérieur) : ligne masquée. */}
+                  {journal.informations.credit_fournisseur_obtenu != null && journal.informations.dette_fournisseurs_restante != null && (
+                    <li>
+                      Acheté à crédit sur la période : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.credit_fournisseur_obtenu, devise)}</span>,
+                      dont encore dû aujourd'hui : <span className="font-medium text-slate-900">{formatCurrency(journal.informations.dette_fournisseurs_restante, devise)}</span>
+                    </li>
+                  )}
                   {journal.informations.ventes_synchronisees_en_differe > 0 && (
                     <li>
                       {journal.informations.ventes_synchronisees_en_differe} vente(s) faite(s) hors connexion, comptée(s) au jour de leur synchronisation.
                     </li>
                   )}
                   <li>Les ventes, achats et dépenses annulés sont retirés du jour où ils avaient été enregistrés.</li>
+                  {achatsParMode && (
+                    <li>Si un achat à crédit est annulé, ses paiements restent à leur date et s'annulent entre eux.</li>
+                  )}
                 </ul>
               </section>
             </>

@@ -54,7 +54,8 @@ const JOURNAL = {
   informations: { nombre_ventes: 3, credit_accorde: 800.0, credit_restant_du: 300.0, ventes_synchronisees_en_differe: 1 },
 };
 
-// Période sans aucun mouvement : tout à 0, toutes les lignes à 0.
+// Période sans aucun mouvement : tout à 0, toutes les lignes à 0. Forme
+// actuelle de l'API (dettes fournisseurs comprises).
 const JOURNAL_VIDE = {
   date_debut: '2026-03-10',
   date_fin: '2026-03-10',
@@ -65,10 +66,39 @@ const JOURNAL_VIDE = {
     nombre_remboursements: 0,
     total: 0.0,
   },
-  sorties: { achats: 0.0, nombre_achats: 0, depenses: 0.0, nombre_depenses: 0, total: 0.0 },
+  sorties: {
+    achats: 0.0,
+    nombre_achats: 0,
+    acomptes_achats: 0.0,
+    paiements_fournisseurs: 0.0,
+    nombre_paiements_fournisseurs: 0,
+    achats_par_mode: ['ESPECES', 'MOBILE_MONEY', 'CARTE', 'AUTRE'].map((mode) => ({ mode_paiement: mode, montant: 0.0 })),
+    depenses: 0.0,
+    nombre_depenses: 0,
+    total: 0.0,
+  },
   solde_periode: 0.0,
-  informations: { nombre_ventes: 0, credit_accorde: 0.0, credit_restant_du: 0.0, ventes_synchronisees_en_differe: 0 },
+  informations: {
+    nombre_ventes: 0,
+    credit_accorde: 0.0,
+    credit_restant_du: 0.0,
+    ventes_synchronisees_en_differe: 0,
+    credit_fournisseur_obtenu: 0.0,
+    dette_fournisseurs_restante: 0.0,
+  },
 };
+
+// Clés ajoutées par les dettes fournisseurs (reports/caisse.py) : absentes
+// d'un backend antérieur.
+const CLES_SORTIES_DETTES = ['acomptes_achats', 'paiements_fournisseurs', 'nombre_paiements_fournisseurs', 'achats_par_mode'];
+const CLES_INFOS_DETTES = ['credit_fournisseur_obtenu', 'dette_fournisseurs_restante'];
+
+function sansClesDettes(journal) {
+  const ancien = structuredClone(journal);
+  CLES_SORTIES_DETTES.forEach((cle) => delete ancien.sorties[cle]);
+  CLES_INFOS_DETTES.forEach((cle) => delete ancien.informations[cle]);
+  return ancien;
+}
 
 function journalAvec({ entrees = {}, sorties = {}, informations = {}, ...reste }) {
   return {
@@ -198,7 +228,7 @@ describe('JournalCaisse', () => {
     await screen.findByText('Solde de la période');
 
     expect(itemQuiContient('Vendu à crédit sur la période')).toHaveTextContent(/6\s?000/);
-    expect(itemQuiContient("Dont encore dû aujourd'hui")).toHaveTextContent(/:\s*0\s/);
+    expect(itemQuiContient(/^Dont encore dû aujourd'hui/)).toHaveTextContent(/:\s*0\s/);
     expect(screen.queryByText(/non encaissé/)).not.toBeInTheDocument();
   });
 
@@ -257,7 +287,7 @@ describe('JournalCaisse', () => {
   });
 
   it('backend pas encore déployé (credit_restant_du et nombre_remboursements absents) : ni ligne "Dont encore dû", ni état vide', async () => {
-    const ancienneReponse = structuredClone(JOURNAL_VIDE);
+    const ancienneReponse = sansClesDettes(JOURNAL_VIDE);
     delete ancienneReponse.informations.credit_restant_du;
     delete ancienneReponse.entrees.nombre_remboursements;
     mocks.get.mockResolvedValue({ data: ancienneReponse });
@@ -269,6 +299,168 @@ describe('JournalCaisse', () => {
     expect(screen.queryByText(/Dont encore dû/)).not.toBeInTheDocument();
     expect(screen.queryByText(/NaN|undefined/)).not.toBeInTheDocument();
     expect(screen.getByText(/Vendu à crédit sur la période/)).toBeInTheDocument();
+  });
+});
+
+describe('JournalCaisse - sorties des achats (dettes fournisseurs)', () => {
+  function achatsParMode(especes, mobile, carte, autre, nonPrecise) {
+    const lignes = [
+      { mode_paiement: 'ESPECES', montant: especes },
+      { mode_paiement: 'MOBILE_MONEY', montant: mobile },
+      { mode_paiement: 'CARTE', montant: carte },
+      { mode_paiement: 'AUTRE', montant: autre },
+    ];
+    if (nonPrecise !== undefined) lignes.push({ mode_paiement: null, montant: nonPrecise });
+    return lignes;
+  }
+
+  function sectionSorties() {
+    return screen.getByRole('heading', { name: 'Sorties' }).closest('section');
+  }
+
+  function ligneSorties(texte) {
+    return within(sectionSorties()).getByText(texte).closest('div');
+  }
+
+  beforeEach(() => {
+    mocks.get.mockReset();
+    mocks.settings.aAccesPremium = true;
+  });
+
+  it("achats, payé à l'achat, dettes payées et modes : valeurs de l'API, sans calcul", async () => {
+    // Volontairement incohérent : 300 + 250 ≠ 900, et 700 + 123 ≠ 900.
+    mocks.get.mockResolvedValue({
+      data: journalAvec({
+        sorties: {
+          achats: 900.0,
+          nombre_achats: 2,
+          acomptes_achats: 300.0,
+          paiements_fournisseurs: 250.0,
+          nombre_paiements_fournisseurs: 1,
+          achats_par_mode: achatsParMode(700.0, 0.0, 0.0, 0.0, 123.0),
+          total: 900.0,
+        },
+      }),
+    });
+
+    render(<JournalCaisse />);
+    await screen.findByText('Solde de la période');
+
+    expect(ligneSorties('Achats')).toHaveTextContent(/^Achats900\sFCFA$/);
+    expect(ligneSorties("Payé à l'achat (2)")).toHaveTextContent(/300\sFCFA$/);
+    expect(ligneSorties('Dettes fournisseurs payées (1)')).toHaveTextContent(/250\sFCFA$/);
+
+    const modes = screen.getByRole('list', { name: 'Achats par mode' });
+    expect(within(modes).getByText('Espèces').closest('li')).toHaveTextContent(/700\sFCFA$/);
+    expect(within(modes).getByText('Non précisé').closest('li')).toHaveTextContent(/123\sFCFA$/);
+    // Modes à 0 : masqués sur téléphone seulement.
+    expect(within(modes).getByText('Carte bancaire').closest('li')).toHaveClass('hidden', 'sm:flex');
+    expect(within(modes).getByText('Espèces').closest('li')).not.toHaveClass('hidden');
+  });
+
+  it("pas de ligne « Non précisé » quand l'API n'en renvoie pas", async () => {
+    mocks.get.mockResolvedValue({
+      data: journalAvec({
+        sorties: { achats: 500.0, nombre_achats: 1, acomptes_achats: 500.0, achats_par_mode: achatsParMode(500.0, 0.0, 0.0, 0.0), total: 500.0 },
+      }),
+    });
+
+    render(<JournalCaisse />);
+    await screen.findByText('Solde de la période');
+
+    const modes = screen.getByRole('list', { name: 'Achats par mode' });
+    expect(within(modes).queryByText('Non précisé')).not.toBeInTheDocument();
+  });
+
+  it("pas d'état vide un jour où il n'y a qu'un paiement de dette fournisseur", async () => {
+    mocks.get.mockResolvedValue({
+      data: journalAvec({
+        sorties: { achats: 500.0, paiements_fournisseurs: 500.0, nombre_paiements_fournisseurs: 1, achats_par_mode: achatsParMode(500.0, 0.0, 0.0, 0.0), total: 500.0 },
+        solde_periode: -500.0,
+      }),
+    });
+
+    render(<JournalCaisse />);
+
+    expect(await screen.findByText('Solde de la période')).toBeInTheDocument();
+    expect(screen.queryByText('Aucun mouvement sur cette période.')).not.toBeInTheDocument();
+    expect(ligneSorties('Dettes fournisseurs payées (1)')).toHaveTextContent(/500\sFCFA$/);
+  });
+
+  it("paiement fournisseur annulé par sa correction (0 en montant, 2 mouvements) : pas d'état vide", async () => {
+    mocks.get.mockResolvedValue({ data: journalAvec({ sorties: { nombre_paiements_fournisseurs: 2 } }) });
+
+    render(<JournalCaisse />);
+
+    expect(await screen.findByText('Solde de la période')).toBeInTheDocument();
+    expect(screen.queryByText('Aucun mouvement sur cette période.')).not.toBeInTheDocument();
+  });
+
+  it('bandeau : achats = argent réellement versé par mode, dépenses supposées payées comptant', async () => {
+    mocks.get.mockResolvedValue({ data: journalAvec({ sorties: { nombre_achats: 1 } }) });
+
+    render(<JournalCaisse />);
+    await screen.findByText('Solde de la période');
+
+    expect(screen.getByText(/Achats : argent réellement versé \(à l'achat et dettes fournisseurs payées\), par mode/)).toBeInTheDocument();
+    expect(screen.getByText(/« Non précisé » : achats enregistrés avant le suivi du mode de paiement/)).toBeInTheDocument();
+    expect(screen.getByText(/Les dépenses sont considérées comme payées comptant/)).toBeInTheDocument();
+    expect(screen.queryByText(/Les achats et les dépenses sont considérés comme payés comptant/)).not.toBeInTheDocument();
+    expect(screen.getByText("Si un achat à crédit est annulé, ses paiements restent à leur date et s'annulent entre eux.")).toBeInTheDocument();
+  });
+
+  it('« Acheté à crédit » toujours affiché, même à 0, comme « Vendu à crédit »', async () => {
+    mocks.get.mockResolvedValue({ data: journalAvec({ sorties: { nombre_achats: 1 } }) });
+
+    render(<JournalCaisse />);
+    await screen.findByText('Solde de la période');
+
+    expect(itemQuiContient('Acheté à crédit sur la période')).toHaveTextContent(
+      /^Acheté à crédit sur la période : 0\sFCFA, dont encore dû aujourd'hui : 0\sFCFA$/,
+    );
+  });
+
+  it("« Acheté à crédit » : montants de l'API (crédit obtenu et dette restante)", async () => {
+    mocks.get.mockResolvedValue({
+      data: journalAvec({
+        sorties: { nombre_achats: 1 },
+        informations: { credit_fournisseur_obtenu: 700.0, dette_fournisseurs_restante: 400.0 },
+      }),
+    });
+
+    render(<JournalCaisse />);
+    await screen.findByText('Solde de la période');
+
+    expect(itemQuiContient('Acheté à crédit sur la période')).toHaveTextContent(
+      /^Acheté à crédit sur la période : 700\sFCFA, dont encore dû aujourd'hui : 400\sFCFA$/,
+    );
+  });
+
+  it('backend antérieur aux dettes fournisseurs : ancien affichage, sans « undefined »', async () => {
+    mocks.get.mockResolvedValue({
+      data: sansClesDettes(journalAvec({ sorties: { achats: 400.0, nombre_achats: 1, total: 400.0 } })),
+    });
+
+    render(<JournalCaisse />);
+    await screen.findByText('Solde de la période');
+
+    expect(within(sectionSorties()).getByText('Achats (1)')).toBeInTheDocument();
+    expect(within(sectionSorties()).queryByText(/Payé à l'achat/)).not.toBeInTheDocument();
+    expect(within(sectionSorties()).queryByText(/Dettes fournisseurs payées/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Achats par mode' })).not.toBeInTheDocument();
+    expect(screen.getByText(/Les achats et les dépenses sont considérés comme payés comptant/)).toBeInTheDocument();
+    expect(screen.queryByText(/Acheté à crédit/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Si un achat à crédit est annulé/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/NaN|undefined/)).not.toBeInTheDocument();
+  });
+
+  it("backend antérieur, aucun mouvement connu : pas d'état vide (nombre_paiements_fournisseurs absent)", async () => {
+    mocks.get.mockResolvedValue({ data: sansClesDettes(JOURNAL_VIDE) });
+
+    render(<JournalCaisse />);
+
+    expect(await screen.findByText('Solde de la période')).toBeInTheDocument();
+    expect(screen.queryByText('Aucun mouvement sur cette période.')).not.toBeInTheDocument();
   });
 });
 
