@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-02.
+Mis à jour le 2026-10-03.
 
 ## Fait récemment
 
@@ -16,7 +16,7 @@ Mis à jour le 2026-10-02.
 
 ## En cours : dettes fournisseurs (achats à crédit)
 
-Plan validé le 2026-10-02. État au 2026-10-02 :
+Plan validé le 2026-10-02. État au 2026-10-03 :
 
 - Commit 1 (expand) : `708acdf`, vérifié en prod par Mahamadou (Live, migrations 0015 et 0016, achat normal, caisse).
 - Commits 2 et 3 : `3c761a1`, vérifiés en prod par Mahamadou (Live, migration 0017, test en prod).
@@ -25,7 +25,8 @@ Plan validé le 2026-10-02. État au 2026-10-02 :
 - Commit 5 : `16e3f4d`, poussé (`0fc48d1`), CI verte. Render Live vérifié par Mahamadou (ce déploiement inclut aussi le commit 4).
 - Commit 6 : `7cd88cc`, poussé (`29e03bd`), CI verte. Vérifié en prod par Mahamadou : Render Live, caisse du 01/10 identique à avant.
 - Commit 7 : `2e25e34`, poussé (`f72d73b`), CI verte. Déploiement Vercel à tester par Mahamadou (voir plus bas).
-- Commit 7 bis : plan validé le 2026-10-03, rien de codé. Prochaine étape de la prochaine session.
+- Commit 7 bis : `38e2584`, validé par Mahamadou, **non poussé** : Mahamadou teste d'abord le commit 7 en prod. lint, build et 164 tests Vitest OK en local, 5 mutations détectées, captures à 375 px et en desktop.
+- Prochaine étape : petit chantier « bouton flottant » (priorité, avant le commit 9), voir plus bas.
 
 ### Principe
 
@@ -67,12 +68,28 @@ Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nou
    - Décision 1 : le mode de paiement est remis à zéro après chaque achat (choix explicite à chaque fois).
    - Décision 2 : un seul sélecteur « Mode de paiement », au même endroit pour tous les achats, juste au-dessus du bouton Valider. Il porte sur le total pour un achat comptant, sur le montant versé pour un achat à crédit, et il est absent si le montant versé est 0 (jamais envoyé dans ce cas, même si un mode avait été choisi avant de cocher « Achat à crédit »).
    - Pas de valeur par défaut ; sans mode, l'envoi est bloqué. Un employé voit le sélecteur (achat comptant) mais toujours pas la case crédit (D3).
+   - Décision 3 (2026-10-03) : si on choisit un mode, qu'on coche puis décoche « Achat à crédit », le mode choisi reste sélectionné. Il est visible avant l'envoi : pas de piège caché.
 8. `feat(frontend)` : dettes et paiements dans Fournisseurs.
-9. `feat(frontend)` : journal de caisse, sorties par mode, bandeau adapté. Part **avant ou avec le commit 8** (décidé le 2026-10-03) : sans lui, l'ancien `JournalCaisse.jsx` afficherait « aucun mouvement » un jour où il n'y a que des paiements fournisseurs.
+9. `feat(frontend)` : journal de caisse, sorties par mode, bandeau adapté. Vient **après le petit chantier « bouton flottant »** (décidé le 2026-10-03). Part **avant ou avec le commit 8** (décidé le 2026-10-03) : sans lui, l'ancien `JournalCaisse.jsx` afficherait « aucun mouvement » un jour où il n'y a que des paiements fournisseurs.
    - État vide : ajouter `sorties.nombre_paiements_fournisseurs` à la condition ; clé absente (backend antérieur) : pas d'état vide, comme `nombre_remboursements`.
    - Bandeau : achats = argent réellement versé (acomptes et paiements fournisseurs), par mode ; « non précisé » = achats enregistrés avant le suivi du mode ; les dépenses restent supposées payées comptant.
    - « À savoir » : `credit_fournisseur_obtenu` et `dette_fournisseurs_restante` ne portent que sur les achats de la période. Libellé comme pour les clients : « Acheté à crédit sur la période : X, dont encore dû aujourd'hui : Y ». La dette totale par fournisseur reste dans l'écran Fournisseurs.
    - Chaque nouveau champ peut être absent (ligne masquée).
+
+## Petit chantier prioritaire : bouton flottant de l'assistant
+
+Passé en priorité le 2026-10-03, avant le commit 9 : depuis le 7 bis, à 375 px, le bouton flottant recouvre un champ obligatoire (le sélecteur « Mode de paiement » du formulaire d'achat), en plus du « Montant Total ». Plan révisé le 2026-10-03, **à valider**, rien de codé.
+
+- Décision (2026-10-03) : Iwi reste visible sur mobile (argument de vente, commerçants surtout sur téléphone). On essaie d'abord la solution la plus simple : agrandir la marge basse de `main` (`App.jsx`), sur mobile et en desktop, pour que la fin de toute page puisse défiler au-dessus du bouton. Les champs du milieu de page se dégagent en défilant, comme avec tout bouton flottant. Si ça ne suffit pas, on reparlera de l'en-tête.
+- Constat : `Assistant.jsx`, bouton de 56 px en `fixed bottom-20 right-4` (mobile), `md:bottom-6 md:right-6`. Son haut est à 136 px du bas de l'écran sur mobile, 80 px en desktop. La marge basse de `main` n'est que de 96 px (`pb-24`) sur mobile et 24 px (`md:pb-6`) en desktop : même tout en bas d'une page, les derniers 40 px (mobile) ou 56 px (desktop) du contenu restent sous le bouton.
+- Correctif prévu : `pb-36` (144 px) sur mobile et `md:pb-24` (96 px) en desktop, soit 8 px et 16 px de marge au-dessus du bouton. Une seule ligne de `App.jsx`, valable pour toutes les pages.
+- Mesure Playwright faite le 2026-10-03, avant correctif (API simulée, panier d'une ligne, historique de 2 achats puis vide) :
+  - En fin de page, le bas du contenu est sous le haut du bouton : 716 px contre 676 px à 375 px (écran de 812 px), 876 px contre 820 px en desktop (écran de 900 px). En desktop, avec un historique, le bouton « Annuler l'achat #40 » est sous Iwi.
+  - **Limite** : à 375 px, le formulaire d'achat n'est jamais en fin de page (l'historique le suit, même vide). Quand on fait défiler juste assez pour voir Valider au-dessus de la barre du bas, Valider est sous Iwi, avec ou sans le correctif. Il se dégage en défilant d'environ 70 px de plus (bas de Valider à 748 px, haut d'Iwi à 676 px). La marge seule ne change donc rien à ce cas : c'est le cas « milieu de page ».
+- Preuves prévues :
+  - Mesure Playwright, à 375 px et en desktop, sur Achats, vue échouer avant le correctif : défilement jusqu'en bas de la page, le bas du contenu de `main` est au-dessus du haut du bouton Iwi, et aucun champ ni bouton n'est sous Iwi (en desktop : plus de « Annuler l'achat #40 »).
+  - Formulaire d'achat à 375 px : il existe une position de défilement où tous ses champs et Valider sont hors du bouton Iwi (vrai avant et après : constat, pas preuve du correctif).
+  - Captures d'Achats à 375 px et en desktop, en fin de page.
 
 ## Chantier suivant : offre unique
 
@@ -106,7 +123,6 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Chantier séparé : objets d'une autre boutique qui renvoient autre chose qu'un 404 identique à celui d'un objet inexistant (règle de `CLAUDE.md`, Sécurité). `RemboursementViewSet.perform_create` renvoie 403 (« Cette vente n'appartient pas à votre boutique », `sales/views.py`). Même problème relevé ailleurs, à inventorier : `products/views.py` (403 sur produit et unité), et des serializers qui répondent 400 « n'appartient pas à votre boutique », message différent de celui d'un id inexistant (`sales`, `purchases` dont `validate_fournisseur`, `inventory`, `products`). Modèle à suivre : `AchatDeLaBoutiqueField` (`purchases/serializers.py`).
 - Chantier séparé : `Clients.jsx:55` (`grouperRemboursements`) calcule le montant effectif d'un remboursement côté frontend, en flottants avec arrondi, contrairement à `CLAUDE.md` (aucun calcul de montant dans le frontend). Le faire calculer par le backend, comme `montant_effectif` dans l'historique fournisseur.
 - Chantier séparé : autres calculs de montants existants dans le frontend. `Purchases.jsx` (sous-totaux et « Montant Total » du panier) et `Sales.jsx` (« Restera dû » calculé pendant la saisie d'une vente à crédit). Nuance : un total provisoire pendant la saisie est acceptable si le serveur recalcule la valeur enregistrée ; le chantier vérifiera au cas par cas.
-- Petit chantier séparé : à 375 px, le bouton flottant de l'assistant recouvre le « Montant Total » du formulaire d'achat (problème existant avant le commit 7, vu sur les captures ; la page ne déborde pas).
 - Chantier séparé : messages et exports du backend qui affichent un montant brut (`100.00 FCFA`) au lieu du rendu de l'app. Passer par `formater_montant` (`parametres/services.py`, même rendu que `formatCurrency`) : avertissement de plafond (`sales/services/credit.py`, `avertissement_plafond_credit`), notification de dette (`notifications/services.py`), export PDF du résumé financier et des ventes détaillées (`reports/views.py`, format `:.2f`). Les exports Excel (`#,##0.00` dans `reports/views.py`) sont des formats de cellule numériques : à examiner à part.
 - `date_annulation` sur Vente/Achat/Dépense, avant toute vraie clôture de caisse (voir `reports/caisse.py`).
 - Export PDF/Excel du journal de caisse.
@@ -116,7 +132,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté Mahamadou
 
-- Tester le commit 7 en prod (Vercel) : un achat à crédit depuis le téléphone, le badge « À crédit · reste X » dans l'historique, et la caisse du jour.
+- Tester le commit 7 en prod (Vercel) : un achat à crédit depuis le téléphone, le badge « À crédit · reste X » dans l'historique, et la caisse du jour. Ensuite seulement, push du 7 bis (`38e2584`).
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
