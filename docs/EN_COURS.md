@@ -25,9 +25,10 @@ Plan validé le 2026-10-02. État au 2026-10-03 :
 - Commit 5 : `16e3f4d`, poussé (`0fc48d1`), CI verte. Render Live vérifié par Mahamadou (ce déploiement inclut aussi le commit 4).
 - Commit 6 : `7cd88cc`, poussé (`29e03bd`), CI verte. Vérifié en prod par Mahamadou : Render Live, caisse du 01/10 identique à avant.
 - Commit 7 : `2e25e34`, poussé (`f72d73b`), CI verte. Vérifié en prod par Mahamadou le 2026-10-03 : achat à crédit de 1000 avec 300 versés en espèces, reste dû de 700 FCFA affiché après l'enregistrement, badge sous le fournisseur, 300 dans les sorties de la caisse du jour.
-- Commit 7 bis : `38e2584`, validé par Mahamadou, à pousser avec le correctif du bouton flottant. lint, build et 164 tests Vitest OK en local, 5 mutations détectées, captures à 375 px et en desktop.
-- Petit chantier « bouton flottant » (priorité, avant le commit 9) : correctif `ed7c70c`, voir plus bas.
-- Prochaine étape : plan du commit 9.
+- Commit 7 bis : `38e2584`, poussé (`cb5d253`), CI verte. lint, build et 164 tests Vitest OK en local, 5 mutations détectées, captures à 375 px et en desktop.
+- Petit chantier « bouton flottant » (priorité, avant le commit 9) : correctif `ed7c70c`, poussé (`cb5d253`), CI verte, voir plus bas.
+- Commit 9 : `486155c`, non poussé. Plan et décisions ci-dessous (2026-10-03). lint et build OK ; 27 tests de `JournalCaisse.test.jsx` OK ; 8 mutations détectées ; captures à 375 px, en desktop et à l'impression.
+- Prochaine étape : commit 8 (dettes et paiements dans Fournisseurs), plan d'abord.
 
 ### Principe
 
@@ -76,6 +77,8 @@ Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nou
    - Bandeau : achats = argent réellement versé (acomptes et paiements fournisseurs), par mode ; « non précisé » = achats enregistrés avant le suivi du mode ; les dépenses restent supposées payées comptant.
    - « À savoir » : `credit_fournisseur_obtenu` et `dette_fournisseurs_restante` ne portent que sur les achats de la période. Libellé comme pour les clients : « Acheté à crédit sur la période : X, dont encore dû aujourd'hui : Y ». La dette totale par fournisseur reste dans l'écran Fournisseurs.
    - Chaque nouveau champ peut être absent (ligne masquée).
+   - Décisions du 2026-10-03 : « Acheté à crédit » toujours affiché, même à 0, comme « Vendu à crédit » (cohérence). Sous la ligne « Achats », deux sous-lignes : « Payé à l'achat » (`acomptes_achats`, `nombre_achats`) et « Dettes fournisseurs payées » (`paiements_fournisseurs`, `nombre_paiements_fournisseurs`). Dans « À savoir » : « Si un achat à crédit est annulé, ses paiements restent à leur date et s'annulent entre eux. »
+   - Achats par mode : une seule liste ; les modes à 0 sont masqués sur téléphone seulement, comme pour les entrées.
 
 ## Petit chantier prioritaire : bouton flottant de l'assistant
 
@@ -126,6 +129,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Chantier séparé : objets d'une autre boutique qui renvoient autre chose qu'un 404 identique à celui d'un objet inexistant (règle de `CLAUDE.md`, Sécurité). `RemboursementViewSet.perform_create` renvoie 403 (« Cette vente n'appartient pas à votre boutique », `sales/views.py`). Même problème relevé ailleurs, à inventorier : `products/views.py` (403 sur produit et unité), et des serializers qui répondent 400 « n'appartient pas à votre boutique », message différent de celui d'un id inexistant (`sales`, `purchases` dont `validate_fournisseur`, `inventory`, `products`). Modèle à suivre : `AchatDeLaBoutiqueField` (`purchases/serializers.py`).
 - Chantier séparé : `Clients.jsx:55` (`grouperRemboursements`) calcule le montant effectif d'un remboursement côté frontend, en flottants avec arrondi, contrairement à `CLAUDE.md` (aucun calcul de montant dans le frontend). Le faire calculer par le backend, comme `montant_effectif` dans l'historique fournisseur.
 - Chantier séparé : autres calculs de montants existants dans le frontend. `Purchases.jsx` (sous-totaux et « Montant Total » du panier) et `Sales.jsx` (« Restera dû » calculé pendant la saisie d'une vente à crédit). Nuance : un total provisoire pendant la saisie est acceptable si le serveur recalcule la valeur enregistrée ; le chantier vérifiera au cas par cas.
+- Test instable à mesurer (relevé le 2026-10-03) : `PurchasesAchatACredit.test.jsx`, « achat comptant : mode obligatoire sans valeur par défaut, puis envoyé sans `montant_paye` » (ajouté par le 7 bis), a dépassé le délai dans la suite complète : 5117 ms pour 5000 ms. Suite de 399 s ; machine : 0,8 Go de RAM libre sur 7,9 Go, Chrome ouvert (19 processus), CPU au repos au moment du relevé. Le même jour, seul et 10 fois de suite dans le même état : 1220 à 1852 ms (médiane 1368 ms), 10 sur 10 OK. CI verte. Suite : la méthode de `Clients.test.jsx` (20 passages sous charge). Pas d'augmentation de délai sans accord.
 - Chantier séparé : messages et exports du backend qui affichent un montant brut (`100.00 FCFA`) au lieu du rendu de l'app. Passer par `formater_montant` (`parametres/services.py`, même rendu que `formatCurrency`) : avertissement de plafond (`sales/services/credit.py`, `avertissement_plafond_credit`), notification de dette (`notifications/services.py`), export PDF du résumé financier et des ventes détaillées (`reports/views.py`, format `:.2f`). Les exports Excel (`#,##0.00` dans `reports/views.py`) sont des formats de cellule numériques : à examiner à part.
 - `date_annulation` sur Vente/Achat/Dépense, avant toute vraie clôture de caisse (voir `reports/caisse.py`).
 - Export PDF/Excel du journal de caisse.
