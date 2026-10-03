@@ -24,7 +24,8 @@ Plan validé le 2026-10-02. État au 2026-10-02 :
 - Commit 4 : `9131791` (`formater_montant`) et `e8e71fd` (API des paiements), poussés (`515153b`), CI verte.
 - Commit 5 : `16e3f4d`, poussé (`0fc48d1`), CI verte. Render Live vérifié par Mahamadou (ce déploiement inclut aussi le commit 4).
 - Commit 6 : `7cd88cc`, poussé (`29e03bd`), CI verte. Vérifié en prod par Mahamadou : Render Live, caisse du 01/10 identique à avant.
-- Commit 7 : commité en local, pas poussé.
+- Commit 7 : `2e25e34`, poussé (`f72d73b`), CI verte. Déploiement Vercel à tester par Mahamadou (voir plus bas).
+- Commit 7 bis : plan validé le 2026-10-03, rien de codé. Prochaine étape de la prochaine session.
 
 ### Principe
 
@@ -63,6 +64,9 @@ Backend d'abord (déployable seul), frontend ensuite (supporte l'absence des nou
 6. `feat(reports)` : journal de caisse, sorties = argent versé, par mode, avec non-régression. `sorties.achats` garde son nom avec le sens « argent versé » (acomptes à la date de l'achat + paiements fournisseurs à leur date). Option A (décidée le 2026-10-03) : les paiements d'un achat annulé sont comptés à leur date.
 7. `feat(frontend)` : achat à crédit dans le formulaire d'achat (case réservée au propriétaire, montant versé, mode obligatoire seulement s'il est supérieur à 0, reste dû affiché après la réponse du serveur, badge « À crédit · reste X » dans l'historique). Un achat comptant envoie exactement le même objet qu'avant.
 7 bis. `feat(frontend)` : mode de paiement demandé aussi pour un achat comptant (sélecteur obligatoire, sans valeur par défaut), juste après le 7 et avant le 9. Décidé le 2026-10-03. Le backend accepte et enregistre déjà ce mode (`test_mode_paiement_sans_montant_paye_conserve`), et le journal le range dans son mode (`test_ligne_non_precise_absente_sil_ny_en_a_pas`) : commit frontend seul. Il changera l'objet envoyé pour un achat comptant (ajout de `mode_paiement`) : le test de non-régression du 7 sera adapté.
+   - Décision 1 : le mode de paiement est remis à zéro après chaque achat (choix explicite à chaque fois).
+   - Décision 2 : un seul sélecteur « Mode de paiement », au même endroit pour tous les achats, juste au-dessus du bouton Valider. Il porte sur le total pour un achat comptant, sur le montant versé pour un achat à crédit, et il est absent si le montant versé est 0 (jamais envoyé dans ce cas, même si un mode avait été choisi avant de cocher « Achat à crédit »).
+   - Pas de valeur par défaut ; sans mode, l'envoi est bloqué. Un employé voit le sélecteur (achat comptant) mais toujours pas la case crédit (D3).
 8. `feat(frontend)` : dettes et paiements dans Fournisseurs.
 9. `feat(frontend)` : journal de caisse, sorties par mode, bandeau adapté. Part **avant ou avec le commit 8** (décidé le 2026-10-03) : sans lui, l'ancien `JournalCaisse.jsx` afficherait « aucun mouvement » un jour où il n'y a que des paiements fournisseurs.
    - État vide : ajouter `sorties.nombre_paiements_fournisseurs` à la condition ; clé absente (backend antérieur) : pas d'état vide, comme `nombre_remboursements`.
@@ -112,6 +116,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté Mahamadou
 
+- Tester le commit 7 en prod (Vercel) : un achat à crédit depuis le téléphone, le badge « À crédit · reste X » dans l'historique, et la caisse du jour.
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
