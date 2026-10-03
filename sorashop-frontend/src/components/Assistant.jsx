@@ -56,14 +56,17 @@ export default function Assistant() {
     <>
       {/* Position et taille liées à la marge basse de <main> (App.jsx,
           pb-36 / md:pb-24) : si le bouton est déplacé ou agrandi, revoir
-          cette marge pour que la fin de chaque page défile au-dessus. */}
+          cette marge pour que la fin de chaque page défile au-dessus.
+          z-40 (couche des éléments flottants, cf. CLAUDE.md) : les fenêtres
+          sont en z-50 et doivent le recouvrir. À z-50, il passait devant
+          elles, car il est rendu après <main> dans le DOM. */}
       <button
         type="button"
         onClick={() => setOuvert(true)}
         aria-haspopup="dialog"
         aria-expanded={ouvert}
         aria-label="Ouvrir Iwi, l'assistant IA"
-        className="fixed bottom-20 right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 md:bottom-6 md:right-6 print:hidden"
+        className="fixed bottom-20 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-600/30 transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 md:bottom-6 md:right-6 print:hidden"
       >
         <Sparkles className="h-6 w-6" aria-hidden="true" />
       </button>
