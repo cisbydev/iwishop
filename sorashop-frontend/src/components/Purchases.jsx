@@ -4,6 +4,7 @@ import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { getErrorMessage } from '../services/errorUtils';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
+import { MODES_PAIEMENT } from '../utils/modesPaiement';
 import { Ban, Truck, Plus, Trash2, CheckCircle, History } from 'lucide-react';
 
 export default function Purchases() {
@@ -30,6 +31,16 @@ export default function Purchases() {
 
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Achat à crédit (dettes fournisseurs) : propriétaire seulement (D3).
+  // Aucun « reste à payer » calculé ici : le serveur calcule montant_du et
+  // statut_paiement, affichés après sa réponse.
+  const [achatACredit, setAchatACredit] = useState(false);
+  const [acompte, setAcompte] = useState('');
+  const [modePaiementAcompte, setModePaiementAcompte] = useState('');
+  // Le mode n'a de sens (et n'est accepté par le serveur) que si de
+  // l'argent est versé maintenant.
+  const acompteVerse = achatACredit && parseFloat(acompte) > 0;
 
   // Recharge uniquement les produits (stock à jour après un achat) sans
   // retoucher aux unités, qui ne changent pas en cours de session.
@@ -223,22 +234,51 @@ export default function Purchases() {
       alert("Sélectionne un fournisseur.");
       return;
     }
+    if (achatACredit && acompte !== '' && !(parseFloat(acompte) >= 0)) {
+      alert("Le montant versé est invalide.");
+      return;
+    }
+    if (acompteVerse && !modePaiementAcompte) {
+      alert("Choisissez le mode de paiement du montant versé.");
+      return;
+    }
+
+    // Achat comptant : exactement le même envoi qu'avant les dettes
+    // fournisseurs. Achat à crédit : montant versé (0 si vide), et son
+    // mode seulement s'il est supérieur à 0.
+    const donnees = {
+      fournisseur: selectedFournisseur,
+      notes: notes || null,
+      lignes: panier.map(item => ({
+        produit: item.produit_id,
+        unite: item.unite_id,
+        quantite: item.quantite,
+        prix_unitaire_achat: item.prix_unitaire_achat,
+      })),
+    };
+    if (achatACredit) {
+      donnees.montant_paye = acompteVerse ? acompte : '0';
+      if (acompteVerse) donnees.mode_paiement = modePaiementAcompte;
+    }
 
     setIsSubmitting(true);
     try {
-      await api.post('achats/', {
-        fournisseur: selectedFournisseur,
-        notes: notes || null,
-        lignes: panier.map(item => ({
-          produit: item.produit_id,
-          unite: item.unite_id,
-          quantite: item.quantite,
-          prix_unitaire_achat: item.prix_unitaire_achat,
-        })),
-      });
-      setSuccessMessage("Achat enregistré avec succès ! Stock mis à jour.");
+      const response = await api.post('achats/', donnees);
+      // Reste dû renvoyé par le serveur ; champs absents (backend plus
+      // ancien) : message habituel.
+      const achatEnregistre = response?.data;
+      const resteDu = achatEnregistre?.montant_du;
+      const enDette = ['partiel', 'en_attente'].includes(achatEnregistre?.statut_paiement) && resteDu != null;
+      setSuccessMessage(
+        enDette
+          ? `Achat à crédit enregistré. Reste dû au fournisseur : ${formatCurrency(resteDu, devise)}.`
+          : "Achat enregistré avec succès ! Stock mis à jour."
+      );
       setPanier([]);
       setNotes('');
+      setAchatACredit(false);
+      setAcompte('');
+      setModePaiementAcompte('');
       fetchAchats();
       fetchProduits(); // Rafraîchir les stocks
       setTimeout(() => setSuccessMessage(''), 4000);
@@ -443,6 +483,59 @@ export default function Purchases() {
               />
             </div>
 
+            {estProprietaire === true && (
+              <div className="rounded-lg border border-slate-200 p-4">
+                <label htmlFor="achat-credit" className="flex items-center gap-3 text-sm font-medium text-slate-700">
+                  <input
+                    id="achat-credit"
+                    type="checkbox"
+                    checked={achatACredit}
+                    onChange={(e) => setAchatACredit(e.target.checked)}
+                    disabled={modeSupport}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+                  />
+                  Achat à crédit
+                </label>
+
+                {achatACredit && (
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <label htmlFor="achat-acompte" className="block text-xs font-medium text-slate-700">Montant versé maintenant</label>
+                      <input
+                        id="achat-acompte"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={acompte}
+                        onChange={(e) => setAcompte(e.target.value)}
+                        placeholder="0"
+                        className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                      />
+                    </div>
+
+                    {acompteVerse && (
+                      <div>
+                        <label htmlFor="achat-mode-paiement" className="block text-xs font-medium text-slate-700">Mode de paiement du montant versé</label>
+                        <select
+                          id="achat-mode-paiement"
+                          value={modePaiementAcompte}
+                          onChange={(e) => setModePaiementAcompte(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                        >
+                          <option value="">Choisir un mode…</option>
+                          {MODES_PAIEMENT.map((mode) => (
+                            <option key={mode.valeur} value={mode.valeur}>{mode.libelle}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-slate-500">Le reste dû sera calculé et affiché après l'enregistrement.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex justify-between items-center text-lg font-bold text-gray-900">
               <span>Montant Total :</span>
               <span className="text-blue-600">{formatCurrency(totalAchat, devise)}</span>
@@ -500,7 +593,17 @@ export default function Purchases() {
                         </span>
                       )}
                     </td>
-                    <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-slate-800">{a.fournisseur_nom || 'Inconnu'}</td>
+                    <td className="px-6 py-5 whitespace-nowrap text-sm font-medium text-slate-800">
+                      {a.fournisseur_nom || 'Inconnu'}
+                      {/* Près du fournisseur : visible sans faire défiler le tableau sur
+                          mobile. Reste dû renvoyé par le serveur ; champs absents
+                          (backend plus ancien) : pas de badge. */}
+                      {!estAnnule && ['partiel', 'en_attente'].includes(a.statut_paiement) && a.montant_du != null && (
+                        <span className="mt-1 block w-fit rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                          À crédit · reste {formatCurrency(a.montant_du, devise)}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-6 py-5 whitespace-nowrap text-sm text-slate-600">
                       {formatDateTime(a.date_achat)}
                     </td>
