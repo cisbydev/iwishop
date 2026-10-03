@@ -37,10 +37,13 @@ export default function Purchases() {
   // statut_paiement, affichés après sa réponse.
   const [achatACredit, setAchatACredit] = useState(false);
   const [acompte, setAcompte] = useState('');
-  const [modePaiementAcompte, setModePaiementAcompte] = useState('');
-  // Le mode n'a de sens (et n'est accepté par le serveur) que si de
-  // l'argent est versé maintenant.
+  // Mode de paiement : obligatoire, sans valeur par défaut, remis à zéro
+  // après chaque achat. Il porte sur le total d'un achat comptant, sur le
+  // montant versé d'un achat à crédit ; il n'a pas de sens (et le serveur le
+  // refuse) si rien n'est versé maintenant.
+  const [modePaiement, setModePaiement] = useState('');
   const acompteVerse = achatACredit && parseFloat(acompte) > 0;
+  const modePaiementDemande = !achatACredit || acompteVerse;
 
   // Recharge uniquement les produits (stock à jour après un achat) sans
   // retoucher aux unités, qui ne changent pas en cours de session.
@@ -238,13 +241,13 @@ export default function Purchases() {
       alert("Le montant versé est invalide.");
       return;
     }
-    if (acompteVerse && !modePaiementAcompte) {
-      alert("Choisissez le mode de paiement du montant versé.");
+    if (modePaiementDemande && !modePaiement) {
+      alert("Choisissez le mode de paiement.");
       return;
     }
 
-    // Achat comptant : exactement le même envoi qu'avant les dettes
-    // fournisseurs. Achat à crédit : montant versé (0 si vide), et son
+    // Achat comptant : sans montant_paye (le serveur le fixe au total),
+    // avec son mode. Achat à crédit : montant versé (0 si vide), et son
     // mode seulement s'il est supérieur à 0.
     const donnees = {
       fournisseur: selectedFournisseur,
@@ -258,7 +261,9 @@ export default function Purchases() {
     };
     if (achatACredit) {
       donnees.montant_paye = acompteVerse ? acompte : '0';
-      if (acompteVerse) donnees.mode_paiement = modePaiementAcompte;
+    }
+    if (modePaiementDemande) {
+      donnees.mode_paiement = modePaiement;
     }
 
     setIsSubmitting(true);
@@ -278,7 +283,7 @@ export default function Purchases() {
       setNotes('');
       setAchatACredit(false);
       setAcompte('');
-      setModePaiementAcompte('');
+      setModePaiement('');
       fetchAchats();
       fetchProduits(); // Rafraîchir les stocks
       setTimeout(() => setSuccessMessage(''), 4000);
@@ -513,23 +518,6 @@ export default function Purchases() {
                       />
                     </div>
 
-                    {acompteVerse && (
-                      <div>
-                        <label htmlFor="achat-mode-paiement" className="block text-xs font-medium text-slate-700">Mode de paiement du montant versé</label>
-                        <select
-                          id="achat-mode-paiement"
-                          value={modePaiementAcompte}
-                          onChange={(e) => setModePaiementAcompte(e.target.value)}
-                          className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                        >
-                          <option value="">Choisir un mode…</option>
-                          {MODES_PAIEMENT.map((mode) => (
-                            <option key={mode.valeur} value={mode.valeur}>{mode.libelle}</option>
-                          ))}
-                        </select>
-                      </div>
-                    )}
-
                     <p className="text-xs text-slate-500">Le reste dû sera calculé et affiché après l'enregistrement.</p>
                   </div>
                 )}
@@ -540,6 +528,28 @@ export default function Purchases() {
               <span>Montant Total :</span>
               <span className="text-blue-600">{formatCurrency(totalAchat, devise)}</span>
             </div>
+
+            {modePaiementDemande && (
+              <div>
+                <label htmlFor="achat-mode-paiement" className="block text-sm font-medium text-gray-700">Mode de paiement</label>
+                <select
+                  id="achat-mode-paiement"
+                  value={modePaiement}
+                  onChange={(e) => setModePaiement(e.target.value)}
+                  disabled={modeSupport}
+                  aria-describedby="achat-mode-paiement-aide"
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50"
+                >
+                  <option value="">Choisir un mode…</option>
+                  {MODES_PAIEMENT.map((mode) => (
+                    <option key={mode.valeur} value={mode.valeur}>{mode.libelle}</option>
+                  ))}
+                </select>
+                <p id="achat-mode-paiement-aide" className="mt-1 text-xs text-slate-500">
+                  {achatACredit ? 'Pour le montant versé maintenant.' : "Pour le montant total de l'achat."}
+                </p>
+              </div>
+            )}
 
             <button
               onClick={handleSubmitAchat}

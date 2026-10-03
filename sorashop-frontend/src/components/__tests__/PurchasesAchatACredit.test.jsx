@@ -67,14 +67,63 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('Achat à crédit dans le formulaire d’achat', () => {
-  it('non-régression : un achat comptant envoie exactement le même objet qu’avant', async () => {
+describe('Mode de paiement d’un achat comptant (7 bis)', () => {
+  it('achat comptant : mode obligatoire sans valeur par défaut, puis envoyé sans montant_paye', async () => {
     mockerCatalogue();
     mocks.post.mockResolvedValue({ data: { id: 99, statut_paiement: 'paye', montant_du: '0.00' } });
     const user = userEvent.setup();
     render(<Purchases />);
 
     await ajouterRizAuPanier(user);
+    const mode = screen.getByLabelText('Mode de paiement');
+    expect(mode).toHaveValue('');
+    expect(mode).toHaveAccessibleDescription("Pour le montant total de l'achat.");
+
+    // Sans mode : envoi bloqué.
+    await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
+    expect(window.alert).toHaveBeenCalledWith('Choisissez le mode de paiement.');
+    expect(mocks.post).not.toHaveBeenCalled();
+
+    await user.selectOptions(mode, 'ESPECES');
+    await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
+
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    // Même objet qu'avant le 7 bis, plus mode_paiement ; toujours sans
+    // montant_paye (le serveur le fixe au total).
+    expect(mocks.post).toHaveBeenCalledWith('achats/', {
+      fournisseur: 5,
+      notes: null,
+      lignes: LIGNES_ATTENDUES,
+      mode_paiement: 'ESPECES',
+    });
+    expect(await screen.findByText(/Achat enregistré avec succès/)).toBeInTheDocument();
+  });
+
+  it('le mode est remis à zéro après chaque achat (décision 1)', async () => {
+    mockerCatalogue();
+    mocks.post.mockResolvedValue({ data: { id: 99, statut_paiement: 'paye', montant_du: '0.00' } });
+    const user = userEvent.setup();
+    render(<Purchases />);
+
+    await ajouterRizAuPanier(user);
+    await user.selectOptions(screen.getByLabelText('Mode de paiement'), 'CARTE');
+    await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
+    await screen.findByText(/Achat enregistré avec succès/);
+
+    expect(screen.getByLabelText('Mode de paiement')).toHaveValue('');
+  });
+
+  it('un employé voit le sélecteur, mais pas la case « Achat à crédit » (D3)', async () => {
+    mocks.utilisateur = { est_proprietaire: false };
+    mockerCatalogue();
+    mocks.post.mockResolvedValue({ data: { id: 99, statut_paiement: 'paye', montant_du: '0.00' } });
+    const user = userEvent.setup();
+    render(<Purchases />);
+
+    await ajouterRizAuPanier(user);
+
+    expect(screen.queryByLabelText('Achat à crédit')).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('Mode de paiement'), 'MOBILE_MONEY');
     await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
 
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
@@ -82,20 +131,20 @@ describe('Achat à crédit dans le formulaire d’achat', () => {
       fournisseur: 5,
       notes: null,
       lignes: LIGNES_ATTENDUES,
+      mode_paiement: 'MOBILE_MONEY',
     });
-    expect(await screen.findByText(/Achat enregistré avec succès/)).toBeInTheDocument();
   });
 
-  it('la case « Achat à crédit » n’apparaît pas pour un employé (D3)', async () => {
-    mocks.utilisateur = { est_proprietaire: false };
+  it('vue support : le sélecteur est désactivé', async () => {
+    mocks.modeSupport = true;
     mockerCatalogue();
     render(<Purchases />);
 
-    await screen.findByRole('button', { name: /Ajouter à l'achat/ });
-
-    expect(screen.queryByLabelText('Achat à crédit')).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Mode de paiement')).toBeDisabled();
   });
+});
 
+describe('Achat à crédit dans le formulaire d’achat', () => {
   it('la case n’apparaît pas si le rôle est inconnu', async () => {
     mocks.utilisateur = undefined;
     mockerCatalogue();
@@ -116,8 +165,27 @@ describe('Achat à crédit dans le formulaire d’achat', () => {
     await user.click(await screen.findByLabelText('Achat à crédit'));
 
     expect(await screen.findByLabelText('Montant versé maintenant')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Mode de paiement du montant versé')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Mode de paiement')).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
+
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    const donnees = mocks.post.mock.calls[0][1];
+    expect(donnees).toEqual({ fournisseur: 5, notes: null, lignes: LIGNES_ATTENDUES, montant_paye: '0' });
+    expect(donnees).not.toHaveProperty('mode_paiement');
+  });
+
+  it('mode choisi avant de cocher « Achat à crédit » : jamais envoyé si rien n’est versé', async () => {
+    mockerCatalogue();
+    mocks.post.mockResolvedValue({ data: { id: 99, statut_paiement: 'en_attente', montant_du: '60.00' } });
+    const user = userEvent.setup();
+    render(<Purchases />);
+
+    await ajouterRizAuPanier(user);
+    await user.selectOptions(screen.getByLabelText('Mode de paiement'), 'ESPECES');
+    await user.click(await screen.findByLabelText('Achat à crédit'));
+
+    expect(screen.queryByLabelText('Mode de paiement')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
 
     await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
@@ -136,12 +204,13 @@ describe('Achat à crédit dans le formulaire d’achat', () => {
     await user.click(await screen.findByLabelText('Achat à crédit'));
     await coller(user, await screen.findByLabelText('Montant versé maintenant'), '50');
 
-    const mode = await screen.findByLabelText('Mode de paiement du montant versé');
+    const mode = await screen.findByLabelText('Mode de paiement');
     expect(mode).toHaveValue('');
+    expect(mode).toHaveAccessibleDescription('Pour le montant versé maintenant.');
 
     // Sans mode : envoi bloqué.
     await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
-    expect(window.alert).toHaveBeenCalledWith('Choisissez le mode de paiement du montant versé.');
+    expect(window.alert).toHaveBeenCalledWith('Choisissez le mode de paiement.');
     expect(mocks.post).not.toHaveBeenCalled();
 
     await user.selectOptions(mode, 'MOBILE_MONEY');
@@ -172,7 +241,7 @@ describe('Achat à crédit dans le formulaire d’achat', () => {
     expect(screen.queryByText(/Reste dû au fournisseur/)).not.toBeInTheDocument();
     expect(screen.queryByText(/(^|\D)10 FCFA/)).not.toBeInTheDocument();
 
-    await user.selectOptions(await screen.findByLabelText('Mode de paiement du montant versé'), 'ESPECES');
+    await user.selectOptions(await screen.findByLabelText('Mode de paiement'), 'ESPECES');
     await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
 
     expect(await screen.findByText('Achat à crédit enregistré. Reste dû au fournisseur : 130 FCFA.')).toBeInTheDocument();
@@ -204,7 +273,7 @@ describe('Achat à crédit dans le formulaire d’achat', () => {
     await ajouterRizAuPanier(user);
     await user.click(await screen.findByLabelText('Achat à crédit'));
     await coller(user, await screen.findByLabelText('Montant versé maintenant'), '500');
-    await user.selectOptions(await screen.findByLabelText('Mode de paiement du montant versé'), 'CARTE');
+    await user.selectOptions(await screen.findByLabelText('Mode de paiement'), 'CARTE');
     await user.click(screen.getByRole('button', { name: "Valider l'Achat" }));
 
     await waitFor(() => expect(window.alert).toHaveBeenCalledWith(
@@ -212,7 +281,7 @@ describe('Achat à crédit dans le formulaire d’achat', () => {
     ));
     expect(screen.getByLabelText('Achat à crédit')).toBeChecked();
     expect(screen.getByLabelText('Montant versé maintenant')).toHaveValue(500);
-    expect(screen.getByLabelText('Mode de paiement du montant versé')).toHaveValue('CARTE');
+    expect(screen.getByLabelText('Mode de paiement')).toHaveValue('CARTE');
   });
 
   it('vue support : la case est désactivée', async () => {
