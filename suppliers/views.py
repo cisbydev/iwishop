@@ -1,6 +1,8 @@
+from decimal import Decimal
+
 from django.db import transaction
-from django.db.models import F, Min, Prefetch, Q, Sum
-from rest_framework import viewsets
+from django.db.models import Count, F, Min, Prefetch, Q, Sum
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -43,6 +45,24 @@ class FournisseurViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, vi
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def dette_totale(self, request):
+        # Total dû à tous les fournisseurs de la boutique (8 bis). Même
+        # queryset et même filtre que avec_dette : il vaut, par construction,
+        # la somme de leurs dette_totale. Une seule requête d'agrégat. Le
+        # frontend l'affiche, il ne le calcule pas (CLAUDE.md).
+        agregats = self.get_queryset().aggregate(
+            dette_totale=Sum('achats__montant_du', filter=DETTE_EN_COURS),
+            nombre_fournisseurs=Count('id', filter=DETTE_EN_COURS, distinct=True),
+        )
+        # Chaîne à 2 décimales comme les autres montants de l'API ; "0.00"
+        # sans dette, jamais null.
+        montant = serializers.DecimalField(max_digits=12, decimal_places=2)
+        return Response({
+            'dette_totale': montant.to_representation(agregats['dette_totale'] or Decimal('0')),
+            'nombre_fournisseurs': agregats['nombre_fournisseurs'],
+        })
 
     @action(detail=True, methods=['get'])
     def historique(self, request, pk=None):

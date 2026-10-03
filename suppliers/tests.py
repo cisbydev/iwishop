@@ -240,6 +240,120 @@ class FournisseursAvecDetteTests(DetteFournisseurBase):
         self.assertEqual(self._get().status_code, status.HTTP_200_OK)
 
 
+class DetteTotaleFournisseursTests(DetteFournisseurBase):
+    """8 bis : total dû à tous les fournisseurs de la boutique."""
+
+    def _get(self, **en_tetes):
+        return self.client.get(reverse('fournisseurs-dette-totale'), **en_tetes)
+
+    def test_total_egal_a_la_somme_de_avec_dette(self):
+        beta = Fournisseur.objects.create(boutique=self.boutique, nom="Beta")
+        a1 = self._achat(total="500", acompte="0")      # Alpha : 500
+        self._achat(total="300", acompte="100")         # Alpha : 200
+        self._achat(beta, total="80", acompte="30")     # Beta : 50
+        self._payer(a1, "100")                          # Alpha : 600 au total
+
+        data = self._get().data
+        avec_dette = self.client.get(reverse('fournisseurs-avec-dette')).data
+        lignes = avec_dette['results'] if isinstance(avec_dette, dict) else avec_dette
+
+        self.assertEqual(data['dette_totale'], "650.00")
+        self.assertEqual(data['nombre_fournisseurs'], 2)
+        self.assertEqual(Decimal(data['dette_totale']), sum(Decimal(l['dette_totale']) for l in lignes))
+        self.assertEqual(data['nombre_fournisseurs'], len(lignes))
+
+    def test_annule_comptant_et_solde_ne_comptent_pas(self):
+        self._achat(total="300", acompte="100", statut='ANNULE')
+        self._achat(Fournisseur.objects.create(boutique=self.boutique, nom="Comptant"), total="300", acompte="300")
+        solde = self._achat(Fournisseur.objects.create(boutique=self.boutique, nom="Soldé"), total="100", acompte="40")
+        self._payer(solde, "60")
+        self._achat(Fournisseur.objects.create(boutique=self.boutique, nom="Dette"), total="70", acompte="0")
+
+        data = self._get().data
+
+        self.assertEqual(data['dette_totale'], "70.00")
+        self.assertEqual(data['nombre_fournisseurs'], 1)
+
+    def test_un_paiement_fait_baisser_le_total(self):
+        achat = self._achat(total="300", acompte="100")
+        self.assertEqual(self._get().data['dette_totale'], "200.00")
+
+        self._payer(achat, "75")
+
+        self.assertEqual(self._get().data['dette_totale'], "125.00")
+
+    def test_sans_dette_zero_en_chaine_jamais_null(self):
+        self._achat(total="300", acompte="300")
+
+        response = self._get()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, {'dette_totale': "0.00", 'nombre_fournisseurs': 0})
+        # Dans le JSON aussi : une chaîne, pas un nombre à virgule.
+        self.assertIn('"dette_totale":"0.00"', response.content.decode())
+
+    def test_isolation_entre_boutiques(self):
+        autre = Boutique.objects.create(nom="Autre", slug="autre-dette-totale-fournisseur")
+        self._achat(Fournisseur.objects.create(boutique=autre, nom="Ailleurs"), total="999", acompte="0")
+        self._achat(total="300", acompte="100")
+
+        data = self._get().data
+
+        self.assertEqual(data['dette_totale'], "200.00")
+        self.assertEqual(data['nombre_fournisseurs'], 1)
+
+    def test_vue_support_lit_le_total_de_la_boutique_ciblee(self):
+        self._achat(total="300", acompte="100")
+        admin = User.objects.create_superuser(username="admin_dette_totale_f", password="pass1234")
+        self.client.force_authenticate(user=admin)
+
+        response = self._get(HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique.id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['dette_totale'], "200.00")
+
+    def test_employe_lit_le_total(self):
+        # D3 : l'employé enregistre des paiements, il doit voir les dettes.
+        self._achat(total="300", acompte="100")
+        self.client.force_authenticate(user=self.employe)
+
+        response = self._get()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['dette_totale'], "200.00")
+
+    def test_lecture_permise_si_abonnement_expire(self):
+        self._achat(total="300", acompte="100")
+        formule = FormuleAbonnement.objects.create(nom="F", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timedelta(days=40),
+            date_fin=timezone.localdate() - timedelta(days=10), statut='EXPIRE',
+        )
+
+        response = self._get()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['dette_totale'], "200.00")
+
+    def test_non_authentifie_refuse(self):
+        self.client.force_authenticate(user=None)
+
+        self.assertEqual(self._get().status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_nombre_de_requetes_independant_du_nombre_dachats(self):
+        self._achat(total="300", acompte="100")
+        with CaptureQueriesContext(connection) as un_achat:
+            self._get()
+        for i in range(4):
+            self._achat(Fournisseur.objects.create(boutique=self.boutique, nom=f"F{i}"), total="50", acompte="0")
+        with CaptureQueriesContext(connection) as cinq_achats:
+            data = self._get().data
+
+        self.assertEqual(data['nombre_fournisseurs'], 5)
+        self.assertEqual(len(cinq_achats.captured_queries), len(un_achat.captured_queries))
+
+
 def serializers_datetime(valeur):
     from rest_framework import serializers
     return serializers.DateTimeField().to_representation(valeur)
