@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-03.
+Mis à jour le 2026-10-04.
 
 ## Fait récemment
 
@@ -14,9 +14,11 @@ Mis à jour le 2026-10-03.
 - D1 tranchée : offre unique (`d6dc1f9`).
 - `CLAUDE.md` : section Migrations (la base accepte l'ancien et le nouveau code pendant un déploiement, `db_default`, test en SQL brut) (`298086f`).
 
-## En cours : dettes fournisseurs (achats à crédit)
+## Terminé le 2026-10-04 : dettes fournisseurs (achats à crédit)
 
-Plan validé le 2026-10-02. État au 2026-10-03 :
+Plan validé le 2026-10-02. Chantier terminé le 2026-10-04 : tous les commits sont poussés, CI verte, vérifiés en prod par Mahamadou.
+
+Horloge du PC décalée jusqu'au 2026-10-04 : les dates git du 7 bis au 8 ter, et les dates 2026-10-03 notées pendant cette période, peuvent être fausses ; les dates de vérification en prod font foi.
 
 - Commit 1 (expand) : `708acdf`, vérifié en prod par Mahamadou (Live, migrations 0015 et 0016, achat normal, caisse).
 - Commits 2 et 3 : `3c761a1`, vérifiés en prod par Mahamadou (Live, migration 0017, test en prod).
@@ -30,8 +32,9 @@ Plan validé le 2026-10-02. État au 2026-10-03 :
 - Commit 9 : `486155c`, poussé (`6873bc7`), CI verte, vérifié en prod par Mahamadou. Plan et décisions ci-dessous (2026-10-03). lint et build OK ; 27 tests de `JournalCaisse.test.jsx` OK ; 8 mutations détectées ; captures à 375 px, en desktop et à l'impression.
 - Commit 8 : `0abc2a4`, poussé (`ed764df`), CI verte, vérifié en prod par Mahamadou. Plan et décisions ci-dessous (2026-10-03). lint et build OK ; 185 tests Vitest OK (dont 12 dans `SuppliersDettes.test.jsx`) ; 10 mutations détectées ; captures à 375 px et en desktop.
 - Correctif z-index d'Iwi (priorité, avant le 8 bis) : `6dd69a4`, poussé (`0036395`), CI verte. Bouton d'Iwi en `z-40` (couche des éléments flottants), les fenêtres en `z-50` le recouvrent. Mesure Playwright (`elementFromPoint` au centre du bouton), à 375 px et en desktop : fiche fournisseur, ajout de fournisseur, fiche client, ajout de client : Iwi au-dessus avant le correctif (8 échecs), recouvert après ; sans fenêtre, Iwi reste visible et cliquable. Panneau « Plus » (375 px) : déjà au-dessus d'Iwi avant, inchangé. Autres fenêtres (Produits, Catégories, Dépenses, Employés, Unités de vente) : même structure, non mesurées. Échelle des couches ajoutée à `CLAUDE.md`.
-- Commit 8 bis : `bafa7ee`, poussé (`577f62b`), CI verte. Vérifié en prod par Mahamadou : Render Live sur `577f62b`, logs sans erreur 500, achat comptant normal. Réponse de la route `/api/fournisseurs/dette_totale/` non confirmée : à vérifier au 8 ter, via l'écran Fournisseurs. `check`, `makemigrations --check` et 576 tests backend OK (dont 10 dans `DetteTotaleFournisseursTests`) ; 5 mutations détectées.
-- Prochaine étape : commit 8 ter (affichage du total dans l'écran Fournisseurs), plan validé le 2026-10-03.
+- Commit 8 bis : `bafa7ee`, poussé (`577f62b`), CI verte. Vérifié en prod par Mahamadou : Render Live sur `577f62b`, logs sans erreur 500, achat comptant normal. Réponse de la route `/api/fournisseurs/dette_totale/` confirmée au 8 ter, via l'écran Fournisseurs. `check`, `makemigrations --check` et 576 tests backend OK (dont 10 dans `DetteTotaleFournisseursTests`) ; 5 mutations détectées.
+- Commit 8 ter : `6a9deca`, poussé, CI verte. Vérifié en prod par Mahamadou le 2026-10-04 (Boutique 2) : « Total dû : 20 000 FCFA à 1 fournisseur », identique au badge, singulier correct ; après un paiement de 20 000 en Mobile Money depuis la fiche, « Aucune dette fournisseur en cours. » sans recharger la page ; journal de caisse cohérent (Dettes fournisseurs payées +20 000, Mobile Money +20 000). lint, build et 193 tests Vitest OK ; 7 mutations détectées.
+- Prochaine étape : remboursement accepté sur une vente annulée (`credit.py`) et alignement de l'annulation des ventes sur l'option B. Commencer par une analyse du code, sans coder.
 
 ### Principe
 
@@ -134,6 +137,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté code (pour plus tard)
 
+- Petit défaut (relevé en prod le 2026-10-04) : couleurs des dettes à harmoniser, fournisseurs et clients. Le total de l'écran Fournisseurs est en rouge, alors que le badge « Doit X » peut être vert : `couleurBadgeDette` colore le badge selon l'ancienneté de la plus vieille dette (vert à moins de 7 jours, orange jusqu'à 30, rouge au-delà), c'est voulu, mais la juxtaposition avec le total rouge prête à confusion. « Reste dû 0 » (fiche fournisseur) et « Dû 0 » (fiche client) s'affichent en rouge. Décider d'une règle commune avant de corriger.
 - Chantier séparé (relevé le 2026-10-03, par lecture du code, non reproduit) : réponses anciennes qui écrasent les plus récentes. Aucun rechargement n'ignore une réponse périmée (ni annulation, ni numéro de requête) : `fetchDettes` (`Suppliers.jsx`), `chargerHistorique` (`FicheFournisseur.jsx`), `fetchClients` et l'historique de `FicheClient` (`Clients.jsx`), et le total du 8 ter. Deux paiements rapides sur deux achats de la fiche fournisseur lancent deux rechargements ; si le premier répond en dernier, badges et historique montrent un état sans le second paiement, jusqu'au prochain rechargement. Plus gênant : en vue support, changer vite de boutique pourrait afficher un instant les dettes de la boutique précédente (affichage seulement, l'API reste isolée). Piste : ignorer toute réponse qui n'est pas celle de la dernière requête.
 - Chantier séparé : une boutique redescendue du Premium ne peut plus enregistrer les remboursements de ses clients (`RemboursementViewSet.perform_create`), ce qui fausse sa caisse.
 - Chantier séparé : `sales/services/credit.py` (`enregistrer_remboursement`) semble accepter un nouveau remboursement sur une vente annulée (seule la correction vérifie `ANNULEE`). À vérifier avec un test, puis corriger (refus, comme `enregistrer_paiement` côté fournisseurs).
