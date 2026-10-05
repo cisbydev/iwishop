@@ -121,6 +121,12 @@ Analyse du code faite le 2026-10-04 (sans coder, bug non reproduit par un test).
   - Formulaire de remboursement et bannière Premium masqués ; « Corriger » l'était déjà ; les remboursements existants restent visibles.
   - `statut` absent (backend antérieur) : affichage d'avant, jamais d'annulation déduite d'un autre champ. En pratique `statut` est dans `HistoriqueClientSerializer` depuis `157e2c5`.
   - Preuves : 5 tests dans `Clients.test.jsx` ; 3 vus échouer avant le correctif, 2 de non-régression qui passaient déjà (statut absent, remboursements visibles sans « Corriger »). 7 mutations détectées. lint, build et 198 tests Vitest OK (287 s). Captures à 375 px et en desktop.
+- Commit 2 : plan validé le 2026-10-05 par Mahamadou, avec son message de refus. `908513f`, **pas encore poussé** (partira avec le commit doc `c6139b7` et suivant). Pas encore vérifié en prod.
+  - Annulation : refusée seulement si le total net des remboursements (corrections comprises, lu sous le verrou de la vente) est différent de 0. Message : « X de remboursements sont déjà enregistrés sur cette vente : corrigez-les à 0 avant de l'annuler. » (« ont déjà été remboursés » écarté : on pourrait croire que la boutique a rendu l'argent au client).
+  - Journal : filtre `vente__statut='VALIDEE'` retiré des remboursements, comptés à leur date. Sans effet sur les chiffres passés (requête du 2026-10-05 : 0 ligne).
+  - Preuves : 5 tests vus échouer avant le correctif (message, correction partielle, correction à 0 puis annulation, journal, concurrence dans le sens « remboursement d'abord ») ; 3 de non-régression qui passaient déjà (acompte seul, sans remboursement, concurrence du commit 1). 5 mutations détectées, dont le total lu hors verrou. `check`, `makemigrations --check` et 583 tests backend OK. Sans migration.
+  - Limites inchangées : l'acompte d'une vente annulée disparaît du jour de la vente (pas de `date_annulation`) ; corriger exige le Premium, donc une boutique redescendue ne peut ni ramener le total à 0 ni annuler (déjà le cas en option A, réglé par l'offre unique).
+- Commit 2 bis : validé le 2026-10-05, à faire. `feat(frontend)` séparé, après le commit 2 : phrase « À savoir » du journal de caisse, « Si une vente à crédit est annulée, ses remboursements restent à leur date et s'annulent entre eux. », comme celle des achats.
 
 ### Analyse
 
