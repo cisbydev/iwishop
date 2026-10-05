@@ -201,7 +201,7 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 
 Décidé le 2026-10-05, juste après l'offre unique. Analyse et découpage validés le 2026-10-05 ; commits 1 à 3 poussés et vérifiés en prod.
 
-Prochaine étape : commit 5 (Achats et Fournisseurs, fiche fournisseur comprise), plan d'abord, sans coder.
+Prochaine étape : coder le commit 5+6 (commits 5 et 6 regroupés : Achats, Fournisseurs et les autres écrans), plan validé le 2026-10-05 (ci-dessous).
 
 Décision produit de Mahamadou (2026-10-05) :
 - **Pas de bandeau permanent** après l'expiration : on ne harcèle pas le client.
@@ -254,11 +254,20 @@ Constat en prod de Mahamadou (2026-10-05, Boutique 2 mise expirée dans l'admin,
      - Tests, chaque écran rendu avec `RefusAbonnementExpire` : `messageErreur` (unitaires) ; annulation, ajout (puis « Renouveler », fenêtre après la fenêtre d'ajout dans le DOM, saisie intacte après « Fermer »), remboursement (un seul `role="alert"`, aucune erreur sous le formulaire, montant et mode conservés), correction, employé. Dans chaque test de refus, le bouton revient à son état normal (cliquable, plus d'état « en cours »). Vus échouer avant.
      - Mutations : `messageErreur` renvoie le message sur ce refus (deux messages) ; pas de signal ; chacun des 4 endroits remis comme avant ; fenêtre d'ajout fermée sur une erreur ; montant remis à zéro sur une erreur ; état « en cours » laissé bloqué après le refus.
      - Captures Playwright à 375 px et en desktop avec `elementFromPoint` : message au premier plan au-dessus de la fiche client et de la fenêtre d'ajout, « Renouveler » devant elles, saisie relue après fermeture.
-   - Fait : `78643c1`, poussé le 2026-10-05 avec les commits doc `0fa1d5c` et `0e1a6c9`. CI **pas entièrement verte** : sur les runs 37369517464 (`0fa1d5c`) et 37373059418 (`0e1a6c9`), job frontend vert (lint, Vitest, build), job backend jamais démarré (« The job was not acquired by Runner of type hosted even after multiple attempts », annulé après 15 min, aucune étape lancée) : incident GitHub, pas un test en échec ; le commit 4 ne touche pas au backend. À relancer depuis GitHub (« Re-run failed jobs »), ou couvert par le run du prochain push. Vérifié en prod par Mahamadou le 2026-10-05 (Boutique 2, date de fin au 04/10/2026, puis remise au 23/10/2026) : remboursement refusé dans la fiche client avec le message rouge en haut, rien enregistré, montant conservé ; « Renouveler » ouvre Mon Abonnement devant la fiche. Non vérifiés en prod (prouvés par les tests et les captures) : annulation dans l'Historique, ajout d'un client, correction, message employé. Preuves : 10 tests (2 unitaires de `messageErreur`, 8 dans `RefusAbonnementExpireHistoriqueClients.test.jsx`), 6 des 8 tests d'écran en échec sur l'ancien code ; 12 mutations détectées, dont 4 « état en cours bloqué » ; lint, build et 227 tests Vitest OK ; captures Playwright à 375 px et en desktop avec `elementFromPoint`.
+   - Fait : `78643c1`, poussé le 2026-10-05 avec les commits doc `0fa1d5c`, `0e1a6c9` et `40e4822`. CI : sur les runs #99 (37369517464, `0fa1d5c`) et #100 (37373059418, `0e1a6c9`), job frontend vert, job backend jamais démarré (« The job was not acquired by Runner of type hosted even after multiple attempts », annulé après 15 min, aucune étape lancée) : incident GitHub, pas un test en échec. Run #101 (37374761684, `40e4822`, qui contient le code du commit 4) **vert**, frontend et backend : le job backend a obtenu une machine après environ 13 min d'attente. Vérifié en prod par Mahamadou le 2026-10-05 (Boutique 2, date de fin au 04/10/2026, puis remise au 23/10/2026) : remboursement refusé dans la fiche client avec le message rouge en haut, rien enregistré, montant conservé ; « Renouveler » ouvre Mon Abonnement devant la fiche. Non vérifiés en prod (prouvés par les tests et les captures) : annulation dans l'Historique, ajout d'un client, correction, message employé. Preuves : 10 tests (2 unitaires de `messageErreur`, 8 dans `RefusAbonnementExpireHistoriqueClients.test.jsx`), 6 des 8 tests d'écran en échec sur l'ancien code ; 12 mutations détectées, dont 4 « état en cours bloqué » ; lint, build et 227 tests Vitest OK ; captures Playwright à 375 px et en desktop avec `elementFromPoint`.
    - Incident de test (2026-10-05, Boutique 2, prod) : un premier essai avec une date de fin au 06/10/2026 (abonnement encore valide) a réellement enregistré un remboursement de 100 sur V-2F621063, corrigé à 0 par Mahamadou (motif « test », correction chaînée : +100 et −100 dans le journal de caisse du jour), et annulé une vente de test. Leçon : avant un test d'expiration, vérifier que le bandeau orange J-3 a disparu. Plus sûr encore : vérifier que Mon Abonnement affiche « Expiré » (le bandeau est aussi absent pour un abonnement valide à plus de 3 jours de sa fin).
    - Limite connue (relevée sur les captures du 2026-10-05) : à 375 px, le message recouvre la croix de la fiche client tant qu'il n'est pas fermé (constaté quand la fiche a défilé). On le ferme avec sa propre croix.
-5. `feat(frontend)` : Achats et Fournisseurs (fiche comprise).
-6. `feat(frontend)` : Dépenses, Stock, Produits (prix par unité compris), Catégories, Unités de vente, Paramètres, Employés, et le panneau d'Iwi.
+5+6. `feat(frontend)` : commits 5 et 6 regroupés (décidé le 2026-10-05) : Achats, Fournisseurs (fiche comprise) et les autres écrans (Dépenses, Stock, Produits, Catégories, Unités de vente, Paramètres, Employés, panneau d'Iwi). Une seule raison de changer (même refus, même traitement) ; deux fichiers de tests (« Achats et Fournisseurs », « autres écrans ») pour garder chaque lancement court.
+   - Plan validé le 2026-10-05 par Mahamadou (points 1 à 4) :
+     - `alerterErreur` : Achats (enregistrement, annulation), Fournisseurs (création ou modification, suppression), Dépenses (création, annulation), Stock (mouvement), Produits (création ou modification, suppression), Catégories (création, suppression), Unités de vente (création ou modification, suppression, suppression forcée), Paramètres (boutique), Employés (création, désactivation, réactivation).
+     - `messageErreur` : fiche fournisseur (paiement, correction) ; panneau d'Iwi (le cas 429 reste testé en premier, question conservée).
+     - Inchangés : l'`alert` regroupé des prix par unité dans Produits (`Products.jsx`, « le produit a été enregistré, mais certains prix… ») : sur ce refus, l'enregistrement du produit est refusé d'abord et les prix ne sont jamais envoyés ; limite connue : expiration exactement entre deux requêtes, non traitée. Mon Compte (mot de passe, non bloqué par l'expiration). Les `alert` de validation locale (chantier des `alert`). Les `window.confirm`.
+     - Fenêtres déjà ouvertes (toutes en `z-50`, rendues avant `RefusAbonnementExpire`) : message et « Renouveler » devant, à mesurer avec `elementFromPoint`.
+     - Ancien backend : un test de non-régression par mécanisme (un `alert` : enregistrement d'un achat ; une erreur dans la page : paiement dans la fiche fournisseur ; le panneau d'Iwi), pas par endroit.
+     - Tests, vus échouer avant, chaque écran rendu avec `RefusAbonnementExpire` : pour chacun des 21 endroits, message en haut, aucun `alert()`, aucune erreur dans la page (endroits en `messageErreur`), saisie conservée, bouton revenu à son état normal ; « Renouveler » devant la fenêtre produit et devant le panneau d'Iwi, saisie intacte après « Fermer » ; employé (paiement fournisseur).
+     - Mutations (environ 40) : chacun des 21 endroits remis comme avant (2 pour la suppression forcée d'une unité) ; « en cours » laissé bloqué sur les 12 endroits qui ont cet état ; saisie perdue sur une erreur (panier d'achat, fenêtre produit, question d'Iwi). Chaque mutation ne lance que le fichier de tests concerné.
+     - Captures Playwright à 375 px et en desktop avec `elementFromPoint` : Achats (panier conservé), fiche fournisseur (paiement refusé), fenêtre produit, panneau d'Iwi, Paramètres.
+     - Unités de vente et Employés n'ont aucun état « en cours » : la vérification du bouton y est faible (toujours cliquable) ; pas ajouté dans ce commit (chantier séparé, voir « En attente, côté code »).
 7. `feat(frontend)` : ventes hors ligne (`ECHEC_ABONNEMENT`, arrêt de la boucle, bandeau).
 8. `docs` : `EN_COURS.md`.
 
@@ -313,9 +322,13 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Montants JSON en float à migrer en chaînes : tous les rapports ensemble, jamais un par un.
 - `/api/health/` qui renvoie `RENDER_GIT_COMMIT`, pour vérifier quel commit tourne sur Render.
 - Vérifier `create_superuser_auto` : mot de passe en variable d'environnement, commande idempotente.
+- Chantier séparé (relevé le 2026-10-05) : Unités de vente et Employés n'ont aucun état « en cours » (risque de double envoi).
+- Montants envoyés en nombres au lieu de chaînes.
+- Sentry.
 
 ## En attente, côté Mahamadou
 
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
+- Vérifier que la ligne `postgresql://` est supprimée de l'historique PowerShell.
