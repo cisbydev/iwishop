@@ -29,6 +29,11 @@ class AssistantView(BoutiqueScopedMixin, APIView):
 
     def post(self, request, *args, **kwargs):
         boutique = self._boutique_effective()
+        # Après l'expiration, l'assistant est bloqué comme une écriture (coût
+        # réel en tokens) : refus ABONNEMENT_EXPIRE AVANT le contrôle de la
+        # question, le quota et tout appel à Anthropic - aucune
+        # RequeteAssistant créée, le quota n'est pas consommé.
+        self._verifier_acces(boutique)
 
         question = (request.data.get('question') or '').strip()
         if not question:

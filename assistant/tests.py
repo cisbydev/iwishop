@@ -5,13 +5,14 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
 
 from parametres.models import ParametresBoutique
 from sales.models import Client as ClientCredit, StatutPaiement, Vente
-from tenants.models import Boutique, Profil
+from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from .models import RequeteAssistant
 
 # Toutes les vraies requêtes réseau vers l'API Anthropic sont interdites dans
@@ -44,6 +45,116 @@ class AssistantQuotaTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         mock_anthropic_class.assert_not_called()
         # Aucune nouvelle trace créée pour la requête refusée.
+        self.assertEqual(RequeteAssistant.objects.count(), 1)
+
+
+class AssistantAbonnementExpireTests(APITestCase):
+    """Refus après l'expiration (décision 4) : l'assistant coûte des tokens,
+    il est bloqué comme toute écriture - même code ABONNEMENT_EXPIRE, refus
+    AVANT le contrôle de la question, le quota, la clé API et tout appel à
+    Anthropic. Aucune RequeteAssistant créée : le quota n'est pas consommé."""
+
+    REFUS = {"detail": "Abonnement expiré. Merci de renouveler votre abonnement.", "code": "ABONNEMENT_EXPIRE"}
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Assistant Expirée", slug="boutique-assistant-expiree")
+        self.proprietaire = User.objects.create_user(username="assistant_expire_proprio", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.client.force_authenticate(user=self.proprietaire)
+        self.url = reverse('assistant')
+
+    def _abonnement(self, expire):
+        aujourdhui = timezone.localdate()
+        debut = aujourdhui - timezone.timedelta(days=40) if expire else aujourdhui
+        formule = FormuleAbonnement.objects.create(
+            nom="Formule assistant", duree_jours=30, prix=5000, actif=True, palier='PREMIUM'
+        )
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule, statut='ACTIF',
+            date_debut=debut, date_fin=debut + timezone.timedelta(days=30),
+        )
+
+    def _verifier_refus(self, response, mock_anthropic_class):
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+        self.assertEqual({cle: str(valeur) for cle, valeur in response.data.items()}, self.REFUS)
+        mock_anthropic_class.assert_not_called()
+
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
+    @patch('assistant.views.anthropic.Anthropic')
+    def test_expire_refuse_sans_appeler_anthropic_ni_consommer_le_quota(self, mock_anthropic_class):
+        self._abonnement(expire=True)
+
+        response = self.client.post(self.url, {"question": "Quel est mon chiffre d'affaires ?"}, format='json')
+
+        self._verifier_refus(response, mock_anthropic_class)
+        self.assertEqual(RequeteAssistant.objects.count(), 0)
+
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
+    @patch('assistant.views.anthropic.Anthropic')
+    def test_refus_avant_le_quota(self, mock_anthropic_class):
+        # Quota atteint : sans le contrôle en tête, la réponse serait un 429.
+        self._abonnement(expire=True)
+        ParametresBoutique.objects.create(boutique=self.boutique, limite_questions_assistant_par_jour=1)
+        RequeteAssistant.objects.create(
+            boutique=self.boutique, utilisateur=self.proprietaire, question="Déjà posée", reponse="Déjà répondue",
+        )
+
+        response = self.client.post(self.url, {"question": "Une question de trop ?"}, format='json')
+
+        self._verifier_refus(response, mock_anthropic_class)
+        self.assertEqual(RequeteAssistant.objects.count(), 1)
+
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
+    @patch('assistant.views.anthropic.Anthropic')
+    def test_refus_avant_le_controle_de_la_question(self, mock_anthropic_class):
+        # Question vide : sans le contrôle en tête, la réponse serait un 400.
+        self._abonnement(expire=True)
+
+        response = self.client.post(self.url, {"question": "   "}, format='json')
+
+        self._verifier_refus(response, mock_anthropic_class)
+
+    @override_settings(ANTHROPIC_API_KEY='')
+    @patch('assistant.views.anthropic.Anthropic')
+    def test_refus_avant_le_controle_de_la_cle_api(self, mock_anthropic_class):
+        # Clé absente : sans le contrôle en tête, la réponse serait un 503.
+        self._abonnement(expire=True)
+
+        response = self.client.post(self.url, {"question": "Test"}, format='json')
+
+        self._verifier_refus(response, mock_anthropic_class)
+        self.assertEqual(RequeteAssistant.objects.count(), 0)
+
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
+    @patch('assistant.views.anthropic.Anthropic')
+    def test_boutique_desactivee_refusee_sans_ce_code(self, mock_anthropic_class):
+        # Effet voulu, cohérent avec les écritures : _verifier_acces refuse
+        # aussi une boutique désactivée, avec son propre message, sans code.
+        self._abonnement(expire=False)
+        Boutique.objects.filter(pk=self.boutique.pk).update(actif=False)
+
+        response = self.client.post(self.url, {"question": "Bonjour ?"}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+        self.assertEqual(str(response.data['detail']), "Cette boutique a été désactivée.")
+        self.assertNotIn('code', response.data)
+        mock_anthropic_class.assert_not_called()
+        self.assertEqual(RequeteAssistant.objects.count(), 0)
+
+    @override_settings(ANTHROPIC_API_KEY='cle-factice')
+    @patch('assistant.views.anthropic.Anthropic')
+    def test_abonnement_valide_continue_de_fonctionner(self, mock_anthropic_class):
+        self._abonnement(expire=False)
+        mock_anthropic_class.return_value.messages.create.return_value = SimpleNamespace(
+            stop_reason="end_turn",
+            content=[SimpleNamespace(type="text", text="Bonjour.")],
+        )
+
+        response = self.client.post(self.url, {"question": "Bonjour ?"}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        self.assertEqual(response.data['reponse'], "Bonjour.")
+        self.assertEqual(mock_anthropic_class.return_value.messages.create.call_count, 1)
         self.assertEqual(RequeteAssistant.objects.count(), 1)
 
 
