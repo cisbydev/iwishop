@@ -34,7 +34,7 @@ Horloge du PC décalée jusqu'au 2026-10-04 : les dates git du 7 bis au 8 ter, e
 - Correctif z-index d'Iwi (priorité, avant le 8 bis) : `6dd69a4`, poussé (`0036395`), CI verte. Bouton d'Iwi en `z-40` (couche des éléments flottants), les fenêtres en `z-50` le recouvrent. Mesure Playwright (`elementFromPoint` au centre du bouton), à 375 px et en desktop : fiche fournisseur, ajout de fournisseur, fiche client, ajout de client : Iwi au-dessus avant le correctif (8 échecs), recouvert après ; sans fenêtre, Iwi reste visible et cliquable. Panneau « Plus » (375 px) : déjà au-dessus d'Iwi avant, inchangé. Autres fenêtres (Produits, Catégories, Dépenses, Employés, Unités de vente) : même structure, non mesurées. Échelle des couches ajoutée à `CLAUDE.md`.
 - Commit 8 bis : `bafa7ee`, poussé (`577f62b`), CI verte. Vérifié en prod par Mahamadou : Render Live sur `577f62b`, logs sans erreur 500, achat comptant normal. Réponse de la route `/api/fournisseurs/dette_totale/` confirmée au 8 ter, via l'écran Fournisseurs. `check`, `makemigrations --check` et 576 tests backend OK (dont 10 dans `DetteTotaleFournisseursTests`) ; 5 mutations détectées.
 - Commit 8 ter : `6a9deca`, poussé, CI verte. Vérifié en prod par Mahamadou le 2026-10-04 (Boutique 2) : « Total dû : 20 000 FCFA à 1 fournisseur », identique au badge, singulier correct ; après un paiement de 20 000 en Mobile Money depuis la fiche, « Aucune dette fournisseur en cours. » sans recharger la page ; journal de caisse cohérent (Dettes fournisseurs payées +20 000, Mobile Money +20 000). lint, build et 193 tests Vitest OK ; 7 mutations détectées.
-- Suite : chantier « remboursements sur vente annulée et option B des ventes », voir plus bas.
+- Suite : chantier « remboursements sur vente annulée et option B des ventes », terminé le 2026-10-05, voir plus bas.
 
 ### Principe
 
@@ -111,9 +111,9 @@ Passé en priorité le 2026-10-03, avant le commit 9 : depuis le 7 bis, à 375 p
   - Captures d'Achats à 375 px et en desktop, en fin de page.
 - Résultat (2026-10-03) : la mesure échouait avant le correctif (4 échecs) et passe après. En fin de page, bas du contenu à 668 px pour un bouton à 676 px (375 px), 804 px pour 820 px en desktop, aucun élément sous le bouton. Le constat « milieu de page » passe avant et après. Le script Playwright n'est pas dans la CI (jsdom ne calcule pas la mise en page). Un commentaire dans `Assistant.jsx` rappelle le lien entre la position du bouton et la marge de `main`.
 
-## En cours : remboursements sur vente annulée et option B des ventes
+## Terminé le 2026-10-05 : remboursements sur vente annulée et option B des ventes
 
-Analyse du code faite le 2026-10-04 (sans coder, bug non reproduit par un test). Plan validé le 2026-10-04 par Mahamadou.
+Analyse du code faite le 2026-10-04 (sans coder, bug non reproduit par un test). Plan validé le 2026-10-04 par Mahamadou. Chantier terminé le 2026-10-05 : les commits 1, 3, 2 et 2 bis sont poussés, CI verte, vérifiés en prod par Mahamadou. Suite : chantier « offre unique », voir plus bas.
 
 - Commit 1 : `a04168d`, poussé le 2026-10-05, CI verte (run GitHub Actions 37280078868, succès). Vérifié en prod par Mahamadou le 2026-10-05 (Boutique 2) : vente à crédit V-AD91351B de 6 000 annulée, remboursement de 5 000 refusé avec « Impossible d'enregistrer un remboursement sur une vente annulée. », Payé reste à 0 ; l'ancien frontend affiche bien le message du serveur. Constat au passage : sur cette vente annulée, la fiche client affiche le badge « En attente » et « Dû 6 000 FCFA » en rouge, comme si le client devait encore 6 000 (à traiter par le commit 3). Contrôle du statut dans `enregistrer_remboursement`, sous le verrou. Deux tests vus échouer avant le correctif (201 au lieu de 400) : `RemboursementVenteAnnuleeTests` (0 ligne créée, `montant_du` et `statut_paiement` inchangés) et `AnnulationVenteRemboursementConcurrenceTests` (le remboursement attend le verrou de l'annulation, vérifié dans `pg_stat_activity`, puis est refusé). `check`, `makemigrations --check` et 578 tests backend OK. L'ordre inverse (remboursement d'abord, annulation ensuite) n'est pas testé ici : il change avec le commit 2 (option B).
 - Commit 3 : plan validé le 2026-10-05 par Mahamadou (voir ci-dessous), `b61feee`, poussé le 2026-10-05 avec les commits doc `709eed1` et `59dae5f`, CI verte (run GitHub Actions 37284157391, succès). Vérifié en prod par Mahamadou le 2026-10-05 (Boutique 2, fiche de Bintou) : V-AD91351B carte grise, badge « Annulée », Dû « — » en gris, phrase affichée, aucun formulaire ; V-2F621063 inchangée (Partiel, Dû 10 000 en rouge, formulaire). Corps du `<li>` volontairement pas réindenté (diff lisible) ; pas de commit de style : extraction prévue en composant, voir les chantiers séparés.
@@ -126,7 +126,7 @@ Analyse du code faite le 2026-10-04 (sans coder, bug non reproduit par un test).
   - Journal : filtre `vente__statut='VALIDEE'` retiré des remboursements, comptés à leur date. Sans effet sur les chiffres passés (requête du 2026-10-05 : 0 ligne).
   - Preuves : 5 tests vus échouer avant le correctif (message, correction partielle, correction à 0 puis annulation, journal, concurrence dans le sens « remboursement d'abord ») ; 3 de non-régression qui passaient déjà (acompte seul, sans remboursement, concurrence du commit 1). 5 mutations détectées, dont le total lu hors verrou. `check`, `makemigrations --check` et 583 tests backend OK. Sans migration.
   - Limites inchangées : l'acompte d'une vente annulée disparaît du jour de la vente (pas de `date_annulation`) ; corriger exige le Premium, donc une boutique redescendue ne peut ni ramener le total à 0 ni annuler (déjà le cas en option A, réglé par l'offre unique).
-- Commit 2 bis : validé le 2026-10-05, en cours (après la vérification du commit 2 en prod). `feat(frontend)` séparé, après le commit 2 : phrase « À savoir » du journal de caisse, « Si une vente à crédit est annulée, ses remboursements restent à leur date et s'annulent entre eux. », comme celle des achats.
+- Commit 2 bis : validé le 2026-10-05, `f8f88cc`, poussé le 2026-10-05 avec le commit doc `b3ca9af`, CI verte (run GitHub Actions 37293371621, succès). Vérifié en prod par Mahamadou le 2026-10-05 : la phrase s'affiche dans « À savoir » du journal de caisse, juste avant celle des achats. Affichée sans condition (le commit 2 n'a ajouté aucune clé qui permettrait de reconnaître un backend antérieur). Test dans le bloc principal de `JournalCaisse.test.jsx`, vu échouer sans la phrase ; lint, build et 199 tests Vitest OK. `feat(frontend)` séparé, après le commit 2 : phrase « À savoir » du journal de caisse, « Si une vente à crédit est annulée, ses remboursements restent à leur date et s'annulent entre eux. », comme celle des achats.
 
 ### Analyse
 
@@ -152,9 +152,35 @@ Analyse du code faite le 2026-10-04 (sans coder, bug non reproduit par un test).
      ```
    - Résultat (2026-10-05) : requête lancée par Mahamadou sur la prod avec psql, en lecture seule (`BEGIN READ ONLY`, puis `ROLLBACK`). Remboursements sur ventes annulées : **0 ligne**. Contrôle du filtre : `SELECT statut, COUNT(*) FROM sales_vente GROUP BY statut` donne ANNULEE 3, VALIDEE 24 ; le filtre est juste, le 0 est réel. Conclusion : retirer le filtre `vente__statut='VALIDEE'` du journal ne change aucun chiffre passé. Le commit 2 est débloqué (plan à valider).
 
-## Chantier suivant : offre unique
+## En cours : offre unique
 
 Décidé le 2026-10-02 : iWiShop passe à une offre unique. Un abonnement valide donne accès à toutes les fonctionnalités, sans palier Essentiel ou Premium. À faire après les dettes fournisseurs. Plan d'abord, rien de codé.
+
+Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder, en commençant par le retrait de `verifier_acces_premium` du crédit client. Analyse faite et découpage validé le 2026-10-05 (ci-dessous).
+
+### Analyse (2026-10-05)
+
+- Une seule source côté backend : `Boutique.a_acces_premium()` (`tenants/models.py`), qui vaut abonnement valide **et** `formule.palier == 'PREMIUM'`, et faux sans abonnement. Utilisée par `verifier_acces_premium()` (`tenants/premium.py`, 403 avec le code `PALIER_INSUFFISANT`) dans 4 écritures du crédit client (voir le tableau plus bas), et exposée par `MonAbonnementView` (`a_acces_premium`). Le palier n'est lu nulle part ailleurs : ni achats à crédit (D1), ni notifications, ni assistant, ni PayDunya (`creer_facture` et `confirmer_paiement` ne lisent que la formule), ni page des tarifs (`FormuleAbonnementSerializer` n'expose que `id`, `nom`, `duree_jours`, `prix`).
+- Frontend : tout passe par `aAccesPremium` (`SettingsContext.jsx`, `?? null`, ne bloque que sur un `false` confirmé) : `Sales.jsx`, `Clients.jsx`, `JournalCaisse.jsx` (colonne), `PremiumRequisBanner.jsx`, `CODE_PALIER_INSUFFISANT` (`errorUtils.js`), lien vers « Mon abonnement » (`App.jsx`).
+- Stockage : `FormuleAbonnement.palier` (`ESSENTIEL` ou `PREMIUM`), NOT NULL sans `db_default` (migrations 0011 à 0013). Une boutique a au plus un `Abonnement` (OneToOne) ; son palier est celui de la formule de cet abonnement ; un renouvellement change la formule (`confirmer_paiement`).
+- Expiration aujourd'hui (« valide » = statut `ACTIF` et `date_debut` ≤ aujourd'hui ≤ `date_fin` ; `EXPIRE` n'est jamais posé par le code) : toutes les écritures sont refusées (403 « Abonnement expiré. Merci de renouveler votre abonnement. », `_verifier_acces`, vérifié avant le Premium) ; une vente hors ligne synchronisée après coup passe en `ECHEC_AUTRE` et reste visible. Restent accessibles : connexion, lectures, rapports, journal, exports, « Mon abonnement » et paiement PayDunya, notifications, assistant. À l'écran, une boutique Premium expirée voit le crédit grisé avec le message « palier Premium » (trompeur).
+- Prod (requêtes en lecture seule lancées par Mahamadou le 2026-10-05) : 3 formules, toutes en `PREMIUM` (« Essai gratuit » 3 000 / 14 j, « 1 MOIS » 15 000 / 30 j, « 3 MOIS » 45 000 / 90 j), chacune avec 1 abonnement en cours ; aucune formule Essentiel, l'offre unique ne change rien pour les clients actuels. Les 3 ont été passées en `PREMIUM` à la main dans l'admin pour contourner les paliers : **ne pas y toucher pendant la transition**. 1 boutique sans abonnement : id 1, « Ma Boutique », active (boutique d'administration).
+- « Essai gratuit » : attribuée automatiquement à l'approbation d'une demande (`ApprouverDemandeView`), trouvée **par son nom** (la renommer bloque toute nouvelle inscription) ; son prix n'est pas lu à l'inscription. Seule une formule `actif=True` est en vente (`CreerPaiementView`).
+
+### Décisions (2026-10-05)
+
+1. Expiration : comportement actuel conservé (lecture seule : écritures bloquées ; lectures, exports et renouvellement accessibles).
+2. `a_acces_premium()` renvoie exactement `abonnement_valide()`, y compris pour une boutique sans abonnement. Une seule règle partout.
+3. La colonne `palier` et son champ dans l'admin restent (aucune suppression), pour pouvoir créer de vrais paliers plus tard dans un chantier dédié.
+4. Hors de ce chantier : voir « En attente, côté code » (pas d'abonnement = accès autorisé, bandeau après expiration, assistant après expiration, `marquer_lue`, prix de l'essai).
+
+### Commits prévus (découpage validé le 2026-10-05, chacun déployable seul, sans migration)
+
+1. `feat(tenants)` : `a_acces_premium()` = `abonnement_valide()`, le palier n'est plus lu. L'ancien frontend se débloque seul (`a_acces_premium` passe à vrai pour une boutique valide). Tests `AccesPremiumTests` et `AccesPremiumCreditTests` inversés, vus échouer avant.
+2. `refactor(sales)` : retrait des 4 appels à `verifier_acces_premium` et de `tenants/premium.py` (sans effet après le 1 : `_verifier_acces` contrôle déjà l'abonnement juste avant).
+3. `feat(frontend)` : retrait de l'affichage Premium (`premiumRefuse`, `PremiumRequisBanner`, `CODE_PALIER_INSUFFISANT`, colonne du journal toujours visible, `aAccesPremium`). Après le 1 sur Render.
+4. `refactor(tenants)` : retrait du champ `a_acces_premium` de `mon-abonnement` et de la méthode. Après le 3 sur Vercel (un frontend en cache obtient `null`, qui ne bloque rien).
+5. `docs` : section « Fonctionnalités réservées au Premium » marquée terminée ; colonne `palier` notée inutilisée.
 
 - Retirer `verifier_acces_premium` du crédit client (les 4 appels : `sales/serializers.py` `VenteSerializer.create`, `sales/views.py` `ClientViewSet.perform_create`, `RemboursementViewSet.perform_create` et `RemboursementViewSet.corriger`), et l'affichage frontend lié (bannière, boutons grisés, colonne masquée du journal). Voir l'inventaire ci-dessous.
 - Garder le contrôle d'abonnement valide (`_verifier_acces`).
@@ -184,6 +210,12 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Chantier séparé : une boutique redescendue du Premium ne peut plus enregistrer les remboursements de ses clients (`RemboursementViewSet.perform_create`), ce qui fausse sa caisse.
 - Chantier séparé : objets d'une autre boutique qui renvoient autre chose qu'un 404 identique à celui d'un objet inexistant (règle de `CLAUDE.md`, Sécurité). `RemboursementViewSet.perform_create` renvoie 403 (« Cette vente n'appartient pas à votre boutique », `sales/views.py`). Même problème relevé ailleurs, à inventorier : `products/views.py` (403 sur produit et unité), et des serializers qui répondent 400 « n'appartient pas à votre boutique », message différent de celui d'un id inexistant (`sales`, `purchases` dont `validate_fournisseur`, `inventory`, `products`). Modèle à suivre : `AchatDeLaBoutiqueField` (`purchases/serializers.py`).
 - Petit défaut (relevé en prod le 2026-10-05, sans y toucher) : dans l'Historique des ventes, le refus d'annulation s'affiche dans un `alert()` du navigateur (« iwishop.vercel.app indique », `SalesHistory.jsx:95`), alors que le reste de l'app affiche les erreurs dans la page. Pas un cas isolé : 44 appels à `alert(` dans 13 fichiers du frontend (compte par grep, non examinés un par un). Décider d'une règle avant de corriger.
+- Relevés par l'analyse de l'offre unique (2026-10-05), hors de ce chantier, à décider plus tard :
+  - « Pas d'abonnement = accès autorisé » (`abonnement_valide()` vrai sans `Abonnement`) est un trou potentiel : seule la boutique d'administration (id 1) est dans ce cas aujourd'hui.
+  - Aucun bandeau après l'expiration : `AbonnementBanner` ne s'affiche qu'entre J-3 et J0, tant que l'abonnement est valide.
+  - L'assistant répond après l'expiration (aucun contrôle d'abonnement dans `AssistantView`) : coût en tokens Anthropic, seul le quota quotidien limite.
+  - `NotificationViewSet.marquer_lue` est une écriture non contrôlée par `_verifier_acces`.
+  - « Essai gratuit » a un prix de 3 000 en prod (créée à 0 par la migration 0006) : à vérifier dans l'admin (ce n'est pas du code), avec son champ `actif` : si `actif=True`, elle est en vente sur « Mon abonnement ». Ne pas la renommer (trouvée par son nom à l'inscription).
 - Chantier séparé : `Clients.jsx` : le corps de la carte de vente (~200 lignes dans le map) est à extraire en composant `CarteVente`, avec ses tests inchangés.
 - Chantier séparé : `Clients.jsx:55` (`grouperRemboursements`) calcule le montant effectif d'un remboursement côté frontend, en flottants avec arrondi, contrairement à `CLAUDE.md` (aucun calcul de montant dans le frontend). Le faire calculer par le backend, comme `montant_effectif` dans l'historique fournisseur.
 - Chantier séparé : autres calculs de montants existants dans le frontend. `Purchases.jsx` (sous-totaux et « Montant Total » du panier) et `Sales.jsx` (« Restera dû » calculé pendant la saisie d'une vente à crédit). Nuance : un total provisoire pendant la saisie est acceptable si le serveur recalcule la valeur enregistrée ; le chantier vérifiera au cas par cas.
