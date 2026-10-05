@@ -197,12 +197,49 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 - Inventorier ce qui dépend encore des paliers : formules en base, PayDunya, pages de prix, tests.
 - Règle aussi le point « boutique redescendue du Premium » (section « En attente, côté code »).
 
-## En cours : bandeau après l'expiration et code `ABONNEMENT_EXPIRE`
+## En cours : refus après l'expiration (option B) et code `ABONNEMENT_EXPIRE`
 
-Décidé le 2026-10-05, juste après l'offre unique. Plan d'abord, rien de codé. Prochaine étape : analyse du code, sans coder.
+Décidé le 2026-10-05, juste après l'offre unique. Plan d'abord, rien de codé. Analyse du code en cours (sans coder).
+
+Décision produit de Mahamadou (2026-10-05) :
+- **Pas de bandeau permanent** après l'expiration : on ne harcèle pas le client.
+- **Option B** : quand une boutique expirée essaie d'enregistrer quelque chose, le refus s'affiche **dans la page** (plus d'`alert()` pour ce refus), avec un bouton « Renouveler » qui mène directement à Paramètres → Mon Abonnement.
+- La saisie n'est jamais perdue (panier, formulaire).
+
+Constat en prod de Mahamadou (2026-10-05, Boutique 2 mise expirée dans l'admin, puis remise) : aucun bandeau après l'expiration, « Expiré » visible seulement dans Mon Abonnement ; une vente comptant donne un `alert()` « Abonnement expiré. Merci de renouveler votre abonnement. » avec le panier intact.
+
+### Analyse (2026-10-05)
+
+- Une seule source côté serveur : `_verifier_acces` (`tenants/mixins.py`), 403 `{"detail": "Abonnement expiré. Merci de renouveler votre abonnement."}`, sans code.
+- 25 écritures dans le frontend peuvent recevoir ce refus ; 21 l'affichent en `alert()`, 4 dans la page (remboursement et correction dans la fiche client, paiement et correction dans la fiche fournisseur), aucune avec un bouton « Renouveler ». Écrans : Ventes (vente, nouveau client à crédit), Historique (annulation), Clients (ajout, remboursement, correction), Achats (enregistrement, annulation), Fournisseurs (création, modification, suppression, paiement, correction), Dépenses (création, annulation), Produits (création, modification, prix par unité, suppression), Stock (mouvement), Catégories, Unités de vente, Paramètres (boutique), Employés (création, désactivation, réactivation). Saisie toujours conservée.
+- Pas bloqués par l'expiration : connexion, « Mon abonnement » et paiement PayDunya, mot de passe, assistant (voir plus bas), `marquer_lue`.
+- Code sans casser les anciens frontends : `PermissionDenied({"detail": <même texte>, "code": "ABONNEMENT_EXPIRE"})`, comme l'ancien `verifier_acces_premium`. Un ancien frontend lit `detail` (même texte) ; les `assertIn("Abonnement expiré", ...)` des tests restent valables.
+- Solution réutilisable : `errorUtils.js` (`CODE_ABONNEMENT_EXPIRE`, `estAbonnementExpire`, `alerterErreur`, `messageErreur`) qui **signale** l'expiration (évènement de fenêtre) au lieu d'ouvrir une `alert` ; un composant `RefusAbonnementExpire.jsx` monté une seule fois dans `App.jsx`, invisible tant qu'aucun refus n'a eu lieu ; une ligne changée par endroit dans chaque écran. Pas de signal dans l'intercepteur d'`api.js` (un écran pas encore modifié afficherait l'`alert` et le message). Face à un ancien backend sans code, l'écran garde l'`alert` d'aujourd'hui.
+- Ventes hors ligne : aujourd'hui, 403 à la synchronisation, vente en `ECHEC_AUTRE` (jamais perdue), bandeau « N ventes en attente » sans la raison, et toutes les ventes renvoyées à chaque relance. Proposé : statut `ECHEC_ABONNEMENT` relançable, arrêt de la boucle (comme le 401), raison et bouton dans le bandeau.
+- Assistant Iwi : réservé au propriétaire (`IsOwner` côté serveur, bouton masqué aux employés). `AssistantView.post` n'appelle pas `_verifier_acces` : une boutique expirée peut poser des questions (coût en tokens, seul le quota quotidien limite). Où bloquer : appeler `self._verifier_acces(boutique)` en tête de `post`, avant le contrôle de la question, le quota et tout appel à Anthropic (aucune `RequeteAssistant` créée, donc le quota n'est pas consommé). Côté écran, l'erreur s'affiche déjà dans le panneau d'Iwi (`Assistant.jsx`, état `erreur`) : `messageErreur` suffit. Un ancien frontend affiche le `detail` dans le panneau.
+
+### Décisions (2026-10-05)
+
+1. Message fixé en haut de l'écran, couche `z-50` (visible même en bas d'une longue page ; rendu après le contenu, il passe devant une fenêtre ouverte).
+2. Employés : pas de bouton « Renouveler » ; message « Abonnement expiré : prévenez le propriétaire de la boutique. ».
+3. Vente hors ligne faite avant l'expiration et synchronisée après : règle actuelle gardée (refusée, puis envoyée après le renouvellement), car l'heure du téléphone (`horodatage_client`) est falsifiable.
+4. L'assistant Iwi est bloqué après l'expiration (coût en tokens) : même code, même message, même bouton (propriétaire seulement, l'assistant lui étant réservé).
+
+### Commits prévus (chacun déployable seul, sans migration)
+
+1. `feat(tenants)` : code `ABONNEMENT_EXPIRE` dans `_verifier_acces`. Tests du code et du texte inchangé sur plusieurs écrans, vus échouer avant.
+2. `feat(assistant)` : `_verifier_acces` en tête d'`AssistantView.post` (refus avant le quota et avant Anthropic).
+3. `feat(frontend)` : socle (`errorUtils`, `RefusAbonnementExpire`, navigation « Renouveler », message employé) et Ventes.
+4. `feat(frontend)` : Historique et Clients.
+5. `feat(frontend)` : Achats et Fournisseurs (fiche comprise).
+6. `feat(frontend)` : Dépenses, Stock, Produits (prix par unité compris), Catégories, Unités de vente, Paramètres, Employés, et le panneau d'Iwi.
+7. `feat(frontend)` : ventes hors ligne (`ECHEC_ABONNEMENT`, arrêt de la boucle, bandeau).
+8. `docs` : `EN_COURS.md`.
+
+Les commits frontend marchent aussi face à l'ancien backend (sans code, `alert` d'aujourd'hui).
 
 - Aujourd'hui (constaté au plan du commit 3 de l'offre unique) : une boutique expirée ne voit le refus qu'après avoir rempli un formulaire, le plus souvent dans un `alert()`, sans lien vers « Mon abonnement » ; `AbonnementBanner` ne s'affiche qu'entre J-3 et J0, tant que l'abonnement est valide.
-- Idées à étudier : un bandeau global après l'expiration, avec un lien de renouvellement, sur tous les écrans ; un code `ABONNEMENT_EXPIRE` à côté du message de `_verifier_acces` (backend), pour que le frontend reconnaisse ce refus sans lire le texte français (`getErrorCode` est gardé pour ça) ; `abonnement` du `SettingsContext` (gardé pour ça).
+- Idées à étudier (le bandeau global permanent est écarté par la décision ci-dessus) : un code `ABONNEMENT_EXPIRE` à côté du message de `_verifier_acces` (backend), pour que le frontend reconnaisse ce refus sans lire le texte français (`getErrorCode` est gardé pour ça) ; `abonnement` du `SettingsContext` (gardé pour ça).
 
 ## Fonctionnalités réservées au Premium (historique : toutes retirées par l'offre unique, terminée le 2026-10-05)
 
@@ -232,9 +269,10 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Relevés par l'analyse de l'offre unique (2026-10-05), hors de ce chantier, à décider plus tard :
   - « Pas d'abonnement = accès autorisé » (`abonnement_valide()` vrai sans `Abonnement`) est un trou potentiel : seule la boutique d'administration (id 1) est dans ce cas aujourd'hui.
   - Aucun bandeau après l'expiration : `AbonnementBanner` ne s'affiche qu'entre J-3 et J0, tant que l'abonnement est valide. Devenu le chantier en cours (voir plus haut).
-  - L'assistant répond après l'expiration (aucun contrôle d'abonnement dans `AssistantView`) : coût en tokens Anthropic, seul le quota quotidien limite.
+  - L'assistant répond après l'expiration (aucun contrôle d'abonnement dans `AssistantView`) : coût en tokens Anthropic, seul le quota quotidien limite. Pris dans le chantier en cours (commit 2, décision 4).
   - `NotificationViewSet.marquer_lue` est une écriture non contrôlée par `_verifier_acces`.
   - Réglé le 2026-10-05 (dans l'admin, pas dans le code) : « Essai gratuit » était en `actif=True` en prod avec un prix de 3 000 (créée à 0 et `actif=False` par la migration 0006), donc en vente sur « Mon abonnement » : un client pouvait racheter 14 jours à répétition. Mahamadou l'avait activée en pensant que « Actif » voulait dire « l'essai fonctionne ». Repassée à `actif=False` par Mahamadou : l'essai reste donné à l'inscription (`ApprouverDemandeView` ne filtre pas sur `actif`, prouvé par `EssaiGratuitApprouverDemandeTests`, qui tourne avec la formule de la migration en `actif=False`) et elle n'est plus en vente (`FormuleAbonnementListView` et `CreerPaiementView` exigent `actif=True`). Le prix de 3 000 n'a plus d'effet. Ne pas la renommer.
+- Chantier séparé (relevé le 2026-10-05, trou d'autorisation) : `CreerPaiementView` (`tenants/creer-paiement/`) ne vérifie pas le rôle : un employé peut lancer le paiement de l'abonnement, et l'onglet « Mon Abonnement » lui est visible. Décider qui peut payer.
 - Chantier séparé : « Essai gratuit » est trouvée par son nom exact (`FormuleAbonnement.objects.get(nom='Essai gratuit')`, `ApprouverDemandeView`), ce qui est fragile : la renommer dans l'admin bloque toute nouvelle inscription. La remplacer par un identifiant stable.
 - Chantier séparé : `Clients.jsx` : le corps de la carte de vente (~200 lignes dans le map) est à extraire en composant `CarteVente`, avec ses tests inchangés.
 - Chantier séparé : `Clients.jsx:55` (`grouperRemboursements`) calcule le montant effectif d'un remboursement côté frontend, en flottants avec arrondi, contrairement à `CLAUDE.md` (aucun calcul de montant dans le frontend). Le faire calculer par le backend, comme `montant_effectif` dans l'historique fournisseur.
