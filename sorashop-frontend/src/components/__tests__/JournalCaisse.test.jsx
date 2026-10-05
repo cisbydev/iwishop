@@ -286,6 +286,19 @@ describe('JournalCaisse', () => {
     expect(screen.queryByText('Aucun mouvement sur cette période.')).not.toBeInTheDocument();
   });
 
+  it("À savoir : les remboursements d'une vente à crédit annulée restent à leur date", async () => {
+    // Cas vérifié en prod : +5 000 puis -5 000 (2 lignes, 0 en montant),
+    // vente annulée ensuite.
+    mocks.get.mockResolvedValue({ data: journalAvec({ entrees: { nombre_remboursements: 2 } }) });
+
+    render(<JournalCaisse />);
+    await screen.findByText('Solde de la période');
+
+    expect(
+      screen.getByText("Si une vente à crédit est annulée, ses remboursements restent à leur date et s'annulent entre eux.")
+    ).toBeInTheDocument();
+  });
+
   it('backend pas encore déployé (credit_restant_du et nombre_remboursements absents) : ni ligne "Dont encore dû", ni état vide', async () => {
     const ancienneReponse = sansClesDettes(JOURNAL_VIDE);
     delete ancienneReponse.informations.credit_restant_du;

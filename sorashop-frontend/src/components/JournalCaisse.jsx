@@ -303,6 +303,7 @@ export default function JournalCaisse() {
                     </li>
                   )}
                   <li>Les ventes, achats et dépenses annulés sont retirés du jour où ils avaient été enregistrés.</li>
+                  <li>Si une vente à crédit est annulée, ses remboursements restent à leur date et s'annulent entre eux.</li>
                   {achatsParMode && (
                     <li>Si un achat à crédit est annulé, ses paiements restent à leur date et s'annulent entre eux.</li>
                   )}
