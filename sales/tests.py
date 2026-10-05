@@ -26,7 +26,7 @@ def _donner_acces_premium(boutique):
     unique, le palier n'est plus contrôlé (le crédit client ne demande
     qu'un abonnement valide) : cette aide n'est plus indispensable, elle
     reste pour ne pas réécrire les nombreux tests qui l'appellent. Règle
-    d'accès testée par tenants.tests.AccesPremiumTests et
+    d'accès testée par tenants.tests.AbonnementValideTests et
     sales.tests.AccesPremiumCreditTests."""
     formule = FormuleAbonnement.objects.create(
         nom=f"Formule Premium Test {boutique.pk}", duree_jours=30, prix=1000, actif=True, palier='PREMIUM'

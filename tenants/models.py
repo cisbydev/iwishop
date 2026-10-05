@@ -43,14 +43,6 @@ class Boutique(models.Model):
     def est_accessible(self):
         return self.actif and self.abonnement_valide()
 
-    def a_acces_premium(self):
-        """Offre unique (décision du 2026-10-05) : exactement
-        abonnement_valide(), y compris sans abonnement - une seule règle
-        partout. FormuleAbonnement.palier n'est plus lu ; la colonne reste,
-        pour de vrais paliers éventuels dans un chantier dédié. Gardée tant
-        que mon-abonnement/ expose a_acces_premium (frontend en cache)."""
-        return self.abonnement_valide()
-
 class Profil(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profils')
     boutique = models.ForeignKey(Boutique, on_delete=models.CASCADE, related_name='membres')
