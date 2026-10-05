@@ -61,3 +61,14 @@ export function alerterErreur(err, fallback) {
   }
   alert(getErrorMessage(err, fallback));
 }
+
+// Pour les erreurs affichées sous un formulaire : sur ce refus, même signal
+// qu'alerterErreur et '' (rien sous le formulaire, l'erreur précédente est
+// effacée) - jamais deux messages. Sinon, le message d'avant.
+export function messageErreur(err, fallback) {
+  if (estAbonnementExpire(err)) {
+    window.dispatchEvent(new Event(EVENEMENT_ABONNEMENT_EXPIRE));
+    return '';
+  }
+  return getErrorMessage(err, fallback);
+}

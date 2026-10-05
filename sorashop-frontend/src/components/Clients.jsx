@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur, messageErreur } from '../services/errorUtils';
 import { formatCurrency, formatDate, couleurBadgeDette } from '../utils/formatters';
 import { MODES_PAIEMENT, libelleModePaiement } from '../utils/modesPaiement';
 import {
@@ -146,7 +146,7 @@ function FicheClient({ client, devise, modeSupport, estProprietaire, onClose, on
       await chargerHistorique();
       onRemboursementEnregistre?.();
     } catch (err) {
-      const message = getErrorMessage(err, "Erreur lors de l'enregistrement du remboursement.");
+      const message = messageErreur(err, "Erreur lors de l'enregistrement du remboursement.");
       setErreursParVente((prev) => ({ ...prev, [vente.id]: message }));
     } finally {
       setEnregistrementEnCours(null);
@@ -201,7 +201,7 @@ function FicheClient({ client, devise, modeSupport, estProprietaire, onClose, on
       await chargerHistorique();
       onRemboursementEnregistre?.();
     } catch (err) {
-      setErreurCorrection(getErrorMessage(err, 'Erreur lors de la correction du remboursement.'));
+      setErreurCorrection(messageErreur(err, 'Erreur lors de la correction du remboursement.'));
     } finally {
       setCorrectionEnCours(false);
     }
@@ -544,7 +544,7 @@ export default function Clients() {
       fermerAjout();
       fetchClients();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la création du client."));
+      alerterErreur(err, "Erreur lors de la création du client.");
     } finally {
       setIsSaving(false);
     }

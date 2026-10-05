@@ -3,6 +3,7 @@ import {
   alerterErreur,
   estAbonnementExpire,
   EVENEMENT_ABONNEMENT_EXPIRE,
+  messageErreur,
 } from './errorUtils';
 
 const DETAIL = 'Abonnement expiré. Merci de renouveler votre abonnement.';
@@ -52,6 +53,20 @@ describe('alerterErreur', () => {
 
     expect(window.alert).toHaveBeenCalledWith(DETAIL);
     expect(recus).toEqual([]);
+  });
+
+  it("messageErreur, refus ABONNEMENT_EXPIRE : signale et renvoie '' (rien sous le formulaire)", () => {
+    expect(messageErreur(erreurHttp(403, { detail: DETAIL, code: 'ABONNEMENT_EXPIRE' }), 'Erreur.')).toBe('');
+    expect(recus).toEqual([EVENEMENT_ABONNEMENT_EXPIRE]);
+    expect(window.alert).not.toHaveBeenCalled();
+  });
+
+  it("messageErreur, ancien backend ou autre erreur : renvoie le message, sans signal ni alert()", () => {
+    expect(messageErreur(erreurHttp(403, { detail: DETAIL }), 'Erreur.')).toBe(DETAIL);
+    expect(messageErreur(erreurHttp(400, { montant: ['Trop élevé.'] }), 'Erreur.')).toBe('montant : Trop élevé.');
+    expect(messageErreur(erreurHttp(500, undefined), 'Erreur du remboursement.')).toBe('Erreur du remboursement.');
+    expect(recus).toEqual([]);
+    expect(window.alert).not.toHaveBeenCalled();
   });
 
   it('toute autre erreur : alert() avec le message ou le texte de secours', () => {

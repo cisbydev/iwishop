@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
@@ -92,7 +92,7 @@ export default function SalesHistory() {
       await api.post(`ventes/${vente.id}/annuler/`);
       await fetchVentes(page);
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de l'annulation de la vente."));
+      alerterErreur(err, "Erreur lors de l'annulation de la vente.");
     } finally {
       setAnnulationEnCours(null);
     }
