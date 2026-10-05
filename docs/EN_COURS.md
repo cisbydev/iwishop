@@ -201,7 +201,7 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 
 Décidé le 2026-10-05, juste après l'offre unique. Analyse et découpage validés le 2026-10-05 ; commits 1 à 3 poussés et vérifiés en prod.
 
-Prochaine étape : coder le commit 4 (Historique et Clients), plan validé le 2026-10-05 (ci-dessous).
+Prochaine étape : commit 5 (Achats et Fournisseurs, fiche fournisseur comprise), plan d'abord, sans coder.
 
 Décision produit de Mahamadou (2026-10-05) :
 - **Pas de bandeau permanent** après l'expiration : on ne harcèle pas le client.
@@ -254,7 +254,8 @@ Constat en prod de Mahamadou (2026-10-05, Boutique 2 mise expirée dans l'admin,
      - Tests, chaque écran rendu avec `RefusAbonnementExpire` : `messageErreur` (unitaires) ; annulation, ajout (puis « Renouveler », fenêtre après la fenêtre d'ajout dans le DOM, saisie intacte après « Fermer »), remboursement (un seul `role="alert"`, aucune erreur sous le formulaire, montant et mode conservés), correction, employé. Dans chaque test de refus, le bouton revient à son état normal (cliquable, plus d'état « en cours »). Vus échouer avant.
      - Mutations : `messageErreur` renvoie le message sur ce refus (deux messages) ; pas de signal ; chacun des 4 endroits remis comme avant ; fenêtre d'ajout fermée sur une erreur ; montant remis à zéro sur une erreur ; état « en cours » laissé bloqué après le refus.
      - Captures Playwright à 375 px et en desktop avec `elementFromPoint` : message au premier plan au-dessus de la fiche client et de la fenêtre d'ajout, « Renouveler » devant elles, saisie relue après fermeture.
-   - Codé : `78643c1` (commit validé par Mahamadou le 2026-10-05).
+   - Fait : `78643c1`, poussé le 2026-10-05 avec les commits doc `0fa1d5c` et `0e1a6c9`. CI **pas entièrement verte** : sur les runs 37369517464 (`0fa1d5c`) et 37373059418 (`0e1a6c9`), job frontend vert (lint, Vitest, build), job backend jamais démarré (« The job was not acquired by Runner of type hosted even after multiple attempts », annulé après 15 min, aucune étape lancée) : incident GitHub, pas un test en échec ; le commit 4 ne touche pas au backend. À relancer depuis GitHub (« Re-run failed jobs »), ou couvert par le run du prochain push. Vérifié en prod par Mahamadou le 2026-10-05 (Boutique 2, date de fin au 04/10/2026, puis remise au 23/10/2026) : remboursement refusé dans la fiche client avec le message rouge en haut, rien enregistré, montant conservé ; « Renouveler » ouvre Mon Abonnement devant la fiche. Non vérifiés en prod (prouvés par les tests et les captures) : annulation dans l'Historique, ajout d'un client, correction, message employé. Preuves : 10 tests (2 unitaires de `messageErreur`, 8 dans `RefusAbonnementExpireHistoriqueClients.test.jsx`), 6 des 8 tests d'écran en échec sur l'ancien code ; 12 mutations détectées, dont 4 « état en cours bloqué » ; lint, build et 227 tests Vitest OK ; captures Playwright à 375 px et en desktop avec `elementFromPoint`.
+   - Incident de test (2026-10-05, Boutique 2, prod) : un premier essai avec une date de fin au 06/10/2026 (abonnement encore valide) a réellement enregistré un remboursement de 100 sur V-2F621063, corrigé à 0 par Mahamadou (motif « test », correction chaînée : +100 et −100 dans le journal de caisse du jour), et annulé une vente de test. Leçon : avant un test d'expiration, vérifier que le bandeau orange J-3 a disparu. Plus sûr encore : vérifier que Mon Abonnement affiche « Expiré » (le bandeau est aussi absent pour un abonnement valide à plus de 3 jours de sa fin).
    - Limite connue (relevée sur les captures du 2026-10-05) : à 375 px, le message recouvre la croix de la fiche client tant qu'il n'est pas fermé (constaté quand la fiche a défilé). On le ferme avec sa propre croix.
 5. `feat(frontend)` : Achats et Fournisseurs (fiche comprise).
 6. `feat(frontend)` : Dépenses, Stock, Produits (prix par unité compris), Catégories, Unités de vente, Paramètres, Employés, et le panneau d'Iwi.
@@ -284,6 +285,8 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - `JournalCaisse.jsx` masque la colonne « Remboursements de dettes » hors Premium, sauf s'il y a des montants. C'est de l'affichage, pas un contrôle.
 
 ## En attente, côté code (pour plus tard)
+
+- CI (relevé le 2026-10-05, annotation GitHub) : le libellé `ubuntu-latest` passera à Ubuntu 26 à partir du 19 octobre 2026. Surveiller la CI après cette date (versions de Python, de Node et de PostgreSQL de l'image).
 
 - Petit défaut (relevé en prod le 2026-10-04) : couleurs des dettes à harmoniser, fournisseurs et clients. Le total de l'écran Fournisseurs est en rouge, alors que le badge « Doit X » peut être vert : `couleurBadgeDette` colore le badge selon l'ancienneté de la plus vieille dette (vert à moins de 7 jours, orange jusqu'à 30, rouge au-delà), c'est voulu, mais la juxtaposition avec le total rouge prête à confusion. « Reste dû 0 » (fiche fournisseur) et « Dû 0 » (fiche client) s'affichent en rouge. Décider d'une règle commune avant de corriger.
 - Même défaut que la fiche client avant le commit 3 (relevé le 2026-10-05, par lecture du code, sans y toucher) : dans la fiche fournisseur (`FicheFournisseur.jsx`), un achat annulé a bien son badge « Annulé », mais « Reste dû » affiche toujours `montant_du` en rouge, comme si la dette restait due. À traiter avec le point précédent (couleurs des dettes), sur le modèle de la fiche client.
