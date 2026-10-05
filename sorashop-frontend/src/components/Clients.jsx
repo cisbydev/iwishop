@@ -254,18 +254,28 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
           <p className="mt-4 text-sm text-slate-500">Aucune vente à crédit pour ce client.</p>
         ) : (
           <ul className="mt-4 space-y-4">
-            {ventes.map((vente) => (
-              <li key={vente.id} className="rounded-lg border border-slate-200 p-4">
+            {ventes.map((vente) => {
+              // Annuler ne change que le statut : montant_du et statut_paiement
+              // gardent leurs valeurs d'avant, sans être dus. Statut absent
+              // (backend antérieur) : affichage d'avant, jamais d'annulation
+              // déduite d'un autre champ.
+              const estAnnulee = vente.statut === 'ANNULEE';
+              return (
+              <li key={vente.id} className={`rounded-lg border border-slate-200 p-4 ${estAnnulee ? 'bg-slate-50/70' : ''}`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-semibold text-slate-900">{vente.numero}</p>
                     <p className="text-xs text-slate-500">{formatDate(vente.date_vente)}</p>
                   </div>
-                  <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                    STATUT_PAIEMENT_BADGES[vente.statut_paiement] || 'bg-slate-100 text-slate-700'
-                  }`}>
-                    {STATUT_PAIEMENT_LABELS[vente.statut_paiement] || vente.statut_paiement}
-                  </span>
+                  {estAnnulee ? (
+                    <span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-600">Annulée</span>
+                  ) : (
+                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                      STATUT_PAIEMENT_BADGES[vente.statut_paiement] || 'bg-slate-100 text-slate-700'
+                    }`}>
+                      {STATUT_PAIEMENT_LABELS[vente.statut_paiement] || vente.statut_paiement}
+                    </span>
+                  )}
                 </div>
 
                 <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
@@ -279,9 +289,16 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
                   </div>
                   <div>
                     <p className="text-slate-500">Dû</p>
-                    <p className="font-medium text-red-700">{formatCurrency(vente.montant_du, devise)}</p>
+                    {estAnnulee ? (
+                      <p className="font-medium text-slate-400">—</p>
+                    ) : (
+                      <p className="font-medium text-red-700">{formatCurrency(vente.montant_du, devise)}</p>
+                    )}
                   </div>
                 </div>
+                {estAnnulee && (
+                  <p className="mt-2 text-xs text-slate-500">Vente annulée : le client ne doit rien sur cette vente.</p>
+                )}
 
                 {vente.remboursements.length > 0 && (
                   <div className="mt-3 border-t border-slate-100 pt-3">
@@ -395,13 +412,13 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
                   </div>
                 )}
 
-                {Number(vente.montant_du) > 0 && !modeSupport && premiumRefuse && (
+                {Number(vente.montant_du) > 0 && !estAnnulee && !modeSupport && premiumRefuse && (
                   <div className="mt-3 border-t border-slate-100 pt-3">
                     <PremiumRequisBanner onNaviguerVersAbonnement={onNaviguerVersAbonnement} />
                   </div>
                 )}
 
-                {Number(vente.montant_du) > 0 && !modeSupport && !premiumRefuse && (
+                {Number(vente.montant_du) > 0 && !estAnnulee && !modeSupport && !premiumRefuse && (
                   <div className="mt-3 border-t border-slate-100 pt-3">
                     <label className="block text-xs font-medium text-slate-700" htmlFor={`remboursement-${vente.id}`}>
                       Enregistrer un remboursement
@@ -449,7 +466,8 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
                   </div>
                 )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>

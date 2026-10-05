@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   enregistrerRemboursement: vi.fn(),
   corrigerRemboursement: vi.fn(),
   utilisateur: { est_proprietaire: true },
+  aAccesPremium: undefined,
+  supportActif: false,
 }));
 
 vi.mock('../../services/clients', () => ({
@@ -22,11 +24,13 @@ vi.mock('../../services/clients', () => ({
 }));
 
 vi.mock('../../context/settingsContextValue', () => ({
-  useSettings: () => ({ parametres: { devise: 'FCFA' }, utilisateur: mocks.utilisateur }),
+  useSettings: () => ({
+    parametres: { devise: 'FCFA' }, utilisateur: mocks.utilisateur, aAccesPremium: mocks.aAccesPremium,
+  }),
 }));
 
 vi.mock('../../context/supportViewContextValue', () => ({
-  useSupportView: () => ({ actif: false, boutiqueId: null }),
+  useSupportView: () => ({ actif: mocks.supportActif, boutiqueId: null }),
 }));
 
 import Clients from '../Clients';
@@ -76,6 +80,42 @@ async function ouvrirFicheAvec(remboursements) {
   return user;
 }
 
+// Vente à crédit de 6000 sans acompte, annulée : l'annulation ne change que
+// le statut, montant_du et statut_paiement restent ceux d'avant.
+function venteAnnulee(remboursements = []) {
+  return {
+    id: 51,
+    numero: 'V-AD91351B',
+    date_vente: '2026-01-03T10:00:00Z',
+    statut: 'ANNULEE',
+    montant_net: '6000.00',
+    montant_paye: '0.00',
+    montant_du: '6000.00',
+    statut_paiement: 'en_attente',
+    remboursements,
+  };
+}
+
+const PHRASE_VENTE_ANNULEE = 'Vente annulée : le client ne doit rien sur cette vente.';
+
+async function ouvrirFicheAvecVentes(ventes) {
+  mocks.listerClients.mockResolvedValue([client(1, 'Aïcha', '70000001')]);
+  mocks.listerClientsAvecDette.mockResolvedValue([
+    { id: 1, nom: 'Aïcha', telephone: '70000001', dette_totale: '600.00' },
+  ]);
+  mocks.obtenirHistoriqueClient.mockResolvedValue(ventes);
+  const user = userEvent.setup({ delay: null });
+
+  render(<Clients />);
+  await user.click(await screen.findByText('Aïcha'));
+  await screen.findByText(ventes[0].numero);
+  return user;
+}
+
+// Carte d'une vente dans la fiche, et sa case « Dû ».
+const carteVente = (numero) => screen.getByText(numero).closest('li');
+const caseDu = (carte) => within(carte).getByText('Dû').parentElement;
+
 // Remplit un champ en un seul collage plutôt que touche par touche :
 // aucun test ne vérifie un comportement pendant la frappe, et chaque
 // touche simulée coûte cher sous charge (délai de 5 s dépassé).
@@ -93,6 +133,8 @@ describe('Clients', () => {
     mocks.enregistrerRemboursement.mockReset();
     mocks.corrigerRemboursement.mockReset();
     mocks.utilisateur = { est_proprietaire: true };
+    mocks.aAccesPremium = undefined;
+    mocks.supportActif = false;
   });
 
   it('affiche la liste des clients avec un badge de dette uniquement pour ceux qui en ont une', async () => {
@@ -311,5 +353,74 @@ describe('Clients', () => {
 
     expect(screen.getByText(/proprio · Mobile Money/)).toBeInTheDocument();
     expect(screen.getByText(/Non précisé/)).toBeInTheDocument();
+  });
+
+  describe('vente annulée', () => {
+    it('badge « Annulée » à la place du badge de paiement, « — » au lieu du montant dû, sans formulaire de remboursement', async () => {
+      await ouvrirFicheAvecVentes([venteAnnulee(), venteAvecRemboursements([])]);
+
+      const annulee = carteVente('V-AD91351B');
+      expect(within(annulee).getByText('Annulée')).toBeInTheDocument();
+      expect(within(annulee).queryByText('En attente')).not.toBeInTheDocument();
+      const du = caseDu(annulee);
+      expect(within(du).getByText('—')).not.toHaveClass('text-red-700');
+      expect(within(du).queryByText(/6\s*000/)).not.toBeInTheDocument();
+      expect(within(annulee).getByText(PHRASE_VENTE_ANNULEE)).toBeInTheDocument();
+      expect(within(annulee).queryByLabelText('Enregistrer un remboursement')).not.toBeInTheDocument();
+
+      // La vente non annulée de la même fiche ne change pas.
+      const normale = carteVente('V-ABCD1234');
+      expect(within(normale).getByText('Partiel')).toBeInTheDocument();
+      expect(within(normale).queryByText('Annulée')).not.toBeInTheDocument();
+      expect(within(caseDu(normale)).getByText(/^600\s*FCFA$/)).toHaveClass('text-red-700');
+      expect(within(normale).getByLabelText('Enregistrer un remboursement')).toBeInTheDocument();
+
+      // On compte : un seul formulaire et une seule phrase pour deux ventes.
+      expect(screen.getAllByLabelText('Enregistrer un remboursement')).toHaveLength(1);
+      expect(screen.getAllByText(PHRASE_VENTE_ANNULEE)).toHaveLength(1);
+    });
+
+    it('sans accès Premium, ni formulaire ni bannière Premium sur une vente annulée', async () => {
+      mocks.aAccesPremium = false;
+
+      await ouvrirFicheAvecVentes([venteAnnulee(), venteAvecRemboursements([])]);
+
+      expect(within(carteVente('V-AD91351B')).queryByText(/palier Premium/)).not.toBeInTheDocument();
+      expect(within(carteVente('V-ABCD1234')).getByText(/palier Premium/)).toBeInTheDocument();
+    });
+
+    it('les remboursements d\'une vente annulée restent visibles, sans bouton Corriger', async () => {
+      await ouvrirFicheAvecVentes([venteAnnulee([remboursement(7, '400.00', { mode: 'ESPECES' })])]);
+
+      const annulee = carteVente('V-AD91351B');
+      expect(within(annulee).getByText('Remboursements')).toBeInTheDocument();
+      expect(within(annulee).getByText(/proprio · Espèces/)).toBeInTheDocument();
+      expect(within(annulee).queryByRole('button', { name: 'Corriger' })).not.toBeInTheDocument();
+    });
+
+    it('en vue support, la vente annulée est aussi marquée « Annulée » avec « — »', async () => {
+      mocks.supportActif = true;
+
+      await ouvrirFicheAvecVentes([venteAnnulee()]);
+
+      const annulee = carteVente('V-AD91351B');
+      expect(within(annulee).getByText('Annulée')).toBeInTheDocument();
+      expect(within(caseDu(annulee)).getByText('—')).toBeInTheDocument();
+      expect(within(annulee).queryByLabelText('Enregistrer un remboursement')).not.toBeInTheDocument();
+    });
+
+    it('champ statut absent (ancien backend) : affichage inchangé, jamais déduit des autres champs', async () => {
+      const sansStatut = venteAnnulee();
+      delete sansStatut.statut;
+
+      await ouvrirFicheAvecVentes([sansStatut]);
+
+      const carte = carteVente('V-AD91351B');
+      expect(within(carte).getByText('En attente')).toBeInTheDocument();
+      expect(within(carte).queryByText('Annulée')).not.toBeInTheDocument();
+      expect(within(caseDu(carte)).getByText(/^6\s*000\s*FCFA$/)).toHaveClass('text-red-700');
+      expect(within(carte).queryByText(PHRASE_VENTE_ANNULEE)).not.toBeInTheDocument();
+      expect(within(carte).getByLabelText('Enregistrer un remboursement')).toBeInTheDocument();
+    });
   });
 });
