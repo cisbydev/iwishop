@@ -179,7 +179,11 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 1. `feat(tenants)` : `a_acces_premium()` = `abonnement_valide()`, le palier n'est plus lu. L'ancien frontend se débloque seul (`a_acces_premium` passe à vrai pour une boutique valide). Tests `AccesPremiumTests` et `AccesPremiumCreditTests` inversés, vus échouer avant.
    - Fait : `1ae07bd`, poussé le 2026-10-05 avec le commit doc `e006075`, CI verte (run GitHub Actions 37300151394, succès). Vérifié en prod par Mahamadou le 2026-10-05 : « Ma Boutique » (id 1, sans abonnement), « Ajouter un client » cliquable et un client créé avec succès ; Boutique 2 inchangée (bouton actif, Bintou et ses ventes intactes). Preuves : 8 échecs sur 16 avant le correctif, 5 mutations détectées, 586 tests backend OK, sans migration. `MonAbonnementView` renvoie aussi `a_acces_premium()` dans la branche « sans abonnement » (au lieu de `False` en dur).
 2. `refactor(sales)` : retrait des 4 appels à `verifier_acces_premium` et de `tenants/premium.py` (sans effet après le 1 : `_verifier_acces` contrôle déjà l'abonnement juste avant).
+   - Fait : `6b7e1a7`, poussé le 2026-10-05 avec le commit doc `cb489b1`, CI verte (run GitHub Actions 37303618877, succès). Vérifié en prod par Mahamadou le 2026-10-05 : Render Live sur `6b7e1a7`, logs sans erreur 500, vente à crédit de 500 réussie dans « Ma Boutique ». Retrait sans effet sur le comportement (chaque appel était précédé de `_verifier_acces` sur la même boutique) ; le test d'expiration couvre maintenant les 4 écritures (remboursement et correction ne l'étaient pas), 4 mutations détectées (retrait de chaque `_verifier_acces`), 586 tests backend OK.
+   - Nettoyage à faire (petit commit séparé) : renommer `_donner_acces_premium` (`sales/tests.py`), puisque « Premium » ne veut plus rien dire.
 3. `feat(frontend)` : retrait de l'affichage Premium (`premiumRefuse`, `PremiumRequisBanner`, `CODE_PALIER_INSUFFISANT`, colonne du journal toujours visible, `aAccesPremium`). Après le 1 sur Render.
+   - Plan validé le 2026-10-05. Retrait pur : une boutique expirée voit le refus du serveur (« Abonnement expiré. Merci de renouveler votre abonnement. ») en `alert()` pour l'ajout d'un client et la vente à crédit, dans la page pour le remboursement et la correction, comme pour ses autres écritures ; saisie et panier conservés. Un ancien backend qui renverrait `PALIER_INSUFFISANT` suit le même chemin (message `detail` affiché tel quel).
+   - Décision (2026-10-05) : `abonnement` reste dans `SettingsContext` (plus lu par personne après ce commit), uniquement pour le chantier « bandeau après l'expiration ». `getErrorCode` reste aussi (servira au code `ABONNEMENT_EXPIRE`).
 4. `refactor(tenants)` : retrait du champ `a_acces_premium` de `mon-abonnement` et de la méthode. Après le 3 sur Vercel (un frontend en cache obtient `null`, qui ne bloque rien).
 5. `docs` : section « Fonctionnalités réservées au Premium » marquée terminée ; colonne `palier` notée inutilisée.
 
@@ -187,6 +191,13 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 - Garder le contrôle d'abonnement valide (`_verifier_acces`).
 - Inventorier ce qui dépend encore des paliers : formules en base, PayDunya, pages de prix, tests.
 - Règle aussi le point « boutique redescendue du Premium » (section « En attente, côté code »).
+
+## Prochain chantier (décidé le 2026-10-05) : bandeau après l'expiration et code `ABONNEMENT_EXPIRE`
+
+Juste après l'offre unique. Plan d'abord, rien de codé.
+
+- Aujourd'hui (constaté au plan du commit 3 de l'offre unique) : une boutique expirée ne voit le refus qu'après avoir rempli un formulaire, le plus souvent dans un `alert()`, sans lien vers « Mon abonnement » ; `AbonnementBanner` ne s'affiche qu'entre J-3 et J0, tant que l'abonnement est valide.
+- Idées à étudier : un bandeau global après l'expiration, avec un lien de renouvellement, sur tous les écrans ; un code `ABONNEMENT_EXPIRE` à côté du message de `_verifier_acces` (backend), pour que le frontend reconnaisse ce refus sans lire le texte français (`getErrorCode` est gardé pour ça) ; `abonnement` du `SettingsContext` (gardé pour ça).
 
 ## Fonctionnalités réservées au Premium (état au 2026-10-02, à retirer par le chantier « offre unique »)
 
@@ -213,7 +224,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Petit défaut (relevé en prod le 2026-10-05, sans y toucher) : dans l'Historique des ventes, le refus d'annulation s'affiche dans un `alert()` du navigateur (« iwishop.vercel.app indique », `SalesHistory.jsx:95`), alors que le reste de l'app affiche les erreurs dans la page. Pas un cas isolé : 44 appels à `alert(` dans 13 fichiers du frontend (compte par grep, non examinés un par un). Décider d'une règle avant de corriger.
 - Relevés par l'analyse de l'offre unique (2026-10-05), hors de ce chantier, à décider plus tard :
   - « Pas d'abonnement = accès autorisé » (`abonnement_valide()` vrai sans `Abonnement`) est un trou potentiel : seule la boutique d'administration (id 1) est dans ce cas aujourd'hui.
-  - Aucun bandeau après l'expiration : `AbonnementBanner` ne s'affiche qu'entre J-3 et J0, tant que l'abonnement est valide.
+  - Aucun bandeau après l'expiration : `AbonnementBanner` ne s'affiche qu'entre J-3 et J0, tant que l'abonnement est valide. Devenu le prochain chantier (voir plus haut).
   - L'assistant répond après l'expiration (aucun contrôle d'abonnement dans `AssistantView`) : coût en tokens Anthropic, seul le quota quotidien limite.
   - `NotificationViewSet.marquer_lue` est une écriture non contrôlée par `_verifier_acces`.
   - Réglé le 2026-10-05 (dans l'admin, pas dans le code) : « Essai gratuit » était en `actif=True` en prod avec un prix de 3 000 (créée à 0 et `actif=False` par la migration 0006), donc en vente sur « Mon abonnement » : un client pouvait racheter 14 jours à répétition. Mahamadou l'avait activée en pensant que « Actif » voulait dire « l'essai fonctionne ». Repassée à `actif=False` par Mahamadou : l'essai reste donné à l'inscription (`ApprouverDemandeView` ne filtre pas sur `actif`, prouvé par `EssaiGratuitApprouverDemandeTests`, qui tourne avec la formule de la migration en `actif=False`) et elle n'est plus en vente (`FormuleAbonnementListView` et `CreerPaiementView` exigent `actif=True`). Le prix de 3 000 n'a plus d'effet. Ne pas la renommer.
