@@ -199,11 +199,11 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 
 ## En cours : refus après l'expiration (option B) et code `ABONNEMENT_EXPIRE`
 
-Décidé le 2026-10-05, juste après l'offre unique. Plan d'abord, rien de codé. Analyse du code en cours (sans coder).
+Décidé le 2026-10-05, juste après l'offre unique. Analyse et découpage validés le 2026-10-05 ; commits 1 et 2 (backend) poussés et vérifiés en prod, commit 3 (socle frontend et Ventes) prêt.
 
 Décision produit de Mahamadou (2026-10-05) :
 - **Pas de bandeau permanent** après l'expiration : on ne harcèle pas le client.
-- **Option B** : quand une boutique expirée essaie d'enregistrer quelque chose, le refus s'affiche **dans la page** (plus d'`alert()` pour ce refus), avec un bouton « Renouveler » qui mène directement à Paramètres → Mon Abonnement.
+- **Option B** : quand une boutique expirée essaie d'enregistrer quelque chose, le refus s'affiche **dans la page** (plus d'`alert()` pour ce refus), avec un bouton « Renouveler » qui ouvre Mon Abonnement **dans une fenêtre par-dessus l'écran** (décidé au commit 3, au lieu d'un passage à Paramètres → Mon Abonnement, qui démonterait l'écran et perdrait le panier).
 - La saisie n'est jamais perdue (panier, formulaire).
 
 Constat en prod de Mahamadou (2026-10-05, Boutique 2 mise expirée dans l'admin, puis remise) : aucun bandeau après l'expiration, « Expiré » visible seulement dans Mon Abonnement ; une vente comptant donne un `alert()` « Abonnement expiré. Merci de renouveler votre abonnement. » avec le panier intact.
@@ -221,15 +221,27 @@ Constat en prod de Mahamadou (2026-10-05, Boutique 2 mise expirée dans l'admin,
 ### Décisions (2026-10-05)
 
 1. Message fixé en haut de l'écran, couche `z-50` (visible même en bas d'une longue page ; rendu après le contenu, il passe devant une fenêtre ouverte).
-2. Employés : pas de bouton « Renouveler » ; message « Abonnement expiré : prévenez le propriétaire de la boutique. ».
+2. Textes (validés mot pour mot) :
+   - Propriétaire : « Abonnement expiré : rien n'a été enregistré. Votre saisie est conservée. », avec le bouton « Renouveler ».
+   - Employés : « Abonnement expiré : prévenez le propriétaire de la boutique. », sans bouton « Renouveler ».
 3. Vente hors ligne faite avant l'expiration et synchronisée après : règle actuelle gardée (refusée, puis envoyée après le renouvellement), car l'heure du téléphone (`horodatage_client`) est falsifiable.
 4. L'assistant Iwi est bloqué après l'expiration (coût en tokens) : même code, même message, même bouton (propriétaire seulement, l'assistant lui étant réservé).
 
 ### Commits prévus (chacun déployable seul, sans migration)
 
 1. `feat(tenants)` : code `ABONNEMENT_EXPIRE` dans `_verifier_acces`. Tests du code et du texte inchangé sur plusieurs écrans, vus échouer avant.
+   - Fait : `0d9352c`, poussé le 2026-10-05 avec le commit doc `1eb7144`, CI verte (run GitHub Actions 37315236819, succès). Vérifié en prod par Mahamadou le 2026-10-05 : Render Live sur `0d9352c`, logs sans erreur 500, vente normale OK. `RefusAbonnementExpireCodeTests` : réponse exacte sur 6 écritures (création d'une catégorie et d'un client, modification d'un fournisseur et d'un produit, annulation d'une vente et d'une dépense), 6 échecs avant ; boutique désactivée sans code ; 4 mutations détectées ; 584 tests backend OK.
 2. `feat(assistant)` : `_verifier_acces` en tête d'`AssistantView.post` (refus avant le quota et avant Anthropic).
-3. `feat(frontend)` : socle (`errorUtils`, `RefusAbonnementExpire`, navigation « Renouveler », message employé) et Ventes.
+   - Fait : `f7f04ec`, poussé le 2026-10-05, CI verte (run GitHub Actions 37317694337, succès). Vérifié en prod par Mahamadou le 2026-10-05 (Boutique 2) : expirée dans l'admin, Iwi affiche « Abonnement expiré. Merci de renouveler votre abonnement. » sans répondre ; date remise, Iwi répond normalement. `AssistantAbonnementExpireTests` (client Anthropic mocké) : refus sans appel à Anthropic ni `RequeteAssistant` créée, refus avant le quota (au lieu de 429), avant la question vide (au lieu de 400), avant la clé absente (au lieu de 503), 4 échecs avant ; `test_boutique_desactivee_refusee_sans_ce_code` (effet voulu : refus « Cette boutique a été désactivée. », sans code, Anthropic jamais appelé, 0 ligne), vu échouer sans le contrôle (200 au lieu de 403) ; 5 mutations détectées (contrôle retiré puis déplacé après chacun des contrôles) ; 590 tests backend OK.
+3. `feat(frontend)` : socle (`errorUtils`, `RefusAbonnementExpire`, fenêtre « Renouveler », message employé) et Ventes.
+   - Décisions du commit 3 (2026-10-05) :
+     - `errorUtils.js` : `CODE_ABONNEMENT_EXPIRE`, `estAbonnementExpire` (403 **et** code), `alerterErreur(err, fallback)`, qui remplace `alert(getErrorMessage(...))` dans les écrans : sur ce refus, un évènement de fenêtre au lieu de l'`alert` ; toute autre erreur, et l'ancien backend (même texte, sans code), gardent l'`alert` d'avant.
+     - `RefusAbonnementExpire.jsx`, monté une seule fois à la fin d'`App.jsx` : message fixé en haut, `z-50`, textes de la décision 2, bouton « Fermer le message ». **Un seul message**, quel que soit le nombre de refus (deux refus presque en même temps n'en affichent qu'un) ; il revient au refus suivant s'il a été fermé.
+     - « Renouveler » ouvre Mon Abonnement (`MonAbonnement.jsx` tel quel) dans une fenêtre `z-50`, rendue après le message (elle passe devant) ; l'écran reste monté dessous, panier et saisie conservés à la fermeture.
+     - Utilisateur pas encore chargé (`est_proprietaire` inconnu) : texte du propriétaire, sans bouton.
+     - Ventes : les deux `alert` d'erreur serveur (création du nouveau client à crédit, enregistrement de la vente) passent par `alerterErreur`.
+     - `messageErreur` (erreurs affichées dans la page) reporté au commit 4, premier écran qui s'en sert.
+   - Limites connues : choisir une formule envoie vers PayDunya (page quittée, comme aujourd'hui depuis Mon Abonnement) : le panier est alors perdu. En desktop, le message recouvre une partie de la navigation tant qu'il n'est pas fermé (décision 1). Le montage dans `App.jsx` n'est couvert par aucun test Vitest (pas de test d'`App`), seulement par les captures Playwright.
 4. `feat(frontend)` : Historique et Clients.
 5. `feat(frontend)` : Achats et Fournisseurs (fiche comprise).
 6. `feat(frontend)` : Dépenses, Stock, Produits (prix par unité compris), Catégories, Unités de vente, Paramètres, Employés, et le panneau d'Iwi.
