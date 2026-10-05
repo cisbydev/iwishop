@@ -7,7 +7,6 @@ from django.db import transaction
 from django.db.models import Min, Prefetch, Q, Sum
 from django_filters.rest_framework import DjangoFilterBackend
 from tenants.mixins import BoutiqueScopedMixin
-from tenants.premium import verifier_acces_premium
 from notifications.services import verifier_stock_bas
 from inventory.models import MouvementStock
 from products.models import Produit
@@ -162,12 +161,10 @@ class ClientViewSet(
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        # Création d'un client à crédit réservée au palier Premium - la
-        # lecture (liste, historique) reste toujours autorisée, seule
-        # l'écriture est bloquée (cf. tenants.premium.verifier_acces_premium).
+        # Offre unique : abonnement valide seulement, aucun palier (même
+        # contrôle que BoutiqueScopedMixin.perform_create).
         boutique = self._boutique_effective()
         self._verifier_acces(boutique)
-        verifier_acces_premium(boutique)
         serializer.save(boutique=boutique)
 
     @action(detail=False, methods=['get'])
@@ -236,7 +233,6 @@ class RemboursementViewSet(
         # Remboursement n'a pas ce champ, on ne l'appelle donc pas ici.
         boutique = self._boutique_effective()
         self._verifier_acces(boutique)
-        verifier_acces_premium(boutique)
 
         vente = serializer.validated_data['vente']
         if vente.boutique_id != boutique.id:
@@ -257,7 +253,6 @@ class RemboursementViewSet(
         # Écriture comptable : mêmes contrôles d'accès que perform_create.
         boutique = self._boutique_effective()
         self._verifier_acces(boutique)
-        verifier_acces_premium(boutique)
         # get_object() applique le scoping boutique (boutique_lookup) : le
         # remboursement d'une autre boutique renvoie 404.
         remboursement = self.get_object()
