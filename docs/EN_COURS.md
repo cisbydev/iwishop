@@ -323,7 +323,6 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - `/api/health/` qui renvoie `RENDER_GIT_COMMIT`, pour vérifier quel commit tourne sur Render.
 - Vérifier `create_superuser_auto` : mot de passe en variable d'environnement, commande idempotente.
 - Chantier séparé (relevé le 2026-10-05) : Unités de vente et Employés n'ont aucun état « en cours » (risque de double envoi).
-- Montants envoyés en nombres au lieu de chaînes.
 - Sentry.
 
 ## En attente, côté Mahamadou
