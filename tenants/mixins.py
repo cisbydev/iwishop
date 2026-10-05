@@ -2,6 +2,11 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import SAFE_METHODS
 from .profil import boutique_de
 
+# Code à côté du message du refus d'expiration : le frontend reconnaît ce
+# refus sans lire le texte français (affichage dans la page avec un bouton
+# « Renouveler »). Le texte ne change pas : un ancien frontend lit `detail`.
+CODE_ABONNEMENT_EXPIRE = 'ABONNEMENT_EXPIRE'
+
 class BoutiqueScopedMixin:
     # Chemin ORM vers la boutique, pour les modèles sans champ `boutique`
     # direct (ex: ProduitPrix -> 'produit__boutique'). Ne change rien pour
@@ -30,7 +35,10 @@ class BoutiqueScopedMixin:
         if not boutique.actif:
             raise PermissionDenied("Cette boutique a été désactivée.")
         if not boutique.abonnement_valide():
-            raise PermissionDenied("Abonnement expiré. Merci de renouveler votre abonnement.")
+            raise PermissionDenied({
+                "detail": "Abonnement expiré. Merci de renouveler votre abonnement.",
+                "code": CODE_ABONNEMENT_EXPIRE,
+            })
 
     def get_queryset(self):
         # _verifier_acces() (boutique désactivée/abonnement expiré) n'est

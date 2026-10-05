@@ -13,12 +13,17 @@ from django.db import connection, connections
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.reverse import reverse
 from rest_framework.test import APIClient
 
 from . import paydunya
 from .models import Abonnement, Boutique, DemandeAcces, FormuleAbonnement, PaiementAbonnement, Profil
 from .services import confirmer_paiement
-from products.models import UniteVente
+from categories.models import Categorie
+from expenses.models import Depense
+from products.models import Produit, UniteVente
+from sales.models import Vente
+from suppliers.models import Fournisseur
 
 
 def hash_paydunya_valide():
@@ -302,6 +307,104 @@ class MonAbonnementOffreUniqueTests(TestCase):
 
     def test_methode_a_acces_premium_retiree_du_modele(self):
         self.assertFalse(hasattr(Boutique, 'a_acces_premium'))
+
+
+class RefusAbonnementExpireCodeTests(TestCase):
+    """Refus après l'expiration (option B) : _verifier_acces renvoie un code
+    ABONNEMENT_EXPIRE à côté du message, pour que le frontend reconnaisse ce
+    refus sans lire le texte français. Le texte ne change pas : un ancien
+    frontend (getErrorMessage lit detail) affiche la même chose qu'avant."""
+
+    MESSAGE = "Abonnement expiré. Merci de renouveler votre abonnement."
+
+    def setUp(self):
+        aujourdhui = timezone.localdate()
+        self.boutique = Boutique.objects.create(nom='Boutique expirée code', slug='boutique-expiree-code')
+        self.user = User.objects.create_user(username='proprio_expire_code', password='x')
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        formule = FormuleAbonnement.objects.create(
+            nom='Formule expirée code', duree_jours=30, prix=5000, actif=True, palier='PREMIUM'
+        )
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule, statut='ACTIF',
+            date_debut=aujourdhui - timezone.timedelta(days=40), date_fin=aujourdhui - timezone.timedelta(days=10),
+        )
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom='Fournisseur A')
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom='Produit',
+            prix_achat=Decimal('100'), prix_unitaire=Decimal('150'), prix_douzaine=Decimal('1500'),
+        )
+        self.vente = Vente.objects.create(
+            boutique=self.boutique, montant_total=Decimal('150'), montant_net=Decimal('150'),
+            montant_paye=Decimal('150'),
+        )
+        self.depense = Depense.objects.create(
+            boutique=self.boutique, titre='Loyer', categorie='LOYER',
+            montant=Decimal('5000.00'), date_depense=aujourdhui,
+        )
+        self.compter = {
+            'categories': lambda: Categorie.objects.filter(boutique=self.boutique).count(),
+            'clients': lambda: self.boutique.clients.count(),
+        }
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user)
+
+    def _verifier_refus(self, response):
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
+        self.assertEqual(
+            {cle: str(valeur) for cle, valeur in response.data.items()},
+            {"detail": self.MESSAGE, "code": "ABONNEMENT_EXPIRE"},
+        )
+
+    def test_creations_refusees_avec_le_code(self):
+        cas = [
+            ('categories', reverse('categories-list'), {"nom": "Boissons"}),
+            ('clients', reverse('clients-list'), {"nom": "Client", "telephone": "70000001"}),
+        ]
+        for nom, url, donnees in cas:
+            with self.subTest(nom):
+                response = self.api_client.post(url, donnees, format='json')
+                self._verifier_refus(response)
+                self.assertEqual(self.compter[nom](), 0)
+
+    def test_modifications_refusees_avec_le_code(self):
+        cas = [
+            ('fournisseur', reverse('fournisseurs-detail', args=[self.fournisseur.id]), self.fournisseur),
+            ('produit', reverse('produit-detail', args=[self.produit.id]), self.produit),
+        ]
+        for nom, url, objet in cas:
+            with self.subTest(nom):
+                ancien_nom = objet.nom
+                response = self.api_client.patch(url, {"nom": "Tentative"}, format='json')
+                self._verifier_refus(response)
+                objet.refresh_from_db()
+                self.assertEqual(objet.nom, ancien_nom)
+
+    def test_annulations_refusees_avec_le_code(self):
+        cas = [
+            ('vente', reverse('ventes-annuler', args=[self.vente.id]), self.vente, 'VALIDEE'),
+            ('depense', reverse('depenses-annuler', args=[self.depense.id]), self.depense, 'VALIDEE'),
+        ]
+        for nom, url, objet, statut_attendu in cas:
+            with self.subTest(nom):
+                response = self.api_client.post(url)
+                self._verifier_refus(response)
+                objet.refresh_from_db()
+                self.assertEqual(objet.statut, statut_attendu)
+
+    def test_boutique_desactivee_sans_ce_code(self):
+        """Le code est propre à l'expiration : une boutique désactivée garde
+        son message à elle, sans code."""
+        Abonnement.objects.filter(boutique=self.boutique).update(
+            date_fin=timezone.localdate() + timezone.timedelta(days=10),
+        )
+        Boutique.objects.filter(pk=self.boutique.pk).update(actif=False)
+
+        response = self.api_client.post(reverse('categories-list'), {"nom": "Boissons"}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(str(response.data['detail']), "Cette boutique a été désactivée.")
+        self.assertNotIn('code', response.data)
 
 class EssaiGratuitApprouverDemandeTests(TestCase):
     """Point 8 de l'audit : une boutique créée via le flux client normal
