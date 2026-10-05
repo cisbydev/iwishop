@@ -17,6 +17,10 @@ def enregistrer_remboursement(vente, montant, utilisateur, mode_paiement=None):
     sur la même vente ne doivent jamais faire passer montant_du en négatif
     (même principe que le verrouillage stock de VenteSerializer.create())."""
     vente = Vente.objects.select_for_update().get(pk=vente.pk)
+    # Lu sous le verrou : VenteViewSet.annuler verrouille la même vente, une
+    # annulation concurrente est donc committée avant cette lecture.
+    if vente.statut == 'ANNULEE':
+        raise ValidationError("Impossible d'enregistrer un remboursement sur une vente annulée.")
 
     if montant <= 0:
         raise ValidationError("Le montant du remboursement doit être strictement positif.")
