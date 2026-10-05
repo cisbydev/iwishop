@@ -21,7 +21,7 @@ from .models import Vente, LigneVente, Client, Remboursement, StatutPaiement
 from .services.credit import enregistrer_remboursement
 
 
-def _donner_acces_premium(boutique):
+def _donner_abonnement_valide(boutique):
     """Donne à la boutique de test un abonnement actif. Depuis l'offre
     unique, le palier n'est plus contrôlé (le crédit client ne demande
     qu'un abonnement valide) : cette aide n'est plus indispensable, elle
@@ -885,7 +885,7 @@ class VenteAnnulationAvecRemboursementTests(APITestCase):
         self.boutique = Boutique.objects.create(nom="Boutique Crédit Annul", slug="boutique-credit-annul")
         self.user = User.objects.create_user(username="proprio_credit_annul", password="pass1234")
         Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
-        _donner_acces_premium(self.boutique)
+        _donner_abonnement_valide(self.boutique)
 
         self.client_credit = Client.objects.create(
             boutique=self.boutique, nom="Client Crédit Annul", telephone="0100000099"
@@ -998,7 +998,7 @@ class RemboursementVenteAnnuleeTests(APITestCase):
         self.boutique = Boutique.objects.create(nom="Boutique Vente Annulée", slug="boutique-rembourse-annulee")
         self.user = User.objects.create_user(username="proprio_rembourse_annulee", password="pass1234")
         Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
-        _donner_acces_premium(self.boutique)
+        _donner_abonnement_valide(self.boutique)
 
         client_credit = Client.objects.create(
             boutique=self.boutique, nom="Client Vente Annulée", telephone="0100000098"
@@ -1041,7 +1041,7 @@ class AnnulationVenteRemboursementConcurrenceTests(APITransactionTestCase):
         self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-concurrence-remboursement")
         self.user = User.objects.create_user(username="proprio_concurrence_remboursement", password="pass1234")
         Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
-        _donner_acces_premium(self.boutique)
+        _donner_abonnement_valide(self.boutique)
 
         client_credit = Client.objects.create(
             boutique=self.boutique, nom="Client Concurrence", telephone="0100000097"
@@ -1228,8 +1228,8 @@ class ClientCreditTests(APITestCase):
         self.user_b = User.objects.create_user(username="credit_user_b", password="pass1234")
         Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
 
-        _donner_acces_premium(self.boutique_a)
-        _donner_acces_premium(self.boutique_b)
+        _donner_abonnement_valide(self.boutique_a)
+        _donner_abonnement_valide(self.boutique_b)
 
         self.client_a = Client.objects.create(
             boutique=self.boutique_a, nom="Client A", telephone="0100000001"
@@ -1363,8 +1363,8 @@ class VenteACreditCreationTests(APITestCase):
         self.user_b = User.objects.create_user(username="credit_vente_user_b", password="pass1234")
         Profil.objects.create(user=self.user_b, boutique=self.boutique_b, est_proprietaire=True)
 
-        _donner_acces_premium(self.boutique_a)
-        _donner_acces_premium(self.boutique_b)
+        _donner_abonnement_valide(self.boutique_a)
+        _donner_abonnement_valide(self.boutique_b)
 
         self.unite_a = UniteVente.objects.create(
             boutique=self.boutique_a, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
@@ -1900,8 +1900,8 @@ class RemboursementCorrectionTests(APITestCase):
         self.autre_proprietaire = User.objects.create_user(username="correction_autre", password="pass1234")
         Profil.objects.create(user=self.autre_proprietaire, boutique=self.autre_boutique, est_proprietaire=True)
 
-        _donner_acces_premium(self.boutique)
-        _donner_acces_premium(self.autre_boutique)
+        _donner_abonnement_valide(self.boutique)
+        _donner_abonnement_valide(self.autre_boutique)
 
         self.client_credit = Client.objects.create(
             boutique=self.boutique, nom="Client Correction", telephone="0100000010"
@@ -2090,7 +2090,7 @@ class RemboursementModePaiementTests(APITestCase):
         self.boutique = Boutique.objects.create(nom="Boutique Mode", slug="boutique-mode-remboursement")
         self.user = User.objects.create_user(username="mode_proprio", password="pass1234")
         Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
-        _donner_acces_premium(self.boutique)
+        _donner_abonnement_valide(self.boutique)
 
         self.client_credit = Client.objects.create(
             boutique=self.boutique, nom="Client Mode", telephone="0100000020"
