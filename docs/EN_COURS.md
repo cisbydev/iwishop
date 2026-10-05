@@ -254,6 +254,8 @@ Constat en prod de Mahamadou (2026-10-05, Boutique 2 mise expirée dans l'admin,
      - Tests, chaque écran rendu avec `RefusAbonnementExpire` : `messageErreur` (unitaires) ; annulation, ajout (puis « Renouveler », fenêtre après la fenêtre d'ajout dans le DOM, saisie intacte après « Fermer »), remboursement (un seul `role="alert"`, aucune erreur sous le formulaire, montant et mode conservés), correction, employé. Dans chaque test de refus, le bouton revient à son état normal (cliquable, plus d'état « en cours »). Vus échouer avant.
      - Mutations : `messageErreur` renvoie le message sur ce refus (deux messages) ; pas de signal ; chacun des 4 endroits remis comme avant ; fenêtre d'ajout fermée sur une erreur ; montant remis à zéro sur une erreur ; état « en cours » laissé bloqué après le refus.
      - Captures Playwright à 375 px et en desktop avec `elementFromPoint` : message au premier plan au-dessus de la fiche client et de la fenêtre d'ajout, « Renouveler » devant elles, saisie relue après fermeture.
+   - Codé : `78643c1` (commit validé par Mahamadou le 2026-10-05).
+   - Limite connue (relevée sur les captures du 2026-10-05) : à 375 px, le message recouvre la croix de la fiche client tant qu'il n'est pas fermé (constaté quand la fiche a défilé). On le ferme avec sa propre croix.
 5. `feat(frontend)` : Achats et Fournisseurs (fiche comprise).
 6. `feat(frontend)` : Dépenses, Stock, Produits (prix par unité compris), Catégories, Unités de vente, Paramètres, Employés, et le panneau d'Iwi.
 7. `feat(frontend)` : ventes hors ligne (`ECHEC_ABONNEMENT`, arrêt de la boucle, bandeau).
