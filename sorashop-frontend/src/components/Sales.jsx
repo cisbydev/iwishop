@@ -5,7 +5,7 @@ import { sauvegarderCatalogue, chargerCatalogueCache } from '../services/catalog
 import { listerClients, creerClient } from '../services/clients';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff, CloudOff, X } from 'lucide-react';
 
@@ -315,7 +315,7 @@ export default function Sales() {
       } catch (err) {
         // Le panier n'est jamais vidé sur ce chemin d'erreur (rien de saisi
         // n'est perdu) - seul le succès plus bas remet le formulaire à zéro.
-        alert(getErrorMessage(err, "Erreur lors de la création du nouveau client."));
+        alerterErreur(err, "Erreur lors de la création du nouveau client.");
         setIsSubmitting(false);
         return;
       }
@@ -370,7 +370,7 @@ export default function Sales() {
       } else {
         // Le panier reste intact ici aussi : rien de saisi n'est perdu.
         console.error("Erreur vente :", err.response?.data || err);
-        alert(getErrorMessage(err, "Erreur lors de l'enregistrement de la vente."));
+        alerterErreur(err, "Erreur lors de l'enregistrement de la vente.");
       }
     } finally {
       setIsSubmitting(false);

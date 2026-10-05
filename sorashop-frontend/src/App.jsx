@@ -29,6 +29,7 @@ import AbonnementBanner from './components/AbonnementBanner';
 import VentesEnAttenteBanner from './components/VentesEnAttenteBanner';
 import GlobalBanners from './components/GlobalBanners';
 import InstallPwaModal from './components/InstallPwaModal';
+import RefusAbonnementExpire from './components/RefusAbonnementExpire';
 import NavigationTablette from './components/NavigationTablette';
 import NavigationMobile from './components/NavigationMobile';
 import NotificationBell from './components/NotificationBell';
@@ -176,6 +177,8 @@ function AppContent() {
         </main>
         {/* Bouton flottant, visible sur tous les écrans plutôt que dans un onglet. */}
         <Assistant />
+        {/* Après le contenu : passe devant une fenêtre ouverte (même couche 50). */}
+        <RefusAbonnementExpire />
       </div>
     </NavigationPanneauProvider>
   );

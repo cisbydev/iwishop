@@ -35,9 +35,29 @@ export function getErrorMessage(err, fallback = "Une erreur est survenue.") {
 
 // Code machine-readable optionnel à côté du detail (ex. { detail: "...",
 // code: "..." }) - jamais besoin de parser le texte français du detail
-// pour distinguer un refus précis des autres 403/400 possibles. Plus
-// utilisé depuis l'offre unique ; gardé pour le code ABONNEMENT_EXPIRE
-// prévu (chantier « bandeau après l'expiration », cf. EN_COURS).
+// pour distinguer un refus précis des autres 403/400 possibles.
 export function getErrorCode(err) {
   return err?.response?.data?.code;
+}
+
+// Refus d'une écriture après l'expiration de l'abonnement (_verifier_acces
+// côté serveur). Un ancien backend renvoie le même texte sans ce code :
+// l'écran garde alors son alert() d'avant.
+export const CODE_ABONNEMENT_EXPIRE = 'ABONNEMENT_EXPIRE';
+export const EVENEMENT_ABONNEMENT_EXPIRE = 'iwishop:abonnement-expire';
+
+export function estAbonnementExpire(err) {
+  return err?.response?.status === 403 && getErrorCode(err) === CODE_ABONNEMENT_EXPIRE;
+}
+
+// Remplace alert(getErrorMessage(...)) dans les écrans : le refus après
+// l'expiration est signalé à RefusAbonnementExpire (monté une seule fois
+// dans App.jsx, message dans la page avec « Renouveler »), toute autre
+// erreur reste dans l'alert() d'avant.
+export function alerterErreur(err, fallback) {
+  if (estAbonnementExpire(err)) {
+    window.dispatchEvent(new Event(EVENEMENT_ABONNEMENT_EXPIRE));
+    return;
+  }
+  alert(getErrorMessage(err, fallback));
 }
