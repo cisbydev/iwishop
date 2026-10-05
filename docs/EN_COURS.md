@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-04.
+Mis à jour le 2026-10-05.
 
 ## Fait récemment
 
@@ -113,7 +113,9 @@ Passé en priorité le 2026-10-03, avant le commit 9 : depuis le 7 bis, à 375 p
 
 ## En cours : remboursements sur vente annulée et option B des ventes
 
-Analyse du code faite le 2026-10-04 (sans coder, bug non reproduit par un test). Plan validé le 2026-10-04 par Mahamadou. Rien de codé.
+Analyse du code faite le 2026-10-04 (sans coder, bug non reproduit par un test). Plan validé le 2026-10-04 par Mahamadou.
+
+- Commit 1 : `a04168d`, poussé le 2026-10-05, CI verte (run GitHub Actions 37280078868, succès). Vérifié en prod par Mahamadou le 2026-10-05 (Boutique 2) : vente à crédit V-AD91351B de 6 000 annulée, remboursement de 5 000 refusé avec « Impossible d'enregistrer un remboursement sur une vente annulée. », Payé reste à 0 ; l'ancien frontend affiche bien le message du serveur. Constat au passage : sur cette vente annulée, la fiche client affiche le badge « En attente » et « Dû 6 000 FCFA » en rouge, comme si le client devait encore 6 000 (à traiter par le commit 3). Contrôle du statut dans `enregistrer_remboursement`, sous le verrou. Deux tests vus échouer avant le correctif (201 au lieu de 400) : `RemboursementVenteAnnuleeTests` (0 ligne créée, `montant_du` et `statut_paiement` inchangés) et `AnnulationVenteRemboursementConcurrenceTests` (le remboursement attend le verrou de l'annulation, vérifié dans `pg_stat_activity`, puis est refusé). `check`, `makemigrations --check` et 578 tests backend OK. L'ordre inverse (remboursement d'abord, annulation ensuite) n'est pas testé ici : il change avec le commit 2 (option B).
 
 ### Analyse
 
