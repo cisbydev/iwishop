@@ -12,6 +12,7 @@ from notifications.services import verifier_stock_bas
 from inventory.models import MouvementStock
 from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
+from parametres.services import formater_montant
 from .models import Vente, LigneVente, Client, Remboursement
 from .serializers import (
     VenteSerializer, ClientSerializer, RemboursementSerializer,
@@ -99,9 +100,16 @@ class VenteViewSet(
             vente = Vente.objects.select_for_update().get(pk=vente_verifiee.pk)
             if vente.statut == 'ANNULEE':
                 raise ValidationError("Cette vente est déjà annulée.")
-            if vente.remboursements.exists():
+            # Option B, comme AchatViewSet.annuler : seul le total net des
+            # remboursements (corrections comprises) bloque l'annulation. Un
+            # remboursement corrigé à 0 n'a pas eu lieu : la vente redevient
+            # annulable. L'acompte seul ne bloque pas. Lu sous le verrou de la
+            # vente, comme dans enregistrer_remboursement().
+            rembourse = vente.remboursements.aggregate(total=Sum('montant'))['total'] or 0
+            if rembourse != 0:
                 raise ValidationError(
-                    "Impossible d'annuler une vente à crédit ayant déjà reçu un remboursement."
+                    f"{formater_montant(rembourse, vente.boutique)} de remboursements sont déjà "
+                    "enregistrés sur cette vente : corrigez-les à 0 avant de l'annuler."
                 )
 
             lignes = list(vente.lignes.all())

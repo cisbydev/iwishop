@@ -52,6 +52,11 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
       net vaut 0 (AchatViewSet.annuler), donc ils se compensent, et les
       périodes passées ne bougent plus. L'acompte d'un achat annulé, lui,
       disparaît du jour de l'achat (limite connue ci-dessous).
+    - Remboursements d'une vente annulée (option B des ventes, décidée le
+      2026-10-04) : comptés à leur date, comme les paiements d'un achat
+      annulé. L'annulation n'est possible que si leur total net vaut 0
+      (VenteViewSet.annuler), donc ils se compensent. L'acompte d'une vente
+      annulée disparaît du jour de la vente (limite connue ci-dessous).
     - Dépenses : supposées payées comptant, sans mode (aucun champ
       mode_paiement) - le frontend l'indique à l'écran.
     - Découpage par journée : `__date` convertit dans TIME_ZONE (global,
@@ -77,11 +82,10 @@ def calculer_journal_caisse(boutique, date_debut, date_fin):
         for ligne in ventes.values('mode_paiement').annotate(total=Sum(encaisse_vente))
     }
 
-    # Une vente ayant reçu un remboursement ne peut pas être annulée
-    # (VenteViewSet.annuler) : le filtre VALIDEE est une simple cohérence.
+    # Pas de filtre sur le statut de la vente (cf. docstring) : comptés à
+    # leur date, comme les paiements fournisseurs.
     remboursements = Remboursement.objects.filter(
-        vente__boutique=boutique, vente__statut='VALIDEE',
-        date_remboursement__date__range=[date_debut, date_fin],
+        vente__boutique=boutique, date_remboursement__date__range=[date_debut, date_fin],
     )
     remboursements_par_mode = {
         ligne['mode_paiement']: ligne['total']

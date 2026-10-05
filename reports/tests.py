@@ -1014,6 +1014,31 @@ class JournalCaisseTests(APITestCase):
         self.assertEqual(entrees['remboursements'], Decimal("0.00"))
         self.assertEqual(entrees['nombre_remboursements'], 2)
 
+    def test_remboursements_dune_vente_annulee_comptes_a_leur_date(self):
+        """Option B des ventes : une vente n'est annulable que si ses
+        remboursements se compensent (total net 0). Ils restent à leur date,
+        comme les paiements d'un achat annulé : les jours passés ne bougent
+        pas après l'annulation."""
+        vente = self._vente("5000", montant_paye="0", credit=True, quand=self._a(datetime(2026, 3, 9)))
+        original = self._remboursement(vente, "5000", mode='ESPECES', quand=self._a(datetime(2026, 3, 10)))
+        self._remboursement(vente, "-5000", mode='ESPECES', corrige=original, quand=self._a(datetime(2026, 3, 11)))
+        Vente.objects.filter(pk=vente.pk).update(statut='ANNULEE')
+
+        jour_remboursement = self._get().data
+        self.assertEqual(self._mode(jour_remboursement, 'ESPECES')['remboursements'], Decimal("5000.00"))
+        self.assertEqual(jour_remboursement['entrees']['total'], Decimal("5000.00"))
+        self.assertEqual(jour_remboursement['entrees']['nombre_remboursements'], 1)
+
+        jour_correction = self._get(date_debut="2026-03-11", date_fin="2026-03-11").data
+        self.assertEqual(self._mode(jour_correction, 'ESPECES')['remboursements'], Decimal("-5000.00"))
+        self.assertEqual(jour_correction['entrees']['nombre_remboursements'], 1)
+
+        periode = self._get(date_debut="2026-03-09", date_fin="2026-03-11").data
+        self.assertEqual(periode['entrees']['remboursements'], Decimal("0.00"))
+        self.assertEqual(periode['entrees']['nombre_remboursements'], 2)
+        # La vente annulée elle-même ne compte pas (acompte nul ici).
+        self.assertEqual(periode['entrees']['ventes'], Decimal("0.00"))
+
     def test_remboursements_par_mode_avec_non_precise_et_correction(self):
         vente = self._vente("1000", montant_paye="0", credit=True, quand=self._a(datetime(2026, 3, 1)))
         original = self._remboursement(vente, "300", mode='ESPECES')

@@ -18,6 +18,7 @@ from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from products.models import Produit, UniteVente, ProduitPrix
 from inventory.models import MouvementStock
 from .models import Vente, LigneVente, Client, Remboursement, StatutPaiement
+from .services.credit import enregistrer_remboursement
 
 
 def _donner_acces_premium(boutique):
@@ -875,10 +876,10 @@ class VenteSynchronisationDiffereeTests(APITestCase):
 
 
 class VenteAnnulationAvecRemboursementTests(APITestCase):
-    """Un remboursement déjà enregistré sur une vente à crédit doit bloquer
-    l'annulation : sans cette vérification, l'annulation restaurerait le
-    stock alors même que Remboursement (immutable, cf. RemboursementViewSet)
-    ne peut plus être défait, rendant la comptabilité incohérente."""
+    """Option B (comme les achats) : l'annulation n'est refusée que si le
+    total net des remboursements (corrections comprises) est différent de
+    0. Un remboursement corrigé à 0 n'a pas eu lieu ; l'acompte seul ne
+    bloque pas."""
 
     def setUp(self):
         self.boutique = Boutique.objects.create(nom="Boutique Crédit Annul", slug="boutique-credit-annul")
@@ -915,12 +916,67 @@ class VenteAnnulationAvecRemboursementTests(APITestCase):
         response = self.api_client.post(reverse('ventes-annuler', args=[vente.id]))
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Même formatage que le frontend (formatCurrency) : pas de "400.00".
         self.assertEqual(
             response.data[0],
-            "Impossible d'annuler une vente à crédit ayant déjà reçu un remboursement.",
+            "400 FCFA de remboursements sont déjà enregistrés sur cette vente : "
+            "corrigez-les à 0 avant de l'annuler.",
         )
         vente.refresh_from_db()
         self.assertEqual(vente.statut, 'VALIDEE')
+        self.assertEqual(Remboursement.objects.filter(vente=vente).count(), 1)
+
+    def _rembourser(self, vente, montant):
+        response = self.api_client.post(
+            self.url_remboursements, {"vente": vente.id, "montant": montant}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        return response.data['id']
+
+    def _corriger(self, remboursement_id, nouveau_montant):
+        response = self.api_client.post(
+            reverse('remboursements-corriger', args=[remboursement_id]),
+            {"nouveau_montant": nouveau_montant, "motif": "Erreur de saisie"},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+    def test_annulation_refusee_avec_le_total_net_apres_correction_partielle(self):
+        vente = self._creer_vente_credit(Decimal("1000.00"))
+        self._corriger(self._rembourser(vente, "400.00"), "100.00")
+
+        response = self.api_client.post(reverse('ventes-annuler', args=[vente.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("100 FCFA de remboursements sont déjà enregistrés", response.data[0])
+        vente.refresh_from_db()
+        self.assertEqual(vente.statut, 'VALIDEE')
+
+    def test_annulation_possible_apres_correction_des_remboursements_a_zero(self):
+        vente = self._creer_vente_credit(Decimal("1000.00"))
+        self._corriger(self._rembourser(vente, "400.00"), "0.00")
+
+        response = self.api_client.post(reverse('ventes-annuler', args=[vente.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        vente.refresh_from_db()
+        self.assertEqual(vente.statut, 'ANNULEE')
+        # Append-only : les deux lignes (original et correction) restent.
+        self.assertEqual(Remboursement.objects.filter(vente=vente).count(), 2)
+
+    def test_acompte_seul_ne_bloque_pas_lannulation(self):
+        vente = Vente.objects.create(
+            boutique=self.boutique, client_credit=self.client_credit,
+            montant_total=Decimal("1000.00"), montant_net=Decimal("1000.00"),
+            montant_paye=Decimal("300.00"), montant_du=Decimal("700.00"),
+            statut_paiement=StatutPaiement.PARTIEL,
+        )
+
+        response = self.api_client.post(reverse('ventes-annuler', args=[vente.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
+        vente.refresh_from_db()
+        self.assertEqual(vente.statut, 'ANNULEE')
 
     def test_annulation_normale_toujours_possible_sans_remboursement(self):
         vente = self._creer_vente_credit(Decimal("1000.00"))
@@ -976,10 +1032,10 @@ class RemboursementVenteAnnuleeTests(APITestCase):
 
 class AnnulationVenteRemboursementConcurrenceTests(APITransactionTestCase):
     """Annulation et remboursement concurrents sur la même vente à crédit,
-    avec deux vraies connexions PostgreSQL et un entrelacement forcé :
-    l'annulation s'arrête juste avant de restaurer le stock (verrou de la
-    vente pris), le remboursement démarre et doit attendre ce verrou. Une
-    fois l'annulation committée, il voit la vente annulée et est refusé."""
+    avec deux vraies connexions PostgreSQL et un entrelacement forcé, dans
+    les deux sens : celui qui tient le verrou de la vente s'arrête, l'autre
+    démarre et doit attendre ce verrou, puis voit l'écriture committée et
+    est refusé."""
 
     def setUp(self):
         self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-concurrence-remboursement")
@@ -1085,6 +1141,76 @@ class AnnulationVenteRemboursementConcurrenceTests(APITransactionTestCase):
         self.assertEqual(self.vente.montant_du, Decimal("300.00"))
         self.produit.refresh_from_db()
         self.assertEqual(self.produit.quantite_en_stock, 5)
+
+    def test_annulation_attend_le_remboursement_puis_est_refusee(self):
+        # Le remboursement s'arrête juste avant de créer sa ligne (verrou de
+        # la vente pris) ; l'annulation démarre et doit attendre ce verrou.
+        # Une fois le remboursement committé, elle voit le total remboursé.
+        create_original = Remboursement.objects.create
+        remboursement_en_pause = threading.Event()
+        liberer_remboursement = threading.Event()
+        pid_annulation = []
+        resultats = {}
+
+        def create_avec_pause(**kwargs):
+            remboursement_en_pause.set()
+            liberer_remboursement.wait(timeout=10)
+            return create_original(**kwargs)
+
+        def rembourser():
+            try:
+                enregistrer_remboursement(self.vente, Decimal("100"), self.user)
+                resultats['remboursement'] = 'ok'
+            except Exception as erreur:
+                resultats['remboursement'] = repr(erreur)
+            finally:
+                connection.close()
+
+        def annuler():
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    pid_annulation.append(cursor.fetchone()[0])
+                client = APIClient()
+                client.force_authenticate(user=self.user)
+                response = client.post(reverse('ventes-annuler', args=[self.vente.id]))
+                resultats['annulation'] = (response.status_code, str(response.data))
+            except Exception as erreur:
+                resultats['annulation'] = repr(erreur)
+            finally:
+                connection.close()
+
+        with patch.object(Remboursement.objects, 'create', side_effect=create_avec_pause):
+            thread_remboursement = threading.Thread(target=rembourser)
+            thread_remboursement.start()
+            self.assertTrue(remboursement_en_pause.wait(timeout=10), resultats)
+
+            thread_annulation = threading.Thread(target=annuler)
+            thread_annulation.start()
+            limite = time.monotonic() + 10
+            annulation_bloquee = False
+            while time.monotonic() < limite and thread_annulation.is_alive():
+                if pid_annulation and self._attente_sur_verrou(pid_annulation[0]):
+                    annulation_bloquee = True
+                    break
+                time.sleep(0.01)
+
+            liberer_remboursement.set()
+            thread_remboursement.join(timeout=15)
+            thread_annulation.join(timeout=15)
+
+        self.assertTrue(annulation_bloquee, f"L'annulation aurait dû attendre le verrou : {resultats}")
+        self.assertEqual(resultats.get('remboursement'), 'ok', resultats)
+        code, message = resultats.get('annulation', (None, ''))
+        self.assertEqual(code, status.HTTP_400_BAD_REQUEST, resultats)
+        self.assertIn("100 FCFA de remboursements sont déjà enregistrés", message)
+        self.assertEqual(Remboursement.objects.filter(vente=self.vente).count(), 1)
+        self.vente.refresh_from_db()
+        self.assertEqual(self.vente.statut, 'VALIDEE')
+        self.assertEqual(self.vente.montant_du, Decimal("200.00"))
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 2)
+        self.assertEqual(MouvementStock.objects.filter(produit=self.produit).count(), 0)
 
 
 class ClientCreditTests(APITestCase):
