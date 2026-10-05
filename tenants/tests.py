@@ -240,9 +240,9 @@ class AbonnementValideTests(TestCase):
 
 
 class AccesPremiumTests(TestCase):
-    """Boutique.a_acces_premium() : le crédit client (V2 étape 7) ne dépend
-    pas seulement de la validité de l'abonnement (abonnement_valide(),
-    inchangé) mais aussi du palier de la formule active."""
+    """Offre unique (décision du 2026-10-05) : Boutique.a_acces_premium()
+    renvoie exactement abonnement_valide(), y compris sans abonnement. Le
+    palier de la formule n'est plus lu (la colonne reste en base)."""
 
     def setUp(self):
         self.aujourdhui = timezone.localdate()
@@ -265,15 +265,49 @@ class AccesPremiumTests(TestCase):
 
         self.assertTrue(boutique.a_acces_premium())
 
-    def test_formule_essentiel_na_pas_acces_premium(self):
+    def test_formule_essentiel_valide_a_acces_complet(self):
         boutique = self._boutique_avec_formule('essentiel', palier='ESSENTIEL')
 
-        self.assertFalse(boutique.a_acces_premium())
+        self.assertTrue(boutique.a_acces_premium())
 
-    def test_sans_abonnement_du_tout_na_pas_acces_premium_sans_planter(self):
+    def test_sans_abonnement_du_tout_a_acces_comme_abonnement_valide(self):
         boutique = Boutique.objects.create(nom='Boutique sans abonnement palier', slug='boutique-sans-abonnement-palier')
 
-        self.assertFalse(boutique.a_acces_premium())
+        self.assertTrue(boutique.abonnement_valide())
+        self.assertTrue(boutique.a_acces_premium())
+
+    def test_a_acces_premium_vaut_exactement_abonnement_valide(self):
+        """Une seule règle partout : sur chaque cas, les deux méthodes
+        donnent la même réponse, quel que soit le palier."""
+        hier = self.aujourdhui - timezone.timedelta(days=1)
+        demain = self.aujourdhui + timezone.timedelta(days=1)
+        cas = [
+            ('essentiel-valide', 'ESSENTIEL', 'ACTIF', self.aujourdhui, demain, True),
+            ('premium-valide', 'PREMIUM', 'ACTIF', self.aujourdhui, demain, True),
+            ('essentiel-expire', 'ESSENTIEL', 'ACTIF', self.aujourdhui - timezone.timedelta(days=30), hier, False),
+            ('premium-expire', 'PREMIUM', 'ACTIF', self.aujourdhui - timezone.timedelta(days=30), hier, False),
+            ('statut-expire', 'PREMIUM', 'EXPIRE', self.aujourdhui, demain, False),
+            ('pas-commence', 'ESSENTIEL', 'ACTIF', demain, demain + timezone.timedelta(days=30), False),
+        ]
+        for suffixe, palier, statut, debut, fin, attendu in cas:
+            with self.subTest(suffixe):
+                boutique = Boutique.objects.create(nom=f'Boutique regle {suffixe}', slug=f'boutique-regle-{suffixe}')
+                formule = FormuleAbonnement.objects.create(
+                    nom=f'Formule regle {suffixe}', duree_jours=30, prix=5000, actif=True, palier=palier
+                )
+                Abonnement.objects.create(
+                    boutique=boutique, formule=formule, statut=statut, date_debut=debut, date_fin=fin,
+                )
+                self.assertEqual(boutique.abonnement_valide(), attendu)
+                self.assertEqual(boutique.a_acces_premium(), attendu)
+
+        with self.subTest('boutique-desactivee'):
+            # « Exactement abonnement_valide() » : actif n'entre pas en compte
+            # ici (une boutique désactivée est bloquée par _verifier_acces).
+            boutique = self._boutique_avec_formule('desactivee', palier='ESSENTIEL')
+            Boutique.objects.filter(pk=boutique.pk).update(actif=False)
+            boutique.refresh_from_db()
+            self.assertEqual(boutique.a_acces_premium(), boutique.abonnement_valide())
 
     def test_premium_payant_hors_essai_gratuit_a_acces_premium(self):
         boutique = self._boutique_avec_formule('premium-payant', palier='PREMIUM')
@@ -314,20 +348,35 @@ class AccesPremiumTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data['a_acces_premium'])
 
-    def test_mon_abonnement_expose_a_acces_premium_false_pour_le_palier_essentiel(self):
+    def test_mon_abonnement_expose_a_acces_premium_true_pour_le_palier_essentiel(self):
+        # Un frontend encore en cache lit ce champ : il se débloque seul.
         boutique = self._boutique_avec_formule('api-essentiel', palier='ESSENTIEL')
 
         response = self._authentifier(boutique).get('/api/tenants/mon-abonnement/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.data['a_acces_premium'])
+        self.assertTrue(response.data['a_acces_premium'])
 
-    def test_mon_abonnement_expose_a_acces_premium_false_sans_abonnement_du_tout(self):
+    def test_mon_abonnement_expose_a_acces_premium_true_sans_abonnement_du_tout(self):
         boutique = Boutique.objects.create(nom='Boutique API sans abonnement', slug='boutique-api-sans-abonnement')
 
         response = self._authentifier(boutique).get('/api/tenants/mon-abonnement/')
 
         self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['abonnement_valide'])
+        self.assertTrue(response.data['a_acces_premium'])
+
+    def test_mon_abonnement_expose_a_acces_premium_false_si_expire(self):
+        boutique = self._boutique_avec_formule('api-expire', palier='PREMIUM')
+        Abonnement.objects.filter(boutique=boutique).update(
+            date_debut=self.aujourdhui - timezone.timedelta(days=30),
+            date_fin=self.aujourdhui - timezone.timedelta(days=1),
+        )
+
+        response = self._authentifier(boutique).get('/api/tenants/mon-abonnement/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['abonnement_valide'])
         self.assertFalse(response.data['a_acces_premium'])
 
 

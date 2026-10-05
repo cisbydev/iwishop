@@ -44,13 +44,12 @@ class Boutique(models.Model):
         return self.actif and self.abonnement_valide()
 
     def a_acces_premium(self):
-        """Fonctionnalités Premium (crédit client) : contrairement à
-        abonnement_valide(), l'absence totale d'abonnement n'est PAS un
-        fallback d'accès ici - sans formule connue, impossible de savoir si
-        le palier est Premium, donc refusé plutôt que supposé."""
-        if not hasattr(self, 'abonnement'):
-            return False
-        return self.abonnement_valide() and self.abonnement.formule.palier == 'PREMIUM'
+        """Offre unique (décision du 2026-10-05) : exactement
+        abonnement_valide(), y compris sans abonnement - une seule règle
+        partout. FormuleAbonnement.palier n'est plus lu ; la colonne reste,
+        pour de vrais paliers éventuels dans un chantier dédié. Gardée tant
+        que mon-abonnement/ expose a_acces_premium (frontend en cache)."""
+        return self.abonnement_valide()
 
 class Profil(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='profils')

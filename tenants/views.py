@@ -305,10 +305,9 @@ class MonAbonnementView(APIView):
                 "statut": None,
                 "abonnement_valide": True,
                 "jours_restants": None,
-                # Pas d'abonnement du tout => jamais Premium (cf.
-                # Boutique.a_acces_premium(), qui ne fait PAS le même
-                # fallback que abonnement_valide() ci-dessus).
-                "a_acces_premium": False,
+                # Offre unique : même règle qu'abonnement_valide() (cf.
+                # Boutique.a_acces_premium()).
+                "a_acces_premium": boutique.a_acces_premium(),
             })
 
         abonnement = boutique.abonnement

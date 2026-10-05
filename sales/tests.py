@@ -1698,10 +1698,11 @@ class ClientConsultationTests(APITestCase):
 
 
 class AccesPremiumCreditTests(APITestCase):
-    """V2 étape 7 : le crédit client (Client, vente à crédit, Remboursement)
-    est réservé au palier Premium (FormuleAbonnement.palier) - la lecture
-    (liste clients, historique) reste toujours autorisée, seules les
-    écritures sont bloquées."""
+    """Offre unique (décisions du 2026-10-05) : le crédit client (Client,
+    vente à crédit, Remboursement et sa correction) est ouvert à toute
+    boutique dont l'abonnement est valide, quel que soit le palier de la
+    formule, et même sans abonnement. À l'expiration, comportement
+    inchangé : écritures refusées, lecture permise."""
 
     def setUp(self):
         self.boutique = Boutique.objects.create(nom="Boutique Premium Test", slug="boutique-premium-test")
@@ -1725,12 +1726,13 @@ class AccesPremiumCreditTests(APITestCase):
         self.url_clients = reverse('clients-list')
         self.url_remboursements = reverse('remboursements-list')
 
-    def _configurer_abonnement(self, nom, palier):
+    def _configurer_abonnement(self, nom, palier, expire=False):
         formule = FormuleAbonnement.objects.create(nom=nom, duree_jours=30, prix=1000, actif=True, palier=palier)
         aujourdhui = timezone.localdate()
+        debut = aujourdhui - timezone.timedelta(days=40) if expire else aujourdhui
         Abonnement.objects.create(
             boutique=self.boutique, formule=formule,
-            date_debut=aujourdhui, date_fin=aujourdhui + timezone.timedelta(days=30),
+            date_debut=debut, date_fin=debut + timezone.timedelta(days=30),
             statut='ACTIF',
         )
 
@@ -1765,46 +1767,62 @@ class AccesPremiumCreditTests(APITestCase):
         )
         self.assertEqual(reponse_remb.status_code, status.HTTP_201_CREATED, reponse_remb.data)
 
-    # --- Formule payante Essentiel : lecture OK, écritures refusées ---
+    # --- Formule Essentiel valide : accès complet (offre unique) ---
 
-    def test_essentiel_lit_mais_ne_peut_pas_creer_client_vente_credit_ou_remboursement(self):
+    def test_essentiel_peut_creer_client_vente_credit_remboursement_et_correction(self):
         self._configurer_abonnement(nom='Formule Essentiel', palier='ESSENTIEL')
+
+        reponse_client = self.api_client.post(
+            self.url_clients, {"nom": "Nouveau", "telephone": "0100000002"}, format='json'
+        )
+        self.assertEqual(reponse_client.status_code, status.HTTP_201_CREATED, reponse_client.data)
+
+        reponse_vente = self.api_client.post(
+            self.url_ventes, self._payload_vente_credit(reponse_client.data['id']), format='json'
+        )
+        self.assertEqual(reponse_vente.status_code, status.HTTP_201_CREATED, reponse_vente.data)
+
+        reponse_remb = self.api_client.post(
+            self.url_remboursements, {"vente": reponse_vente.data['id'], "montant": "50.00"}, format='json'
+        )
+        self.assertEqual(reponse_remb.status_code, status.HTTP_201_CREATED, reponse_remb.data)
+
+        reponse_correction = self.api_client.post(
+            reverse('remboursements-corriger', args=[reponse_remb.data['id']]),
+            {"nouveau_montant": "40.00", "motif": "Erreur de saisie"}, format='json',
+        )
+        self.assertEqual(reponse_correction.status_code, status.HTTP_201_CREATED, reponse_correction.data)
+
+        # On compte les lignes : chaque écriture a bien eu lieu.
+        self.assertEqual(Client.objects.filter(boutique=self.boutique).count(), 1)
+        self.assertEqual(Vente.objects.filter(boutique=self.boutique).count(), 1)
+        self.assertEqual(Remboursement.objects.filter(vente__boutique=self.boutique).count(), 2)
+
+    # --- Abonnement expiré : comportement inchangé (décision 1) ---
+
+    def test_expire_lit_mais_ne_peut_ni_creer_client_ni_vendre_a_credit(self):
+        self._configurer_abonnement(nom='Formule expirée', palier='PREMIUM', expire=True)
         client_existant = Client.objects.create(
             boutique=self.boutique, nom="Client Existant", telephone="0100000001"
         )
-        vente_existante = Vente.objects.create(
-            boutique=self.boutique, client_credit=client_existant,
-            montant_paye=0, montant_total=1000, montant_net=1000, montant_du=1000,
-            statut_paiement=StatutPaiement.EN_ATTENTE,
-        )
 
-        # Lecture toujours permise, quel que soit le palier.
-        reponse_liste = self.api_client.get(self.url_clients)
-        self.assertEqual(reponse_liste.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.api_client.get(self.url_clients).status_code, status.HTTP_200_OK)
         reponse_historique = self.api_client.get(reverse('clients-historique', args=[client_existant.id]))
         self.assertEqual(reponse_historique.status_code, status.HTTP_200_OK)
 
-        # Écritures refusées avec un message clair.
         reponse_client = self.api_client.post(
             self.url_clients, {"nom": "Nouveau", "telephone": "0100000002"}, format='json'
         )
         self.assertEqual(reponse_client.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(reponse_client.data.get('code'), 'PALIER_INSUFFISANT')
-        self.assertIn('Premium', reponse_client.data.get('detail', ''))
+        self.assertIn("Abonnement expiré", str(reponse_client.data))
 
         reponse_vente = self.api_client.post(
             self.url_ventes, self._payload_vente_credit(client_existant.id), format='json'
         )
         self.assertEqual(reponse_vente.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(reponse_vente.data.get('code'), 'PALIER_INSUFFISANT')
-        self.assertIn('Premium', reponse_vente.data.get('detail', ''))
-
-        reponse_remb = self.api_client.post(
-            self.url_remboursements, {"vente": vente_existante.id, "montant": "100.00"}, format='json'
-        )
-        self.assertEqual(reponse_remb.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(reponse_remb.data.get('code'), 'PALIER_INSUFFISANT')
-        self.assertIn('Premium', reponse_remb.data.get('detail', ''))
+        self.assertIn("Abonnement expiré", str(reponse_vente.data))
+        self.assertEqual(Client.objects.filter(boutique=self.boutique).count(), 1)
+        self.assertEqual(Vente.objects.filter(boutique=self.boutique).count(), 0)
 
     def test_essentiel_peut_toujours_creer_une_vente_comptant_normale(self):
         """Une vente sans client_credit n'est jamais bloquée, quel que soit
@@ -1820,13 +1838,13 @@ class AccesPremiumCreditTests(APITestCase):
         reponse = self.api_client.post(self.url_ventes, payload, format='json')
         self.assertEqual(reponse.status_code, status.HTTP_201_CREATED, reponse.data)
 
-    # --- Sans abonnement du tout : traité comme non-Premium, sans planter ---
+    # --- Sans abonnement du tout : même règle que abonnement_valide() ---
 
-    def test_sans_abonnement_du_tout_traite_comme_non_premium_sans_planter(self):
+    def test_sans_abonnement_du_tout_peut_creer_un_client(self):
         reponse_client = self.api_client.post(
             self.url_clients, {"nom": "Nouveau", "telephone": "0100000003"}, format='json'
         )
-        self.assertEqual(reponse_client.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(reponse_client.status_code, status.HTTP_201_CREATED, reponse_client.data)
 
     # --- Palier Premium payant, hors essai gratuit : accès complet ---
 
