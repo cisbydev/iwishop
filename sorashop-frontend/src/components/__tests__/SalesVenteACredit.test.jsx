@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   chargerCatalogueCache: vi.fn(),
   listerClients: vi.fn(),
   creerClient: vi.fn(),
+  aAccesPremium: undefined,
 }));
 
 vi.mock('../../services/api', () => ({
@@ -35,6 +36,7 @@ vi.mock('../../context/settingsContextValue', () => ({
   useSettings: () => ({
     parametres: { devise: 'FCFA' },
     utilisateur: { est_proprietaire: true },
+    aAccesPremium: mocks.aAccesPremium,
   }),
 }));
 
@@ -74,6 +76,7 @@ describe('Sales - vente à crédit (V2 étape 5)', () => {
       { id: 2, nom: 'Boubacar', telephone: '70000002' },
     ]);
     mocks.creerClient.mockReset();
+    mocks.aAccesPremium = undefined;
     vi.spyOn(window, 'alert').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     configurerCatalogue();
@@ -176,11 +179,18 @@ describe('Sales - vente à crédit (V2 étape 5)', () => {
     expect(await screen.findByText(/Vente enregistrée avec succès/)).toBeInTheDocument();
   });
 
-  it("affiche le blocage Premium (pas le message d'erreur générique) si la création échoue avec code PALIER_INSUFFISANT, sans vider le panier", async () => {
-    mocks.post.mockRejectedValue({
-      response: { status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' } },
-    });
-    const user = userEvent.setup();
+  it("case « Vente à crédit » active et sans bannière Premium, même si un ancien backend dit aAccesPremium: false", async () => {
+    mocks.aAccesPremium = false;
+
+    render(<Sales />);
+    await screen.findByText('Savon (Stock : 10)');
+
+    expect(screen.getByRole('checkbox', { name: 'Vente à crédit' })).toBeEnabled();
+    expect(screen.queryByText(/Premium/)).not.toBeInTheDocument();
+  });
+
+  async function venteACreditRefusee(user, reponse) {
+    mocks.post.mockRejectedValue({ response: reponse });
 
     render(<Sales />);
     await ajouterUnArticleAuPanier(user);
@@ -189,10 +199,27 @@ describe('Sales - vente à crédit (V2 étape 5)', () => {
     await screen.findByText('Aïcha', { exact: false });
     await user.click(screen.getByText(/Aïcha/));
     await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
+  }
 
-    expect(await screen.findByText(/palier Premium/)).toBeInTheDocument();
-    expect(window.alert).not.toHaveBeenCalled();
+  it('vente à crédit refusée (abonnement expiré) : message du serveur en alerte, panier conservé', async () => {
+    const user = userEvent.setup();
+
+    await venteACreditRefusee(user, { status: 403, data: { detail: 'Abonnement expiré. Merci de renouveler votre abonnement.' } });
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('Abonnement expiré. Merci de renouveler votre abonnement.'));
     // Rien de saisi n'est perdu : la ligne ajoutée au panier reste visible.
+    expect(screen.getByText('Savon')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Vente à crédit' })).toBeChecked();
+  });
+
+  it('ancien backend PALIER_INSUFFISANT : même chemin, message du serveur en alerte, panier conservé', async () => {
+    const user = userEvent.setup();
+
+    await venteACreditRefusee(user, {
+      status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' },
+    });
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('Fonctionnalité réservée au palier Premium.'));
     expect(screen.getByText('Savon')).toBeInTheDocument();
   });
 });

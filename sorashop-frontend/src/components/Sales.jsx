@@ -5,17 +5,13 @@ import { sauvegarderCatalogue, chargerCatalogueCache } from '../services/catalog
 import { listerClients, creerClient } from '../services/clients';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
-import { getErrorMessage, getErrorCode, CODE_PALIER_INSUFFISANT } from '../services/errorUtils';
+import { getErrorMessage } from '../services/errorUtils';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
-import PremiumRequisBanner from './PremiumRequisBanner';
 import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff, CloudOff, X } from 'lucide-react';
 
-export default function Sales({ onNaviguerVersAbonnement }) {
-  const { parametres, aAccesPremium } = useSettings();
+export default function Sales() {
+  const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
-  // Tant que le palier n'est pas confirmé à false, on n'empêche rien
-  // (cf. SettingsContext : null pendant le chargement, jamais bloquant).
-  const premiumRefuse = aAccesPremium === false;
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [prixParUnite, setPrixParUnite] = useState({}); // produitId -> [{ unite_id, unite_nom, prix, facteur_conversion }]
@@ -39,7 +35,6 @@ export default function Sales({ onNaviguerVersAbonnement }) {
   const [nouveauClientTelephone, setNouveauClientTelephone] = useState('');
   const [acompte, setAcompte] = useState('');
   const [avertissementCredit, setAvertissementCredit] = useState('');
-  const [erreurPremium, setErreurPremium] = useState(false);
   const [loading, setLoading] = useState(true);
   const [erreurChargement, setErreurChargement] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -201,7 +196,6 @@ export default function Sales({ onNaviguerVersAbonnement }) {
   const handleToggleCredit = (checked) => {
     setVenteACredit(checked);
     setAvertissementCredit('');
-    setErreurPremium(false);
     if (!checked) {
       resetFormulaireCredit();
     }
@@ -309,7 +303,6 @@ export default function Sales({ onNaviguerVersAbonnement }) {
       }
     }
 
-    setErreurPremium(false);
     setIsSubmitting(true);
 
     if (venteACredit && clientCreditMode === 'nouveau') {
@@ -322,11 +315,7 @@ export default function Sales({ onNaviguerVersAbonnement }) {
       } catch (err) {
         // Le panier n'est jamais vidé sur ce chemin d'erreur (rien de saisi
         // n'est perdu) - seul le succès plus bas remet le formulaire à zéro.
-        if (getErrorCode(err) === CODE_PALIER_INSUFFISANT) {
-          setErreurPremium(true);
-        } else {
-          alert(getErrorMessage(err, "Erreur lors de la création du nouveau client."));
-        }
+        alert(getErrorMessage(err, "Erreur lors de la création du nouveau client."));
         setIsSubmitting(false);
         return;
       }
@@ -378,10 +367,8 @@ export default function Sales({ onNaviguerVersAbonnement }) {
           console.error("Erreur mise en file d'attente hors ligne :", erreurFileAttente);
           alert("Impossible d'enregistrer la vente, même hors ligne. Réessayez.");
         }
-      } else if (getErrorCode(err) === CODE_PALIER_INSUFFISANT) {
-        // Le panier reste intact ici aussi : rien de saisi n'est perdu.
-        setErreurPremium(true);
       } else {
+        // Le panier reste intact ici aussi : rien de saisi n'est perdu.
         console.error("Erreur vente :", err.response?.data || err);
         alert(getErrorMessage(err, "Erreur lors de l'enregistrement de la vente."));
       }
@@ -448,10 +435,6 @@ export default function Sales({ onNaviguerVersAbonnement }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-      )}
-
-      {erreurPremium && (
-        <PremiumRequisBanner onNaviguerVersAbonnement={onNaviguerVersAbonnement} />
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,35fr)_minmax(0,65fr)]">
@@ -612,25 +595,16 @@ export default function Sales({ onNaviguerVersAbonnement }) {
             </div>
 
             <div className="rounded-lg border border-slate-200 p-4">
-              <label
-                className="flex items-center gap-3 text-sm font-medium text-slate-700"
-                title={premiumRefuse ? "La gestion des clients à crédit fait partie du palier Premium." : undefined}
-              >
+              <label className="flex items-center gap-3 text-sm font-medium text-slate-700">
                 <input
                   type="checkbox"
                   checked={venteACredit}
                   onChange={(e) => handleToggleCredit(e.target.checked)}
-                  disabled={modeSupport || premiumRefuse}
+                  disabled={modeSupport}
                   className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
                 />
                 Vente à crédit
               </label>
-
-              {premiumRefuse && !venteACredit && (
-                <div className="mt-3">
-                  <PremiumRequisBanner onNaviguerVersAbonnement={onNaviguerVersAbonnement} />
-                </div>
-              )}
 
               {venteACredit && (
                 <div className="mt-4 space-y-4">

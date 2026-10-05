@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
-import { getErrorMessage, getErrorCode, CODE_PALIER_INSUFFISANT } from '../services/errorUtils';
+import { getErrorMessage } from '../services/errorUtils';
 import { formatCurrency, formatDate, couleurBadgeDette } from '../utils/formatters';
 import { MODES_PAIEMENT, libelleModePaiement } from '../utils/modesPaiement';
 import {
@@ -12,7 +12,6 @@ import {
   enregistrerRemboursement,
   corrigerRemboursement,
 } from '../services/clients';
-import PremiumRequisBanner from './PremiumRequisBanner';
 import { Plus, Users, Search, Phone, MapPin, X } from 'lucide-react';
 
 const FORM_VIDE = { nom: '', telephone: '', adresse: '', plafond_credit: '' };
@@ -65,7 +64,7 @@ function formatEcart(montant, devise) {
   return `${valeur > 0 ? '+' : ''}${formatCurrency(valeur, devise)}`;
 }
 
-function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietaire, onClose, onRemboursementEnregistre, onNaviguerVersAbonnement }) {
+function FicheClient({ client, devise, modeSupport, estProprietaire, onClose, onRemboursementEnregistre }) {
   const [ventes, setVentes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [erreur, setErreur] = useState('');
@@ -147,9 +146,7 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
       await chargerHistorique();
       onRemboursementEnregistre?.();
     } catch (err) {
-      const message = getErrorCode(err) === CODE_PALIER_INSUFFISANT
-        ? CODE_PALIER_INSUFFISANT
-        : getErrorMessage(err, "Erreur lors de l'enregistrement du remboursement.");
+      const message = getErrorMessage(err, "Erreur lors de l'enregistrement du remboursement.");
       setErreursParVente((prev) => ({ ...prev, [vente.id]: message }));
     } finally {
       setEnregistrementEnCours(null);
@@ -210,7 +207,7 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
     }
   };
 
-  const peutCorriger = (vente) => estProprietaire && !modeSupport && !premiumRefuse && vente.statut !== 'ANNULEE';
+  const peutCorriger = (vente) => estProprietaire && !modeSupport && vente.statut !== 'ANNULEE';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]">
@@ -412,13 +409,7 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
                   </div>
                 )}
 
-                {Number(vente.montant_du) > 0 && !estAnnulee && !modeSupport && premiumRefuse && (
-                  <div className="mt-3 border-t border-slate-100 pt-3">
-                    <PremiumRequisBanner onNaviguerVersAbonnement={onNaviguerVersAbonnement} />
-                  </div>
-                )}
-
-                {Number(vente.montant_du) > 0 && !estAnnulee && !modeSupport && !premiumRefuse && (
+                {Number(vente.montant_du) > 0 && !estAnnulee && !modeSupport && (
                   <div className="mt-3 border-t border-slate-100 pt-3">
                     <label className="block text-xs font-medium text-slate-700" htmlFor={`remboursement-${vente.id}`}>
                       Enregistrer un remboursement
@@ -455,13 +446,7 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
                       </button>
                     </div>
                     {erreursParVente[vente.id] && (
-                      erreursParVente[vente.id] === CODE_PALIER_INSUFFISANT ? (
-                        <div className="mt-2">
-                          <PremiumRequisBanner onNaviguerVersAbonnement={onNaviguerVersAbonnement} />
-                        </div>
-                      ) : (
-                        <p className="mt-1 text-xs text-red-700">{erreursParVente[vente.id]}</p>
-                      )
+                      <p className="mt-1 text-xs text-red-700">{erreursParVente[vente.id]}</p>
                     )}
                   </div>
                 )}
@@ -475,14 +460,11 @@ function FicheClient({ client, devise, modeSupport, premiumRefuse, estProprietai
   );
 }
 
-export default function Clients({ onNaviguerVersAbonnement }) {
+export default function Clients() {
   const { actif: modeSupport, boutiqueId } = useSupportView();
-  const { parametres, aAccesPremium, utilisateur } = useSettings();
+  const { parametres, utilisateur } = useSettings();
   const devise = parametres?.devise || 'FCFA';
   const estProprietaire = Boolean(utilisateur?.est_proprietaire);
-  // Tant que le palier n'est pas confirmé à false, on n'empêche rien
-  // (cf. SettingsContext : null pendant le chargement, jamais bloquant).
-  const premiumRefuse = aAccesPremium === false;
 
   const [clients, setClients] = useState([]);
   const [dettesParClientId, setDettesParClientId] = useState(new Map());
@@ -493,7 +475,6 @@ export default function Clients({ onNaviguerVersAbonnement }) {
   const [isSaving, setIsSaving] = useState(false);
   const [showAjoutModal, setShowAjoutModal] = useState(false);
   const [form, setForm] = useState(FORM_VIDE);
-  const [erreurAjout, setErreurAjout] = useState('');
 
   const [clientSelectionne, setClientSelectionne] = useState(null);
 
@@ -534,14 +515,12 @@ export default function Clients({ onNaviguerVersAbonnement }) {
 
   const ouvrirAjout = () => {
     setForm(FORM_VIDE);
-    setErreurAjout('');
     setShowAjoutModal(true);
   };
 
   const fermerAjout = () => {
     setShowAjoutModal(false);
     setForm(FORM_VIDE);
-    setErreurAjout('');
   };
 
   const handleSubmitAjout = async (e) => {
@@ -554,7 +533,6 @@ export default function Clients({ onNaviguerVersAbonnement }) {
       alert("Le téléphone est obligatoire.");
       return;
     }
-    setErreurAjout('');
     setIsSaving(true);
     try {
       await creerClient({
@@ -566,11 +544,7 @@ export default function Clients({ onNaviguerVersAbonnement }) {
       fermerAjout();
       fetchClients();
     } catch (err) {
-      if (getErrorCode(err) === CODE_PALIER_INSUFFISANT) {
-        setErreurAjout(CODE_PALIER_INSUFFISANT);
-      } else {
-        alert(getErrorMessage(err, "Erreur lors de la création du client."));
-      }
+      alert(getErrorMessage(err, "Erreur lors de la création du client."));
     } finally {
       setIsSaving(false);
     }
@@ -601,16 +575,10 @@ export default function Clients({ onNaviguerVersAbonnement }) {
           </div>
           <button
             onClick={ouvrirAjout}
-            disabled={modeSupport || premiumRefuse}
-            title={
-              modeSupport
-                ? "Action désactivée en Vue Support (lecture seule)"
-                : premiumRefuse
-                  ? "La gestion des clients à crédit fait partie du palier Premium."
-                  : undefined
-            }
+            disabled={modeSupport}
+            title={modeSupport ? "Action désactivée en Vue Support (lecture seule)" : undefined}
             className={`inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 sm:w-auto ${
-              modeSupport || premiumRefuse ? 'cursor-not-allowed opacity-50' : ''
+              modeSupport ? 'cursor-not-allowed opacity-50' : ''
             }`}
           >
             <Plus className="h-5 w-5" /> Ajouter un client
@@ -634,19 +602,13 @@ export default function Clients({ onNaviguerVersAbonnement }) {
           <p className="font-medium text-gray-800">Aucun client enregistré.</p>
           <p className="mt-1 text-sm text-gray-500">Ajoutez un client pour lui proposer une vente à crédit.</p>
           {!modeSupport && (
-            premiumRefuse ? (
-              <div className="mt-4 mx-auto max-w-sm">
-                <PremiumRequisBanner onNaviguerVersAbonnement={onNaviguerVersAbonnement} />
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={ouvrirAjout}
-                className="mt-4 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
-              >
-                <Plus className="w-5 h-5" /> Ajouter un client
-              </button>
-            )
+            <button
+              type="button"
+              onClick={ouvrirAjout}
+              className="mt-4 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2"
+            >
+              <Plus className="w-5 h-5" /> Ajouter un client
+            </button>
           )}
         </div>
       ) : (
@@ -711,11 +673,6 @@ export default function Clients({ onNaviguerVersAbonnement }) {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-[2px]">
           <div className="max-h-[calc(100vh-2rem)] w-full max-w-[30rem] overflow-y-auto rounded-xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
             <h3 className="mb-5 text-xl font-semibold text-slate-900">Ajouter un nouveau client</h3>
-            {erreurAjout === CODE_PALIER_INSUFFISANT && (
-              <div className="mb-5">
-                <PremiumRequisBanner onNaviguerVersAbonnement={onNaviguerVersAbonnement} />
-              </div>
-            )}
             <form onSubmit={handleSubmitAjout} className="space-y-5">
               <div>
                 <label htmlFor="client-nom" className="block text-sm font-medium text-slate-700">Nom du client</label>
@@ -790,11 +747,9 @@ export default function Clients({ onNaviguerVersAbonnement }) {
           client={clientSelectionne}
           devise={devise}
           modeSupport={modeSupport}
-          premiumRefuse={premiumRefuse}
           estProprietaire={estProprietaire}
           onClose={() => setClientSelectionne(null)}
           onRemboursementEnregistre={fetchClients}
-          onNaviguerVersAbonnement={onNaviguerVersAbonnement}
         />
       )}
     </div>

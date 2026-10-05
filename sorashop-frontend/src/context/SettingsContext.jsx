@@ -5,9 +5,8 @@ import { SettingsContext } from './settingsContextValue';
 export function SettingsProvider({ children }) {
   const [parametres, setParametres] = useState(null);
   const [utilisateur, setUtilisateur] = useState(null);
-  // null tant que non chargé : les écrans qui l'utilisent pour griser une
-  // action (ex. "Vente à crédit") ne doivent bloquer qu'une fois le palier
-  // confirmé à false, jamais par défaut pendant le chargement.
+  // null tant que non chargé. Plus lu par aucun écran depuis l'offre unique :
+  // gardé pour le chantier « bandeau après l'expiration » (cf. EN_COURS).
   const [abonnement, setAbonnement] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -57,10 +56,6 @@ export function SettingsProvider({ children }) {
       parametres,
       utilisateur,
       abonnement,
-      // null tant que non chargé (cf. commentaire sur le state ci-dessus) :
-      // ne grise une action Premium que sur un false confirmé, jamais par
-      // défaut, pour ne pas bloquer l'UI le temps du chargement initial.
-      aAccesPremium: abonnement?.a_acces_premium ?? null,
       loading,
       refetchParametres: fetchParametres,
       refetchUtilisateur: fetchUtilisateur,

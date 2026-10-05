@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   listerClients: vi.fn(),
@@ -202,61 +202,82 @@ describe('Clients', () => {
     expect(mocks.enregistrerRemboursement).not.toHaveBeenCalled();
   });
 
-  it("affiche le blocage Premium (pas le message d'erreur générique) si la création d'un client échoue avec code PALIER_INSUFFISANT", async () => {
-    mocks.listerClients.mockResolvedValue([]);
-    mocks.listerClientsAvecDette.mockResolvedValue([]);
-    mocks.creerClient.mockRejectedValue({
-      response: { status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' } },
+  describe('offre unique : plus de blocage Premium, le refus vient du serveur', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
     });
-    vi.spyOn(window, 'alert').mockImplementation(() => {});
-    const user = userEvent.setup({ delay: null });
 
-    render(<Clients />);
-    await screen.findByText('Aucun client enregistré.');
+    async function creerClientRefuse(reponse) {
+      mocks.listerClients.mockResolvedValue([]);
+      mocks.listerClientsAvecDette.mockResolvedValue([]);
+      mocks.creerClient.mockRejectedValue({ response: reponse });
+      vi.spyOn(window, 'alert').mockImplementation(() => {});
+      const user = userEvent.setup({ delay: null });
 
-    await user.click(screen.getAllByRole('button', { name: /Ajouter un client/ })[0]);
-    await saisir(user, screen.getByLabelText('Nom du client'), 'Nouveau Client');
-    await saisir(user, screen.getByLabelText('Téléphone'), '70000005');
-    await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
+      render(<Clients />);
+      await screen.findByText('Aucun client enregistré.');
+      await user.click(screen.getAllByRole('button', { name: /Ajouter un client/ })[0]);
+      await saisir(user, screen.getByLabelText('Nom du client'), 'Nouveau Client');
+      await saisir(user, screen.getByLabelText('Téléphone'), '70000005');
+      await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
+      await waitFor(() => expect(window.alert).toHaveBeenCalledTimes(1));
+    }
 
-    expect(await screen.findByText(/palier Premium/)).toBeInTheDocument();
-    expect(window.alert).not.toHaveBeenCalled();
+    async function rembourserRefuse(reponse) {
+      mocks.enregistrerRemboursement.mockRejectedValue({ response: reponse });
+      const user = await ouvrirFicheAvec([]);
+      await saisir(user, screen.getByLabelText('Enregistrer un remboursement'), '100');
+      await user.selectOptions(screen.getByLabelText('Mode de paiement du remboursement'), 'ESPECES');
+      await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
+    }
 
-    vi.restoreAllMocks();
-  });
+    it('« Ajouter un client » est actif même si un ancien backend dit aAccesPremium: false', async () => {
+      mocks.aAccesPremium = false;
+      mocks.listerClients.mockResolvedValue([]);
+      mocks.listerClientsAvecDette.mockResolvedValue([]);
 
-  it("affiche le blocage Premium (pas le message d'erreur générique) si l'enregistrement d'un remboursement échoue avec code PALIER_INSUFFISANT", async () => {
-    mocks.listerClients.mockResolvedValue([client(1, 'Aïcha', '70000001')]);
-    mocks.listerClientsAvecDette.mockResolvedValue([
-      { id: 1, nom: 'Aïcha', telephone: '70000001', dette_totale: '1000.00' },
-    ]);
-    mocks.obtenirHistoriqueClient.mockResolvedValue([
-      {
-        id: 42,
-        numero: 'V-ABCD1234',
-        date_vente: '2026-01-01T10:00:00Z',
-        statut: 'VALIDEE',
-        montant_net: '1000.00',
-        montant_paye: '0.00',
-        montant_du: '1000.00',
-        statut_paiement: 'en_attente',
-        remboursements: [],
-      },
-    ]);
-    mocks.enregistrerRemboursement.mockRejectedValue({
-      response: { status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' } },
+      render(<Clients />);
+      await screen.findByText('Aucun client enregistré.');
+
+      // En-tête et état vide : deux boutons actifs, aucune bannière Premium.
+      const boutons = screen.getAllByRole('button', { name: /Ajouter un client/ });
+      expect(boutons).toHaveLength(2);
+      boutons.forEach((bouton) => expect(bouton).toBeEnabled());
+      expect(screen.queryByText(/Premium/)).not.toBeInTheDocument();
     });
-    const user = userEvent.setup({ delay: null });
 
-    render(<Clients />);
-    await user.click(await screen.findByText('Aïcha'));
+    it("création refusée (abonnement expiré) : message du serveur en alerte, fenêtre et saisie conservées", async () => {
+      await creerClientRefuse({ status: 403, data: { detail: 'Abonnement expiré. Merci de renouveler votre abonnement.' } });
 
-    const champMontant = await screen.findByLabelText('Enregistrer un remboursement');
-    await saisir(user, champMontant, '100');
-    await user.selectOptions(screen.getByLabelText('Mode de paiement du remboursement'), 'ESPECES');
-    await user.click(screen.getByRole('button', { name: 'Enregistrer' }));
+      expect(window.alert).toHaveBeenCalledWith('Abonnement expiré. Merci de renouveler votre abonnement.');
+      expect(screen.getByLabelText('Nom du client')).toHaveValue('Nouveau Client');
+      expect(screen.getByLabelText('Téléphone')).toHaveValue('70000005');
+    });
 
-    expect(await screen.findByText(/palier Premium/)).toBeInTheDocument();
+    it('ancien backend PALIER_INSUFFISANT à la création : même chemin, message du serveur en alerte', async () => {
+      await creerClientRefuse({
+        status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' },
+      });
+
+      expect(window.alert).toHaveBeenCalledWith('Fonctionnalité réservée au palier Premium.');
+      expect(screen.getByLabelText('Nom du client')).toHaveValue('Nouveau Client');
+    });
+
+    it('remboursement refusé (abonnement expiré) : message du serveur sous le formulaire, montant conservé', async () => {
+      await rembourserRefuse({ status: 403, data: { detail: 'Abonnement expiré. Merci de renouveler votre abonnement.' } });
+
+      expect(await screen.findByText('Abonnement expiré. Merci de renouveler votre abonnement.')).toBeInTheDocument();
+      expect(screen.getByLabelText('Enregistrer un remboursement')).toHaveValue(100);
+    });
+
+    it('ancien backend PALIER_INSUFFISANT au remboursement : message du serveur sous le formulaire', async () => {
+      await rembourserRefuse({
+        status: 403, data: { detail: 'Fonctionnalité réservée au palier Premium.', code: 'PALIER_INSUFFISANT' },
+      });
+
+      expect(await screen.findByText('Fonctionnalité réservée au palier Premium.')).toBeInTheDocument();
+      expect(screen.getByLabelText('Enregistrer un remboursement')).toHaveValue(100);
+    });
   });
 
   it('groupe chaque correction sous son remboursement d\'origine avec badge et motif, sans bouton Corriger sur la correction', async () => {
@@ -380,13 +401,17 @@ describe('Clients', () => {
       expect(screen.getAllByText(PHRASE_VENTE_ANNULEE)).toHaveLength(1);
     });
 
-    it('sans accès Premium, ni formulaire ni bannière Premium sur une vente annulée', async () => {
+    it("aAccesPremium: false (ancien backend) n'a plus d'effet : formulaire et « Corriger » sur la vente normale, rien sur l'annulée", async () => {
       mocks.aAccesPremium = false;
 
-      await ouvrirFicheAvecVentes([venteAnnulee(), venteAvecRemboursements([])]);
+      await ouvrirFicheAvecVentes([venteAnnulee(), venteAvecRemboursements([remboursement(7, '400.00')])]);
 
-      expect(within(carteVente('V-AD91351B')).queryByText(/palier Premium/)).not.toBeInTheDocument();
-      expect(within(carteVente('V-ABCD1234')).getByText(/palier Premium/)).toBeInTheDocument();
+      const annulee = carteVente('V-AD91351B');
+      expect(within(annulee).queryByLabelText('Enregistrer un remboursement')).not.toBeInTheDocument();
+      const normale = carteVente('V-ABCD1234');
+      expect(within(normale).getByLabelText('Enregistrer un remboursement')).toBeInTheDocument();
+      expect(within(normale).getByRole('button', { name: 'Corriger' })).toBeInTheDocument();
+      expect(screen.queryByText(/Premium/)).not.toBeInTheDocument();
     });
 
     it('les remboursements d\'une vente annulée restent visibles, sans bouton Corriger', async () => {

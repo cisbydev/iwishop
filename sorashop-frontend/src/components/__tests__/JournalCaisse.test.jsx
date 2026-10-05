@@ -191,7 +191,7 @@ describe('JournalCaisse', () => {
     expect(await screen.findByText(/ne peut pas dépasser 31 jours/)).toBeInTheDocument();
   });
 
-  it('masque la colonne remboursements hors Premium quand il n\'y en a aucun', async () => {
+  it('colonne « Remboursements de dettes » toujours affichée, même à 0 et même si un ancien backend dit aAccesPremium: false', async () => {
     mocks.settings.aAccesPremium = false;
     mocks.get.mockResolvedValue({
       data: { ...JOURNAL, entrees: { ...JOURNAL.entrees, remboursements: 0.0 } },
@@ -200,9 +200,9 @@ describe('JournalCaisse', () => {
     render(<JournalCaisse />);
     await screen.findByText('Solde de la période');
 
-    expect(screen.queryByText('Remboursements de dettes')).not.toBeInTheDocument();
+    expect(screen.getByText('Remboursements de dettes')).toBeInTheDocument();
     const cartes = screen.getByRole('list', { name: 'Entrées par mode' });
-    expect(within(cartes).queryByText(/Remboursements/)).not.toBeInTheDocument();
+    expect(within(cartes).getAllByText(/Remboursements/).length).toBeGreaterThan(0);
   });
 
   it('crédit de 6000 soldé le jour même (5000 espèces + 1000 Mobile Money) : vendu à crédit 6000, plus rien de dû', async () => {

@@ -1,5 +1,3 @@
-export const CODE_PALIER_INSUFFISANT = 'PALIER_INSUFFISANT';
-
 // Extrait un message d'erreur lisible à partir d'une réponse Axios/DRF.
 // DRF peut renvoyer les erreurs sous plusieurs formes :
 // - {"detail": "message"}
@@ -36,9 +34,10 @@ export function getErrorMessage(err, fallback = "Une erreur est survenue.") {
 }
 
 // Code machine-readable optionnel à côté du detail (ex. { detail: "...",
-// code: "PALIER_INSUFFISANT" }, cf. tenants.premium.verifier_acces_premium
-// côté backend) - jamais besoin de parser le texte français du detail
-// pour distinguer un refus précis des autres 403/400 possibles.
+// code: "..." }) - jamais besoin de parser le texte français du detail
+// pour distinguer un refus précis des autres 403/400 possibles. Plus
+// utilisé depuis l'offre unique ; gardé pour le code ABONNEMENT_EXPIRE
+// prévu (chantier « bandeau après l'expiration », cf. EN_COURS).
 export function getErrorCode(err) {
   return err?.response?.data?.code;
 }

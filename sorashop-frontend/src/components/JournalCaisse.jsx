@@ -11,7 +11,7 @@ import { Info } from 'lucide-react';
 // Affichage seul : tous les montants et totaux viennent de l'API
 // (reports/caisse.py) - aucun calcul côté client.
 export default function JournalCaisse() {
-  const { parametres, aAccesPremium } = useSettings();
+  const { parametres } = useSettings();
   const devise = parametres?.devise || 'FCFA';
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [dateDebut, setDateDebut] = useState('');
@@ -46,11 +46,6 @@ export default function JournalCaisse() {
 
     void loadJournal();
   }, [modeSupport, boutiqueId]);
-
-  // Les remboursements de dettes n'existent qu'avec le crédit client
-  // (Premium) : colonne masquée hors Premium, sauf s'il y a quand même des
-  // remboursements sur la période (boutique repassée en Essentiel).
-  const afficherRemboursements = aAccesPremium !== false || Number(journal?.entrees.remboursements) !== 0;
 
   // Sur les nombres de lignes, jamais sur les montants : une vente à crédit
   // sans acompte ou un remboursement annulé par sa correction font 0 en
@@ -164,8 +159,7 @@ export default function JournalCaisse() {
                         <span className="font-semibold text-slate-900">{formatCurrency(ligne.total, devise)}</span>
                       </div>
                       <p className="mt-1 text-xs text-slate-500">
-                        Ventes {formatCurrency(ligne.ventes, devise)}
-                        {afficherRemboursements && <> · Remboursements {formatCurrency(ligne.remboursements, devise)}</>}
+                        Ventes {formatCurrency(ligne.ventes, devise)} · Remboursements {formatCurrency(ligne.remboursements, devise)}
                       </p>
                     </li>
                   ))}
@@ -183,7 +177,7 @@ export default function JournalCaisse() {
                       <tr>
                         <th className="px-5 py-3 font-medium sm:px-6">Mode</th>
                         <th className="px-3 py-3 text-right font-medium">Ventes</th>
-                        {afficherRemboursements && <th className="px-3 py-3 text-right font-medium">Remboursements de dettes</th>}
+                        <th className="px-3 py-3 text-right font-medium">Remboursements de dettes</th>
                         <th className="px-5 py-3 text-right font-medium sm:px-6">Total</th>
                       </tr>
                     </thead>
@@ -192,9 +186,7 @@ export default function JournalCaisse() {
                         <tr key={ligne.mode_paiement ?? 'non-precise'}>
                           <td className="px-5 py-3 text-slate-700 sm:px-6">{libelleModePaiement(ligne.mode_paiement)}</td>
                           <td className="px-3 py-3 text-right text-slate-700">{formatCurrency(ligne.ventes, devise)}</td>
-                          {afficherRemboursements && (
-                            <td className="px-3 py-3 text-right text-slate-700">{formatCurrency(ligne.remboursements, devise)}</td>
-                          )}
+                          <td className="px-3 py-3 text-right text-slate-700">{formatCurrency(ligne.remboursements, devise)}</td>
                           <td className="px-5 py-3 text-right font-medium text-slate-900 sm:px-6">{formatCurrency(ligne.total, devise)}</td>
                         </tr>
                       ))}
@@ -203,9 +195,7 @@ export default function JournalCaisse() {
                       <tr>
                         <td className="px-5 py-3 sm:px-6">Total encaissé</td>
                         <td className="px-3 py-3 text-right">{formatCurrency(journal.entrees.ventes, devise)}</td>
-                        {afficherRemboursements && (
-                          <td className="px-3 py-3 text-right">{formatCurrency(journal.entrees.remboursements, devise)}</td>
-                        )}
+                        <td className="px-3 py-3 text-right">{formatCurrency(journal.entrees.remboursements, devise)}</td>
                         <td className="px-5 py-3 text-right sm:px-6">{formatCurrency(journal.entrees.total, devise)}</td>
                       </tr>
                     </tfoot>
