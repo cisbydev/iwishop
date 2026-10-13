@@ -8,7 +8,7 @@ Mis à jour le 2026-10-13.
 - Mahamadou l'a passée au plan payant (`0.1c-256mb`, 6 $/mois) le 2026-10-13. La prod remarche (constat de Mahamadou).
 - Intégrité des données : **pas encore établie**. Mahamadou a prévu trois vérifications, dont aucun résultat n'est noté (voir « En attente, côté Mahamadou »).
 - Aucun commit n'a été poussé pendant la panne : à la rédaction de cette note, `main` = `origin/main`, sur `b9053a7`. Règle tant qu'une panne dure : tout commit poussé est noté « non vérifié en prod », et on les vérifie tous après la réparation.
-- Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07, et c'était encore le cas quand cette note a été écrite. Les dates de cette note viennent de Mahamadou et de Render, pas du PC. Les dates git créées avec cette horloge sont fausses.
+- Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07. Remise à l'heure par Mahamadou le même jour, vérifiée avec `date` et `Get-Date` (2026-10-13) avant le commit de cette note (`ccfcb3c`, daté du 2026-10-13). Les dates de cette note viennent de Mahamadou et de Render, pas du PC.
 
 ## Chantier prioritaire : sauvegarde de la base
 
@@ -217,7 +217,7 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 
 Décidé le 2026-10-05, juste après l'offre unique. Analyse et découpage validés le 2026-10-05 ; commits 1 à 3 poussés et vérifiés en prod.
 
-Prochaine étape : coder le commit 5+6 (commits 5 et 6 regroupés : Achats, Fournisseurs et les autres écrans), plan validé le 2026-10-05 (ci-dessous).
+Prochaine étape : commiter et pousser le commit 5+6 (codé et vérifié en local le 2026-10-13, ci-dessous), puis le vérifier en prod ; ensuite le commit 7.
 
 Décision produit de Mahamadou (2026-10-05) :
 - **Pas de bandeau permanent** après l'expiration : on ne harcèle pas le client.
@@ -284,6 +284,14 @@ Constat en prod de Mahamadou (2026-10-05, Boutique 2 mise expirée dans l'admin,
      - Mutations (environ 40) : chacun des 21 endroits remis comme avant (2 pour la suppression forcée d'une unité) ; « en cours » laissé bloqué sur les 12 endroits qui ont cet état ; saisie perdue sur une erreur (panier d'achat, fenêtre produit, question d'Iwi). Chaque mutation ne lance que le fichier de tests concerné.
      - Captures Playwright à 375 px et en desktop avec `elementFromPoint` : Achats (panier conservé), fiche fournisseur (paiement refusé), fenêtre produit, panneau d'Iwi, Paramètres.
      - Unités de vente et Employés n'ont aucun état « en cours » : la vérification du bouton y est faible (toujours cliquable) ; pas ajouté dans ce commit (chantier séparé, voir « En attente, côté code »).
+   - Codé et vérifié en local le 2026-10-13, pas encore commité. Message prévu : `feat(frontend): refus ABONNEMENT_EXPIRE dans la page sur Achats, Fournisseurs et les autres écrans`. Non vérifié en prod.
+     - Code : 18 endroits en `alerterErreur`, 3 en `messageErreur` (fiche fournisseur : paiement et correction ; panneau d'Iwi), 11 fichiers. Inchangés comme prévu : l'`alert` regroupé des prix par unité (`Products.jsx`), Mon Compte, les `alert` de validation locale, les `window.confirm`.
+     - Tests : `RefusAbonnementExpireAchatsFournisseurs.test.jsx` (9) et `RefusAbonnementExpireAutresEcrans.test.jsx` (19), chaque écran rendu avec `RefusAbonnementExpire`. Sur l'ancien code, 24 échecs sur 28, tous pour la bonne raison (pas de message en haut, pas de « Renouveler », texte brut dans le panneau d'Iwi) ; les 4 qui passent sont les non-régressions voulues (ancien backend : achat, paiement fournisseur, Iwi ; quota 429).
+     - Mutations : 36 sur 36 détectées, chacune par le test de son propre endroit : 21 endroits remis comme avant, 12 « en cours » laissés bloqués, 3 saisies perdues (panier d'achat, fenêtre produit, question d'Iwi).
+     - lint, build et 255 tests Vitest OK (config par défaut, comme en CI ; RAM libre 1,9 Go).
+     - Captures Playwright à 375 px et en desktop (Achats, fiche fournisseur, fenêtre produit, panneau d'Iwi, Paramètres ; API simulée, toute écriture refusée en 403 `ABONNEMENT_EXPIRE`) : 10 sur 10 conformes. Message au premier plan (`elementFromPoint`), « Renouveler » devant la fenêtre, saisie relue intacte après fermeture, un seul message, aucun `alert()`, une seule écriture envoyée.
+     - Limite connue (captures du 2026-10-13) : à 375 px, le message recouvre le haut du formulaire d'achat tant qu'il n'est pas fermé (même limite que la fiche client au commit 4, décision 1). On le ferme avec sa croix.
+     - Test instable réglé avant commit : « Achats, enregistrement », alors premier test de son fichier, payait le démarrage (5 lancements : 2405 à 4094 ms pour un délai de 5000 ms ; un dépassement pendant les mutations, sur un lancement où Achats n'était pas muté). Décision de Mahamadou (option 1, sans toucher au délai) : l'annulation d'un achat, test le plus court, passe en premier. Mesure après, 5 lancements sur 5 OK : test le plus lent de chaque lancement entre 2429 et 3160 ms (l'annulation), « enregistrement » entre 1403 et 2303 ms. Machine : RAM libre 1,4 à 1,8 Go sur 7,9, 12 à 14 processus Chrome, CPU au repos.
 7. `feat(frontend)` : ventes hors ligne (`ECHEC_ABONNEMENT`, arrêt de la boucle, bandeau).
 8. `docs` : `EN_COURS.md`.
 
@@ -332,6 +340,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Chantier séparé : autres calculs de montants existants dans le frontend. `Purchases.jsx` (sous-totaux et « Montant Total » du panier) et `Sales.jsx` (« Restera dû » calculé pendant la saisie d'une vente à crédit). Nuance : un total provisoire pendant la saisie est acceptable si le serveur recalcule la valeur enregistrée ; le chantier vérifiera au cas par cas.
 - Test instable à surveiller (relevé le 2026-10-03) : `PurchasesAchatACredit.test.jsx`, « achat comptant : mode obligatoire sans valeur par défaut, puis envoyé sans `montant_paye` » (ajouté par le 7 bis), a dépassé le délai dans la suite complète : 5117 ms pour 5000 ms. Suite de 399 s ; machine : 0,8 Go de RAM libre sur 7,9 Go, Chrome ouvert (19 processus), CPU au repos au moment du relevé. Le même jour, seul et 10 fois de suite dans le même état : 1220 à 1852 ms (médiane 1368 ms), 10 sur 10 OK. CI verte. Cause probable (avis de Mahamadou) : la mémoire de la machine (0,8 Go libre) ; Mahamadou fermera Chrome pendant les suites complètes. À surveiller : s'il échoue à nouveau, la méthode de `Clients.test.jsx` (20 passages sous charge). Pas d'augmentation de délai sans accord. Deuxième cas le même jour : `SubmissionStates.test.jsx`, « protège la validation d'une vente pendant une requête en cours », 5035 ms pour 5000 dans la suite complète (1,9 Go de RAM libre, Chrome ouvert, 16 processus) ; seul, 5 fois : 1239 à 2377 ms, 5 sur 5 OK. Même tableau : la piste de la mémoire se renforce.
 - Constat (2026-10-03) : deux tests différents dépassent 5 s dans la suite complète sur la machine de Mahamadou, alors qu'ils passent seuls. Piste à mesurer après le 8 bis : limiter le nombre de workers Vitest en local, sans toucher aux délais.
+- Constat (2026-10-13) : les workers Vitest ne démarraient pas (« Timeout waiting for worker to respond », avant tout test, même sur `errorUtils.test.js`), environ 6 fois de suite, en `forks` comme en `threads`, même avec `--maxWorkers=1` ; puis de nouveau normal sans aucun changement. RAM libre 1,1 à 1,3 Go, environ 13 processus Chrome. À rattacher à la piste précédente.
 - Chantier séparé : messages et exports du backend qui affichent un montant brut (`100.00 FCFA`) au lieu du rendu de l'app. Passer par `formater_montant` (`parametres/services.py`, même rendu que `formatCurrency`) : avertissement de plafond (`sales/services/credit.py`, `avertissement_plafond_credit`), notification de dette (`notifications/services.py`), export PDF du résumé financier et des ventes détaillées (`reports/views.py`, format `:.2f`). Les exports Excel (`#,##0.00` dans `reports/views.py`) sont des formats de cellule numériques : à examiner à part.
 - `date_annulation` sur Vente/Achat/Dépense, avant toute vraie clôture de caisse (voir `reports/caisse.py`).
 - Export PDF/Excel du journal de caisse.
@@ -344,7 +353,6 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 ## En attente, côté Mahamadou
 
 - Après l'incident du 2026-10-10 : faire les trois vérifications d'intégrité des données de prod et en noter le résultat ici.
-- Remettre l'horloge du PC à l'heure (elle affichait le 2026-10-07 le 2026-10-13).
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
