@@ -6,17 +6,48 @@ Mis à jour le 2026-10-13.
 
 - La base Render `iwishop-db` (plan gratuit) a expiré le 2026-10-10. Render l'a suspendue et avait prévu de la supprimer vers le 2026-10-16. Symptôme : le backend ne trouvait plus la base (`OperationalError` « could not translate host name »).
 - Mahamadou l'a passée au plan payant (`0.1c-256mb`, 6 $/mois) le 2026-10-13. La prod remarche (constat de Mahamadou).
-- Intégrité des données : **pas encore établie**. Mahamadou a prévu trois vérifications, dont aucun résultat n'est noté (voir « En attente, côté Mahamadou »).
+- Intégrité des données : établie par Mahamadou le 2026-10-13 : les ventes V-2F621063 et V-AD91351B (Bintou) sont présentes, la caisse du 2026-10-05 affiche ses chiffres, `iwishop-db` est « Available ».
 - Aucun commit n'a été poussé pendant la panne : à la rédaction de cette note, `main` = `origin/main`, sur `b9053a7`. Règle tant qu'une panne dure : tout commit poussé est noté « non vérifié en prod », et on les vérifie tous après la réparation.
 - Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07. Remise à l'heure par Mahamadou le même jour, vérifiée avec `date` et `Get-Date` (2026-10-13) avant le commit de cette note (`ccfcb3c`, daté du 2026-10-13). Les dates de cette note viennent de Mahamadou et de Render, pas du PC.
 
 ## Chantier prioritaire : sauvegarde de la base
 
-Décidé le 2026-10-13, après l'incident. Le commit 5+6 est repris d'abord, en local (décision de Mahamadou du même jour).
+Décidé le 2026-10-13, après l'incident. Le commit 5+6 est passé d'abord (terminé le 2026-10-13).
 
-- Mettre en place une sauvegarde régulière de la base de prod.
-- Vérifier qu'on sait la restaurer : une vraie restauration, dans une base séparée (jamais sur la prod).
-- Plan à valider avant tout code ou réglage.
+Plan validé par Mahamadou le 2026-10-13. Prochaine étape : l'étape B (vrai test de restauration en local), le 2026-10-14 au matin.
+
+### Constat (2026-10-13)
+
+- Render (doc « PostgreSQL backups ») : toute base payante a la restauration à un instant passé (PITR), sur 3 jours (espace Hobby) ou 7 jours (Pro ou plus) ; elle crée une **nouvelle** base, l'ancienne reste (il faut rebrancher les services). Pas de remplissage du passé : la fenêtre part du 2026-10-13. Sauvegardes « logiques » : **à déclencher à la main** (page Recovery), gardées 7 jours, téléchargeables. Aucune sauvegarde quotidienne automatique décrite. Non couvert : une erreur vue après la fenêtre, un problème de compte Render (toutes les copies chez Render). Ce que deviennent les sauvegardes si la base est supprimée : non dit, à vérifier.
+- Versions : PostgreSQL 18.6 sur Render (vu avec `psql` par Mahamadou le 2026-10-05), client local 18.4 (`pg_dump --version`, 2026-10-13) : même version majeure.
+- `scripts/backup_postgres.ps1` (`705bdf3`, doc `docs/postgresql-backup-restore.md`) : `pg_dump` au format custom de `DATABASE_URL` dans `backups/` (ignoré par git), vérifie que l'archive n'est pas vide et qu'elle se lit avec `pg_restore --list` (structure seulement, pas une restauration).
+- `scripts/restore_postgres_temp.ps1` : `pg_restore` dans `TEMP_DATABASE_URL`, seulement si le nom de la base commence par `iwishop_restore_test_` et avec `-ConfirmTemporaryRestore` ; refuse une cible identique à `DATABASE_URL` (hôte, port, base) ; ne crée ni ne supprime de base.
+- `backups/` : 15 archives, la plus récente du 2026-09-22, plusieurs de 0 octet (sauvegardes ratées laissées sur place). Aucune trace d'une restauration complète réussie : selon la doc des scripts, aucune archive n'est donc validée. Elles contiennent les données de toutes les boutiques (noms et téléphones des clients), non chiffrées, sur le PC. Les fichiers de R2 ne sont pas dans ces sauvegardes.
+
+### Décisions (Mahamadou, 2026-10-13)
+
+1. Une sauvegarde par jour.
+2. Conservation : 30 quotidiennes et 12 mensuelles.
+3. Stockage dans R2 privé, archive chiffrée. Pas de GitHub Actions (dépôt public).
+4. On commence par l'étape B, avant toute automatisation.
+
+### Étapes
+
+- A. Constat dans le tableau de bord Render (Mahamadou) : plan de l'espace de travail (Hobby ou Pro), fenêtre de PITR, page Recovery d'`iwishop-db`.
+- B. Premier vrai test de restauration, en local, jamais sur la prod :
+  1. Archive fraîche de la prod avec `backup_postgres.ps1` (URL externe définie seulement dans la session PowerShell, jamais affichée).
+  2. Base locale neuve `iwishop_restore_test_20261014`, après avoir vérifié qu'elle n'existe pas.
+  3. `restore_postgres_temp.ps1` ; en cas d'échec, s'arrêter et lire l'erreur.
+  4. Contrôles : `manage.py check` et `showmigrations` sur la base de test (sans `migrate`) ; comptage des lignes de chaque table, base restaurée et prod (lecture seule, `SELECT count(*)`), au même moment : comptes égaux ; V-2F621063 et V-AD91351B présentes.
+  5. Résultat noté ici, puis suppression manuelle de la base de test, après relecture de l'hôte et du nom.
+  - Plus tard, à décider à part : un test du PITR de Render (nouvelle base payante le temps du test, services jamais rebranchés).
+- C. Régularité : tâche planifiée (« cron job ») chez Render : `pg_dump`, archive chiffrée, dépôt dans R2 privé, conservation selon la décision 2 ; coût mensuel à vérifier. Plus un test de restauration chaque mois.
+- D. Preuve : journal daté de chaque sauvegarde, de chaque test de restauration et des comptes obtenus.
+
+### Points à traiter
+
+- Supprimer les archives de 0 octet de `backups/` ; et, dans `backup_postgres.ps1`, supprimer l'archive quand `pg_dump` échoue (d'où ces fichiers vides).
+- Une fois l'étape B réussie : décider quoi faire des anciennes archives non chiffrées de `backups/` (données de clients sur le PC).
 
 ## Fait récemment
 
@@ -215,9 +246,9 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 
 ## En cours : refus après l'expiration (option B) et code `ABONNEMENT_EXPIRE`
 
-Décidé le 2026-10-05, juste après l'offre unique. Analyse et découpage validés le 2026-10-05 ; commits 1 à 3 poussés et vérifiés en prod.
+Décidé le 2026-10-05, juste après l'offre unique. Analyse et découpage validés le 2026-10-05 ; commits 1 à 6 poussés et vérifiés en prod (5 et 6 regroupés).
 
-Prochaine étape : commiter et pousser le commit 5+6 (codé et vérifié en local le 2026-10-13, ci-dessous), puis le vérifier en prod ; ensuite le commit 7.
+Prochaine étape : le commit 7. Le chantier prioritaire « sauvegarde de la base » passe d'abord (étape B le 2026-10-14).
 
 Décision produit de Mahamadou (2026-10-05) :
 - **Pas de bandeau permanent** après l'expiration : on ne harcèle pas le client.
@@ -284,7 +315,7 @@ Constat en prod de Mahamadou (2026-10-05, Boutique 2 mise expirée dans l'admin,
      - Mutations (environ 40) : chacun des 21 endroits remis comme avant (2 pour la suppression forcée d'une unité) ; « en cours » laissé bloqué sur les 12 endroits qui ont cet état ; saisie perdue sur une erreur (panier d'achat, fenêtre produit, question d'Iwi). Chaque mutation ne lance que le fichier de tests concerné.
      - Captures Playwright à 375 px et en desktop avec `elementFromPoint` : Achats (panier conservé), fiche fournisseur (paiement refusé), fenêtre produit, panneau d'Iwi, Paramètres.
      - Unités de vente et Employés n'ont aucun état « en cours » : la vérification du bouton y est faible (toujours cliquable) ; pas ajouté dans ce commit (chantier séparé, voir « En attente, côté code »).
-   - Codé et vérifié en local le 2026-10-13, pas encore commité. Message prévu : `feat(frontend): refus ABONNEMENT_EXPIRE dans la page sur Achats, Fournisseurs et les autres écrans`. Non vérifié en prod.
+   - Fait : `9d5a37f`, poussé le 2026-10-13 avec le commit doc `fe635a0`, CI verte (run GitHub Actions 38460777342, succès). Vérifié en prod par Mahamadou le 2026-10-13 (Boutique 2 mise expirée, « Expiré » vérifié d'abord dans Mon Abonnement) : achat refusé avec le message rouge en haut, panier conservé ; paiement dans une fiche fournisseur refusé avec le message en haut, rien sous le formulaire, montant conservé ; date de fin remise au 2026-10-23, une vente normale passe. Non vérifiés en prod (prouvés par les tests et les captures) : les autres endroits, le panneau d'Iwi, le message employé.
      - Code : 18 endroits en `alerterErreur`, 3 en `messageErreur` (fiche fournisseur : paiement et correction ; panneau d'Iwi), 11 fichiers. Inchangés comme prévu : l'`alert` regroupé des prix par unité (`Products.jsx`), Mon Compte, les `alert` de validation locale, les `window.confirm`.
      - Tests : `RefusAbonnementExpireAchatsFournisseurs.test.jsx` (9) et `RefusAbonnementExpireAutresEcrans.test.jsx` (19), chaque écran rendu avec `RefusAbonnementExpire`. Sur l'ancien code, 24 échecs sur 28, tous pour la bonne raison (pas de message en haut, pas de « Renouveler », texte brut dans le panneau d'Iwi) ; les 4 qui passent sont les non-régressions voulues (ancien backend : achat, paiement fournisseur, Iwi ; quota 429).
      - Mutations : 36 sur 36 détectées, chacune par le test de son propre endroit : 21 endroits remis comme avant, 12 « en cours » laissés bloqués, 3 saisies perdues (panier d'achat, fenêtre produit, question d'Iwi).
@@ -352,7 +383,6 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté Mahamadou
 
-- Après l'incident du 2026-10-10 : faire les trois vérifications d'intégrité des données de prod et en noter le résultat ici.
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
