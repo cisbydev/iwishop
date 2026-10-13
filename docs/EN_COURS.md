@@ -1,6 +1,22 @@
 # Travail en cours
 
-Mis à jour le 2026-10-05.
+Mis à jour le 2026-10-13.
+
+## Incident prod (2026-10-10 au 2026-10-13) : base Render expirée
+
+- La base Render `iwishop-db` (plan gratuit) a expiré le 2026-10-10. Render l'a suspendue et avait prévu de la supprimer vers le 2026-10-16. Symptôme : le backend ne trouvait plus la base (`OperationalError` « could not translate host name »).
+- Mahamadou l'a passée au plan payant (`0.1c-256mb`, 6 $/mois) le 2026-10-13. La prod remarche (constat de Mahamadou).
+- Intégrité des données : **pas encore établie**. Mahamadou a prévu trois vérifications, dont aucun résultat n'est noté (voir « En attente, côté Mahamadou »).
+- Aucun commit n'a été poussé pendant la panne : à la rédaction de cette note, `main` = `origin/main`, sur `b9053a7`. Règle tant qu'une panne dure : tout commit poussé est noté « non vérifié en prod », et on les vérifie tous après la réparation.
+- Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07, et c'était encore le cas quand cette note a été écrite. Les dates de cette note viennent de Mahamadou et de Render, pas du PC. Les dates git créées avec cette horloge sont fausses.
+
+## Chantier prioritaire : sauvegarde de la base
+
+Décidé le 2026-10-13, après l'incident. Le commit 5+6 est repris d'abord, en local (décision de Mahamadou du même jour).
+
+- Mettre en place une sauvegarde régulière de la base de prod.
+- Vérifier qu'on sait la restaurer : une vraie restauration, dans une base séparée (jamais sur la prod).
+- Plan à valider avant tout code ou réglage.
 
 ## Fait récemment
 
@@ -327,6 +343,8 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté Mahamadou
 
+- Après l'incident du 2026-10-10 : faire les trois vérifications d'intégrité des données de prod et en noter le résultat ici.
+- Remettre l'horloge du PC à l'heure (elle affichait le 2026-10-07 le 2026-10-13).
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
