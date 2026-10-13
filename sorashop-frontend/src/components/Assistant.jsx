@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Send, Sparkles, X } from 'lucide-react';
 import { useSettings } from '../context/settingsContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { messageErreur } from '../services/errorUtils';
 import { poserQuestion } from '../services/assistant';
 
 const SUGGESTIONS = [
@@ -45,7 +45,7 @@ export default function Assistant() {
       setErreur(
         err.response?.status === 429
           ? "Limite quotidienne de questions à l'assistant atteinte. Réessayez demain."
-          : getErrorMessage(err, "Iwi n'a pas pu répondre pour le moment. Réessayez plus tard.")
+          : messageErreur(err, "Iwi n'a pas pu répondre pour le moment. Réessayez plus tard.")
       );
     } finally {
       setChargement(false);

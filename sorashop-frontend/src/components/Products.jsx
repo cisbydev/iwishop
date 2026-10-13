@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur, getErrorMessage } from '../services/errorUtils';
 import { formatCurrency } from '../utils/formatters';
 import { Plus, Pencil, Trash2, Search, X } from 'lucide-react';
 
@@ -242,9 +242,9 @@ export default function Products() {
       fetchProduits();
       fetchPrix();
     } catch (err) {
-      alert(getErrorMessage(err, editingId
+      alerterErreur(err, editingId
         ? "Erreur lors de la modification du produit."
-        : "Erreur lors de la création du produit."));
+        : "Erreur lors de la création du produit.");
     } finally {
       setIsSaving(false);
     }
@@ -258,7 +258,7 @@ export default function Products() {
       await api.delete(`produits/${produit.id}/`);
       fetchProduits();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la suppression du produit."));
+      alerterErreur(err, "Erreur lors de la suppression du produit.");
     }
   };
 

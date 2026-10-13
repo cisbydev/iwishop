@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/supportViewContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { PackagePlus, PackageMinus, ClipboardList, History } from 'lucide-react';
 
 const TYPES_LABELS = {
@@ -95,7 +95,7 @@ export default function Stock() {
       fetchMouvements(filtreType);
       fetchProduits(); // Rafraîchir les stocks affichés dans le sélecteur
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de l'enregistrement du mouvement."));
+      alerterErreur(err, "Erreur lors de l'enregistrement du mouvement.");
     } finally {
       setIsSubmitting(false);
     }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { Plus, UserCircle, UserX, UserCheck, ShieldCheck, ShieldOff } from 'lucide-react';
 
 const FORM_VIDE = { username: '', first_name: '', last_name: '', password: '' };
@@ -40,7 +40,7 @@ export default function Employees() {
       setForm(FORM_VIDE);
       fetchEmployes();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la création du compte employé."));
+      alerterErreur(err, "Erreur lors de la création du compte employé.");
     }
   };
 
@@ -52,7 +52,7 @@ export default function Employees() {
       await api.delete(`accounts/employes/${employe.id}/`);
       fetchEmployes();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la désactivation du compte."));
+      alerterErreur(err, "Erreur lors de la désactivation du compte.");
     }
   };
 
@@ -61,7 +61,7 @@ export default function Employees() {
       await api.post(`accounts/employes/${employe.id}/reactiver/`);
       fetchEmployes();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la réactivation du compte."));
+      alerterErreur(err, "Erreur lors de la réactivation du compte.");
     }
   };
 

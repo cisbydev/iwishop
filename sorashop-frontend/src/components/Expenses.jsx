@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { Ban, Plus, Receipt, Wallet } from 'lucide-react';
 
@@ -82,7 +82,7 @@ export default function Expenses() {
       setForm(FORM_VIDE);
       fetchDepenses(filtreCategorie);
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de l'enregistrement de la dépense."));
+      alerterErreur(err, "Erreur lors de l'enregistrement de la dépense.");
     } finally {
       setIsSaving(false);
     }
@@ -98,7 +98,7 @@ export default function Expenses() {
       await api.post(`depenses/${depense.id}/annuler/`);
       fetchDepenses(filtreCategorie);
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de l'annulation de la dépense."));
+      alerterErreur(err, "Erreur lors de l'annulation de la dépense.");
     } finally {
       setAnnulationEnCours(null);
     }

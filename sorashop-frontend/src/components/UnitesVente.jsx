@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { Plus, Ruler, Lock, Pencil, Trash2 } from 'lucide-react';
 
 const FORM_VIDE = { nom: '', facteur_conversion: '' };
@@ -71,9 +71,9 @@ export default function UnitesVente() {
       fermerModal();
       fetchUnites();
     } catch (err) {
-      alert(getErrorMessage(err, editingId
+      alerterErreur(err, editingId
         ? "Erreur lors de la modification de l'unité."
-        : "Erreur lors de la création de l'unité."));
+        : "Erreur lors de la création de l'unité.");
     }
   };
 
@@ -97,11 +97,11 @@ export default function UnitesVente() {
           await api.delete(`produits/unites-vente/${unite.id}/?force=true`);
           fetchUnites();
         } catch (err2) {
-          alert(getErrorMessage(err2, "Erreur lors de la suppression de l'unité."));
+          alerterErreur(err2, "Erreur lors de la suppression de l'unité.");
         }
         return;
       }
-      alert(getErrorMessage(err, "Erreur lors de la suppression de l'unité."));
+      alerterErreur(err, "Erreur lors de la suppression de l'unité.");
     }
   };
 

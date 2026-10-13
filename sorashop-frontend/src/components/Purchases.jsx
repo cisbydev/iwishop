@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { MODES_PAIEMENT } from '../utils/modesPaiement';
 import { Ban, Truck, Plus, Trash2, CheckCircle, History } from 'lucide-react';
@@ -135,7 +135,7 @@ export default function Purchases() {
       await api.post(`achats/${achat.id}/annuler/`);
       await fetchAchats();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de l'annulation de l'achat."));
+      alerterErreur(err, "Erreur lors de l'annulation de l'achat.");
     } finally {
       setAnnulationEnCours(null);
     }
@@ -288,7 +288,7 @@ export default function Purchases() {
       fetchProduits(); // Rafraîchir les stocks
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de l'enregistrement de l'achat."));
+      alerterErreur(err, "Erreur lors de l'enregistrement de l'achat.");
     } finally {
       setIsSubmitting(false);
     }

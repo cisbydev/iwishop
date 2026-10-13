@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../services/api';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { useSettings } from '../context/settingsContextValue';
 import Account from './Account';
 import Employees from './Employees';
@@ -104,7 +104,7 @@ function BoutiqueSettings() {
       refetchParametres(); // Met à jour l'en-tête (nom + logo) partout dans l'app
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de l'enregistrement des paramètres."));
+      alerterErreur(err, "Erreur lors de l'enregistrement des paramètres.");
     } finally {
       setSaving(false);
     }

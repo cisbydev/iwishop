@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { Plus, Tag, Trash2 } from 'lucide-react';
 
 export default function Categories() {
@@ -51,7 +51,7 @@ export default function Categories() {
       setDescription('');
       fetchCategories();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la création de la catégorie."));
+      alerterErreur(err, "Erreur lors de la création de la catégorie.");
     } finally {
       setIsSaving(false);
     }
@@ -65,7 +65,7 @@ export default function Categories() {
       await api.delete(`categories/${id}/`);
       fetchCategories();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la suppression de la catégorie."));
+      alerterErreur(err, "Erreur lors de la suppression de la catégorie.");
     }
   };
 

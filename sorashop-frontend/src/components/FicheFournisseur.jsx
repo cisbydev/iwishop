@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getErrorMessage } from '../services/errorUtils';
+import { messageErreur } from '../services/errorUtils';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { MODES_PAIEMENT, libelleModePaiement } from '../utils/modesPaiement';
 import {
@@ -110,7 +110,7 @@ export default function FicheFournisseur({ fournisseur, dette, devise, modeSuppo
     } catch (err) {
       setErreursParAchat((prev) => ({
         ...prev,
-        [achat.id]: getErrorMessage(err, "Erreur lors de l'enregistrement du paiement."),
+        [achat.id]: messageErreur(err, "Erreur lors de l'enregistrement du paiement."),
       }));
     } finally {
       setEnregistrementEnCours(null);
@@ -149,7 +149,7 @@ export default function FicheFournisseur({ fournisseur, dette, devise, modeSuppo
       await chargerHistorique();
       onPaiementEnregistre?.();
     } catch (err) {
-      setErreurCorrection(getErrorMessage(err, 'Erreur lors de la correction du paiement.'));
+      setErreurCorrection(messageErreur(err, 'Erreur lors de la correction du paiement.'));
     } finally {
       setCorrectionEnCours(false);
     }

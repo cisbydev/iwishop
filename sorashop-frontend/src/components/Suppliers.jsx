@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
-import { getErrorMessage } from '../services/errorUtils';
+import { alerterErreur } from '../services/errorUtils';
 import { formatCurrency, couleurBadgeDette } from '../utils/formatters';
 import { listerFournisseursAvecDette, obtenirDetteTotaleFournisseurs } from '../services/fournisseurs';
 import FicheFournisseur from './FicheFournisseur';
@@ -121,9 +121,9 @@ export default function Suppliers() {
       fermerModal();
       fetchFournisseurs();
     } catch (err) {
-      alert(getErrorMessage(err, editingId
+      alerterErreur(err, editingId
         ? "Erreur lors de la modification du fournisseur."
-        : "Erreur lors de la création du fournisseur."));
+        : "Erreur lors de la création du fournisseur.");
     } finally {
       setIsSaving(false);
     }
@@ -137,7 +137,7 @@ export default function Suppliers() {
       await api.delete(`fournisseurs/${f.id}/`);
       fetchFournisseurs();
     } catch (err) {
-      alert(getErrorMessage(err, "Erreur lors de la suppression du fournisseur."));
+      alerterErreur(err, "Erreur lors de la suppression du fournisseur.");
     }
   };
 
