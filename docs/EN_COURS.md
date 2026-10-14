@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-13.
+Mis à jour le 2026-10-14.
 
 ## Incident prod (2026-10-10 au 2026-10-13) : base Render expirée
 
@@ -14,7 +14,7 @@ Mis à jour le 2026-10-13.
 
 Décidé le 2026-10-13, après l'incident. Le commit 5+6 est passé d'abord (terminé le 2026-10-13).
 
-Plan validé par Mahamadou le 2026-10-13. Prochaine étape : l'étape B (vrai test de restauration en local), le 2026-10-14 au matin.
+Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Prochaine étape : à décider (étape C, points à traiter).
 
 ### Constat (2026-10-13)
 
@@ -44,10 +44,28 @@ Plan validé par Mahamadou le 2026-10-13. Prochaine étape : l'étape B (vrai te
 - C. Régularité : tâche planifiée (« cron job ») chez Render : `pg_dump`, archive chiffrée, dépôt dans R2 privé, conservation selon la décision 2 ; coût mensuel à vérifier. Plus un test de restauration chaque mois.
 - D. Preuve : journal daté de chaque sauvegarde, de chaque test de restauration et des comptes obtenus.
 
+### Résultat de l'étape B (2026-10-14)
+
+Fait le soir du 2026-10-14 par Mahamadou, dans sa propre fenêtre PowerShell. Horloge du PC vérifiée avant de commencer (`Get-Date` : 2026-10-14). Adresses de la prod et de la base de test saisies avec `Read-Host -AsSecureString` : jamais affichées, ni dans la conversation ni dans l'historique de PowerShell.
+
+- Requête de comptage, en lecture seule (`SET default_transaction_read_only = on`, `BEGIN READ ONLY`, `ROLLBACK`) : nombre de lignes de chaque table du schéma `public`, dernière valeur de chaque séquence, nombre de tables, séquences, index et contraintes, présence des deux ventes témoins.
+- Comptage de la prod avant la sauvegarde : 37 tables, 35 séquences, 120 index, 331 contraintes ; 35 ventes, 126 lignes dans `django_migrations` ; V-2F621063 et V-AD91351B présentes.
+- Archive `iwishop_postgres_20261014_210926.dump` (208 202 octets), vérifiée par `backup_postgres.ps1` (non vide, `pg_restore --list`).
+- Second comptage de la prod juste après : identique au premier (`Compare-Object` vide). L'archive correspond donc à cet état.
+- Base locale neuve `iwishop_restore_test_20261014` (absence vérifiée avant `createdb`). Restauration par `restore_postgres_temp.ps1` sans erreur (`--exit-on-error`), `DATABASE_URL` laissée sur la prod pour que le garde-fou du script compare les cibles.
+- Comptage de la base restaurée : identique à la prod, ligne pour ligne (comptes, séquences, objets, ventes témoins).
+- Fenêtre basculée sur la base de test (hôte `localhost` relu avant), sans `migrate` : `manage.py check` sans problème ; `showmigrations` : 126 migrations appliquées, aucune non appliquée.
+- Conclusion : une restauration complète marche. `iwishop_postgres_20261014_210926.dump` est la première archive validée ; les archives plus anciennes de `backups/` ne le sont toujours pas.
+- Limites : seuls les nombres de lignes sont comparés, pas le contenu ; l'application n'a pas tourné sur la base restaurée (seulement `check` et `showmigrations`) ; restauration avec PostgreSQL 18.4 en local, pour une prod en 18.6 ; fichiers de R2 hors sauvegarde.
+- Base de test supprimée le 2026-10-14 par Mahamadou : hôte, port et nom relus avant (`localhost`, 5432, `iwishop_restore_test_20261014`), `dropdb -i` confirmé, puis absence vérifiée (0 base de ce nom). Fenêtre PowerShell fermée ensuite (adresses effacées avec elle).
+
 ### Points à traiter
 
 - Supprimer les archives de 0 octet de `backups/` ; et, dans `backup_postgres.ps1`, supprimer l'archive quand `pg_dump` échoue (d'où ces fichiers vides).
-- Une fois l'étape B réussie : décider quoi faire des anciennes archives non chiffrées de `backups/` (données de clients sur le PC).
+- Étape B réussie : décider quoi faire des archives non chiffrées de `backups/`, la nouvelle comprise (données de clients sur le PC).
+- Accents abîmés dans les messages de `backup_postgres.ps1` et `restore_postgres_temp.ps1` (« vÃ©rifiÃ©e », relevé le 2026-10-14) : fichiers en UTF-8 sans BOM, lus dans l'ancien encodage de Windows par PowerShell 5.1. Sans effet sur la sauvegarde ni la restauration.
+- Deux autres bases locales vues à la relecture du 2026-10-14, laissées intactes : `iwishop_restore_test_20260911` et `iwishop_restore_test_current_20260911` (anciens essais probables du 2026-09-11). Vérifier ce qu'elles contiennent, puis décider de les supprimer (copies de données de clients sur le PC).
+- La requête de comptage de l'étape B n'est pas dans le dépôt (dossier de travail de la session). L'ajouter dans `scripts/` pour les tests de restauration mensuels (étapes C et D).
 
 ## Fait récemment
 
@@ -248,7 +266,7 @@ Prochaine étape (décidée le 2026-10-05) : analyse du code d'abord, sans coder
 
 Décidé le 2026-10-05, juste après l'offre unique. Analyse et découpage validés le 2026-10-05 ; commits 1 à 6 poussés et vérifiés en prod (5 et 6 regroupés).
 
-Prochaine étape : le commit 7. Le chantier prioritaire « sauvegarde de la base » passe d'abord (étape B le 2026-10-14).
+Prochaine étape : le commit 7. Le chantier prioritaire « sauvegarde de la base » passe d'abord (étape B réussie le 2026-10-14, étapes C et D à venir).
 
 Décision produit de Mahamadou (2026-10-05) :
 - **Pas de bandeau permanent** après l'expiration : on ne harcèle pas le client.
