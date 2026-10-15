@@ -6,6 +6,9 @@ import { telechargerBlob } from '../utils/telechargerBlob';
 
 const BOUTON =
   'inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60';
+// Sur téléphone (sous sm), icône seule : le libellé est masqué, le nom du
+// bouton reste dans aria-label (lecteurs d'écran) et title (survol).
+const TEXTE_BOUTON = 'hidden sm:inline';
 
 // Facture d'une vente : la créer, puis la télécharger. N'affiche que ce que
 // renvoie l'API (numéro, est_annulee), aucun montant.
@@ -114,15 +117,16 @@ export default function FactureActions({ vente, modeSupport, onFactureEmise }) {
           type="button"
           onClick={creer}
           disabled={modeSupport || enCours !== null}
-          title={modeSupport ? 'Action désactivée en Vue Support (lecture seule)' : undefined}
+          title={modeSupport ? 'Action désactivée en Vue Support (lecture seule)' : 'Créer la facture'}
+          aria-label={enCours === 'creation' ? 'Création de la facture en cours' : 'Créer la facture'}
           className={`${BOUTON} border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100`}
         >
           <FileText className="h-4 w-4" />
-          {enCours === 'creation' ? 'Création...' : 'Créer la facture'}
+          <span className={TEXTE_BOUTON}>{enCours === 'creation' ? 'Création...' : 'Créer la facture'}</span>
         </button>
       ) : (
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-700">{facture.numero}</span>
+          <span className="whitespace-nowrap text-xs font-semibold text-slate-700">{facture.numero}</span>
           {facture.est_annulee && (
             <span className="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
               Annulée
@@ -133,20 +137,22 @@ export default function FactureActions({ vente, modeSupport, onFactureEmise }) {
             onClick={telecharger}
             disabled={enCours !== null}
             aria-label={`Télécharger la facture ${facture.numero}`}
+            title={`Télécharger la facture ${facture.numero}`}
             className={`${BOUTON} border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
           >
             <FileDown className="h-4 w-4" />
-            {enCours === 'telechargement' ? 'Téléchargement...' : 'Télécharger'}
+            <span className={TEXTE_BOUTON}>{enCours === 'telechargement' ? 'Téléchargement...' : 'Télécharger'}</span>
           </button>
           <button
             type="button"
             onClick={partager}
             disabled={enCours !== null}
             aria-label={`Partager la facture ${facture.numero}`}
+            title={`Partager la facture ${facture.numero}`}
             className={`${BOUTON} border-green-200 bg-green-50 text-green-800 hover:bg-green-100`}
           >
             <Share2 className="h-4 w-4" />
-            {enCours === 'partage' ? 'Préparation...' : 'Partager'}
+            <span className={TEXTE_BOUTON}>{enCours === 'partage' ? 'Préparation...' : 'Partager'}</span>
           </button>
         </div>
       )}

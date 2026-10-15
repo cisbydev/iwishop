@@ -272,6 +272,31 @@ describe('SalesHistory : facture', () => {
     });
   });
 
+  it('sur téléphone : boutons en icône seule, nom gardé en aria-label et title, numéro sans coupure', async () => {
+    // jsdom n'applique pas le CSS : on vérifie les attributs qui portent le
+    // nom des boutons quand le libellé est masqué sous sm.
+    mocks.get.mockResolvedValue(listeDeVentes([
+      vente(1, { facture: null }),
+      vente(2, { facture: { id: 8, numero: 'F-2026-0002', est_annulee: false } }),
+    ]));
+
+    render(<SalesHistory />);
+
+    const creer = await screen.findByRole('button', { name: 'Créer la facture' });
+    const telecharger = screen.getByRole('button', { name: 'Télécharger la facture F-2026-0002' });
+    const partager = screen.getByRole('button', { name: 'Partager la facture F-2026-0002' });
+    for (const [bouton, nom] of [
+      [creer, 'Créer la facture'],
+      [telecharger, 'Télécharger la facture F-2026-0002'],
+      [partager, 'Partager la facture F-2026-0002'],
+    ]) {
+      expect(bouton).toHaveAttribute('aria-label', nom);
+      expect(bouton).toHaveAttribute('title', nom);
+      expect(bouton.querySelector('span')).toHaveClass('hidden', 'sm:inline');
+    }
+    expect(screen.getByText('F-2026-0002')).toHaveClass('whitespace-nowrap');
+  });
+
   it('Vue Support : création désactivée, téléchargement permis', async () => {
     mocks.support = { actif: true, boutiqueId: 3 };
     mocks.get.mockResolvedValue(listeDeVentes([
