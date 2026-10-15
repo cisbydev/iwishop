@@ -16,11 +16,12 @@ from .models import Vente, LigneVente, Client, Remboursement
 from .serializers import (
     VenteSerializer, ClientSerializer, RemboursementSerializer,
     ClientAvecDetteSerializer, HistoriqueClientSerializer,
-    CorrectionRemboursementSerializer,
+    CorrectionRemboursementSerializer, FactureResumeSerializer,
 )
 from .services.credit import (
     avertissement_plafond_credit, corriger_remboursement, enregistrer_remboursement,
 )
+from .services.factures import emettre_facture
 
 class VenteViewSet(
     BoutiqueScopedMixin,
@@ -35,11 +36,11 @@ class VenteViewSet(
     # désactivés, même principe que MouvementStock). Pour corriger une
     # erreur, on l'annule via l'action `annuler`, qui restaure le stock par
     # une écriture inverse plutôt que de réécrire ou effacer l'historique.
-    # select_related : utilisateur_nom (serializer).
+    # select_related : utilisateur_nom et facture (serializer).
     # prefetch_related : la sérialisation imbriquée des lignes (LigneVenteSerializer,
     # produit_nom/unite_nom) ferait sinon 1 requête par vente pour ses lignes,
     # + 2 requêtes par ligne (N+1, audit point 13).
-    queryset = Vente.objects.select_related('utilisateur').prefetch_related(
+    queryset = Vente.objects.select_related('utilisateur', 'facture').prefetch_related(
         Prefetch('lignes', queryset=LigneVente.objects.select_related('produit', 'unite'))
     )
     serializer_class = VenteSerializer
@@ -143,6 +144,22 @@ class VenteViewSet(
 
         serializer = self.get_serializer(vente)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def facture(self, request, pk=None):
+        # Émet la facture de la vente (201), ou renvoie celle qui existe
+        # (200). Ouvert à tout vendeur, pas seulement au propriétaire.
+        # Écriture : contrôle d'accès explicite, comme annuler (la Vue
+        # Support, en lecture seule, est refusée par _boutique_effective).
+        self._verifier_acces(self._boutique_effective())
+        # get_object() applique le scoping boutique : la vente d'une autre
+        # boutique donne le même 404 qu'une vente inexistante.
+        vente = self.get_object()
+        facture, creee = emettre_facture(vente, request.user)
+        return Response(
+            FactureResumeSerializer(facture).data,
+            status=status.HTTP_201_CREATED if creee else status.HTTP_200_OK,
+        )
 
 
 class ClientViewSet(

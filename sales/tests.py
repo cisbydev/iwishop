@@ -2461,3 +2461,182 @@ class FactureConcurrenceTests(APITransactionTestCase):
         self.assertEqual(resultats.get('annulation'), status.HTTP_200_OK, resultats)
         self.assertIn("Impossible d'émettre une facture pour une vente annulée.", str(resultats.get('emission')))
         self.assertEqual(Facture.objects.count(), 0)
+
+
+class FactureApiTests(APITestCase):
+    """POST ventes/{id}/facture/, champ `facture` des ventes et
+    `demander_facture` à la création d'une vente."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-facture-api")
+        self.proprietaire = User.objects.create_user(username="proprio_facture_api", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.employe = User.objects.create_user(username="employe_facture_api", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+
+        self.autre_boutique = Boutique.objects.create(nom="Autre", slug="autre-boutique-facture-api")
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("100"))
+
+        self.client.force_authenticate(user=self.proprietaire)
+        self.url_list = reverse('ventes-list')
+        self.annee = timezone.localdate().year
+
+    def _url_facture(self, vente_id):
+        return reverse('ventes-facture', args=[vente_id])
+
+    def _payload(self, quantite=2, **extra):
+        payload = {
+            "montant_paye": str(Decimal(quantite) * Decimal("100.00")),
+            "lignes": [{"produit": self.produit.id, "quantite": quantite, "type_vente": "UNITE", "prix_applique": "100.00"}],
+        }
+        payload.update(extra)
+        return payload
+
+    def test_emission_201_puis_200_avec_le_meme_numero(self):
+        vente = _vente_comptant(self.boutique)
+
+        premiere = self.client.post(self._url_facture(vente.id))
+        seconde = self.client.post(self._url_facture(vente.id))
+
+        self.assertEqual(premiere.status_code, status.HTTP_201_CREATED, premiere.data)
+        self.assertEqual(premiere.data['numero'], f"F-{self.annee}-0001")
+        self.assertFalse(premiere.data['est_annulee'])
+        self.assertEqual(seconde.status_code, status.HTTP_200_OK, seconde.data)
+        self.assertEqual(seconde.data['id'], premiere.data['id'])
+        self.assertEqual(Facture.objects.count(), 1)
+
+    def test_vente_annulee_400_et_non_500(self):
+        vente = _vente_comptant(self.boutique)
+        annulation = self.client.post(reverse('ventes-annuler', args=[vente.id]))
+        self.assertEqual(annulation.status_code, status.HTTP_200_OK, annulation.data)
+
+        response = self.client.post(self._url_facture(vente.id))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Impossible d'émettre une facture pour une vente annulée.", str(response.data))
+        self.assertEqual(Facture.objects.count(), 0)
+
+    def test_vente_dune_autre_boutique_meme_404_quune_vente_inexistante(self):
+        vente_autre = _vente_comptant(self.autre_boutique)
+        id_inexistant = Vente.objects.order_by('-pk').first().pk + 1000
+
+        autre = self.client.post(self._url_facture(vente_autre.id))
+        inexistante = self.client.post(self._url_facture(id_inexistant))
+
+        self.assertEqual(autre.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(inexistante.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(autre.data, inexistante.data)
+        self.assertEqual(Facture.objects.count(), 0)
+
+    def test_un_employe_peut_emettre(self):
+        vente = _vente_comptant(self.boutique)
+        self.client.force_authenticate(user=self.employe)
+
+        response = self.client.post(self._url_facture(vente.id))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(Facture.objects.get().emise_par, self.employe)
+
+    def test_abonnement_expire_refuse_sans_facture(self):
+        vente = _vente_comptant(self.boutique)
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+        response = self.client.post(self._url_facture(vente.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data['code'], 'ABONNEMENT_EXPIRE')
+        self.assertEqual(Facture.objects.count(), 0)
+
+    def test_vue_support_refusee_en_ecriture(self):
+        vente = _vente_comptant(self.boutique)
+        support = User.objects.create_superuser(username="support_facture", password="pass1234")
+        self.client.force_authenticate(user=support)
+
+        response = self.client.post(self._url_facture(vente.id), HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique.id))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("lecture seule", str(response.data))
+        self.assertEqual(Facture.objects.count(), 0)
+
+    def test_liste_expose_la_facture_ou_null(self):
+        sans_facture = _vente_comptant(self.boutique)
+        avec_facture = _vente_comptant(self.boutique)
+        emettre_facture(avec_facture, self.proprietaire)
+
+        response = self.client.get(self.url_list)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        par_id = {vente['id']: vente for vente in response.data['results']}
+        self.assertIsNone(par_id[sans_facture.id]['facture'])
+        self.assertEqual(par_id[avec_facture.id]['facture']['numero'], f"F-{self.annee}-0001")
+        self.assertFalse(par_id[avec_facture.id]['facture']['est_annulee'])
+
+    def test_liste_sans_requete_par_facture(self):
+        # Même méthode que VenteListQueryCountTests : utilisateur relu avant
+        # chaque appel, pour ne pas profiter d'un cache construit en setUp.
+        emettre_facture(_vente_comptant(self.boutique), self.proprietaire)
+        self.client.force_authenticate(user=User.objects.get(pk=self.proprietaire.pk))
+        with CaptureQueriesContext(connection) as premier:
+            self.client.get(self.url_list)
+
+        for _ in range(3):
+            emettre_facture(_vente_comptant(self.boutique), self.proprietaire)
+        self.client.force_authenticate(user=User.objects.get(pk=self.proprietaire.pk))
+        with CaptureQueriesContext(connection) as second:
+            response = self.client.get(self.url_list)
+
+        self.assertEqual(len(response.data['results']), 4)
+        self.assertEqual(len(premier.captured_queries), len(second.captured_queries))
+
+    def test_creation_sans_demander_facture_inchangee(self):
+        response = self.client.post(self.url_list, self._payload(), format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertIsNone(response.data['facture'])
+        self.assertNotIn('demander_facture', response.data)
+        self.assertEqual(Facture.objects.count(), 0)
+
+    def test_creation_avec_demander_facture(self):
+        response = self.client.post(self.url_list, self._payload(demander_facture=True), format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data['facture']['numero'], f"F-{self.annee}-0001")
+        self.assertEqual(Vente.objects.count(), 1)
+        self.assertEqual(Facture.objects.filter(vente_id=response.data['id']).count(), 1)
+
+    def test_rejeu_hors_ligne_une_vente_une_facture(self):
+        payload = self._payload(
+            demander_facture=True, cle_idempotence=str(uuid.uuid4()), synchronisation_differee=True,
+        )
+
+        premiere = self.client.post(self.url_list, payload, format='json')
+        seconde = self.client.post(self.url_list, payload, format='json')
+
+        self.assertEqual(premiere.status_code, status.HTTP_201_CREATED, premiere.data)
+        self.assertEqual(seconde.status_code, status.HTTP_201_CREATED, seconde.data)
+        self.assertEqual(seconde.data['id'], premiere.data['id'])
+        self.assertEqual(seconde.data['facture']['numero'], premiere.data['facture']['numero'])
+        self.assertEqual(Vente.objects.count(), 1)
+        self.assertEqual(Facture.objects.count(), 1)
+
+    def test_vente_refusee_ni_vente_ni_facture(self):
+        response = self.client.post(self.url_list, self._payload(quantite=50, demander_facture=True), format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Vente.objects.count(), 0)
+        self.assertEqual(Facture.objects.count(), 0)

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.db import transaction
-from .models import Vente, LigneVente, Client, Remboursement, StatutPaiement
+from .models import Vente, LigneVente, Client, Facture, Remboursement, StatutPaiement
+from .services.factures import emettre_facture
 from inventory.models import MouvementStock
 from products.models import Produit, UniteVente, ProduitPrix
 from rest_framework.exceptions import ValidationError
@@ -112,6 +113,15 @@ class LigneVenteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("La quantité doit être strictement positive.")
         return value
 
+class FactureResumeSerializer(serializers.ModelSerializer):
+    est_annulee = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Facture
+        fields = ['id', 'numero', 'date_emission', 'est_annulee']
+        read_only_fields = fields
+
+
 class VenteSerializer(serializers.ModelSerializer):
     lignes = LigneVenteSerializer(many=True)
     utilisateur_nom = serializers.ReadOnlyField(source='utilisateur.username')
@@ -132,6 +142,11 @@ class VenteSerializer(serializers.ModelSerializer):
     client_credit = serializers.PrimaryKeyRelatedField(
         queryset=Client.objects.all(), required=False, allow_null=True
     )
+    # Facture : null tant qu'aucune n'est émise. demander_facture est
+    # optionnel en écriture : absent (frontend actuel) => aucune facture,
+    # chemin inchangé.
+    facture = serializers.SerializerMethodField()
+    demander_facture = serializers.BooleanField(required=False, default=False, write_only=True)
 
     class Meta:
         model = Vente
@@ -141,7 +156,7 @@ class VenteSerializer(serializers.ModelSerializer):
             'mode_paiement', 'utilisateur', 'utilisateur_nom', 'statut', 'lignes',
             'cle_idempotence', 'horodatage_client', 'creee_hors_ligne',
             'stock_ajuste_manuellement', 'synchronisation_differee',
-            'statut_paiement', 'montant_du',
+            'statut_paiement', 'montant_du', 'facture', 'demander_facture',
         ]
         read_only_fields = [
             'numero', 'date_vente', 'montant_total', 'montant_net', 'monnaie_rendue',
@@ -149,11 +164,23 @@ class VenteSerializer(serializers.ModelSerializer):
             'statut_paiement', 'montant_du',
         ]
 
+    def get_facture(self, vente):
+        # Accès inverse OneToOne : None (et non une exception) sans facture.
+        # Lu via select_related('facture') dans VenteViewSet.queryset.
+        facture = getattr(vente, 'facture', None)
+        if facture is None:
+            return None
+        return FactureResumeSerializer(facture).data
+
     @transaction.atomic
     def create(self, validated_data):
         boutique = boutique_de(self.context['request'])
         if not boutique.actif:
             raise serializers.ValidationError("Cette boutique a été désactivée.")
+
+        # Retiré avant tout : ce n'est pas un champ du modèle, et un rejeu
+        # (ci-dessous) reste un pur no-op, facture comprise.
+        demander_facture = validated_data.pop('demander_facture', False)
 
         # Idempotence (PWA Niveau 2) : une même clé déjà enregistrée pour
         # cette boutique renvoie la vente existante telle quelle - aucune
@@ -371,5 +398,13 @@ class VenteSerializer(serializers.ModelSerializer):
         if stock_negatif_detecte:
             vente.stock_ajuste_manuellement = True
         vente.save()
+
+        if demander_facture:
+            # Même transaction que la vente : la vente et sa facture sont
+            # créées ensemble ou pas du tout. Une vente synchronisée en
+            # différé reçoit donc son numéro au moment de la synchronisation.
+            # Verrous : les produits (plus haut), puis la vente et la
+            # boutique (emettre_facture), même ordre que partout ailleurs.
+            emettre_facture(vente, self.context['request'].user)
 
         return vente
