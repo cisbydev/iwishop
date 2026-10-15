@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory)]
     [string]$ArchivePath,
@@ -43,7 +43,7 @@ function Get-PostgresTarget {
 }
 
 if ([string]::IsNullOrWhiteSpace($env:TEMP_DATABASE_URL)) {
-    throw 'TEMP_DATABASE_URL est absente. Aucune restauration n’a été effectuée.'
+    throw "TEMP_DATABASE_URL est absente. Aucune restauration n’a été effectuée."
 }
 
 if (-not $ConfirmTemporaryRestore.IsPresent) {
@@ -55,16 +55,16 @@ if (-not (Test-Path -LiteralPath $PgRestorePath -PathType Leaf)) {
 }
 
 if (-not (Test-Path -LiteralPath $ArchivePath -PathType Leaf)) {
-    throw 'L’archive indiquée est introuvable. Aucune restauration n’a été effectuée.'
+    throw "L’archive indiquée est introuvable. Aucune restauration n’a été effectuée."
 }
 
 if ((Get-Item -LiteralPath $ArchivePath).Length -le 0) {
-    throw 'L’archive indiquée est vide. Aucune restauration n’a été effectuée.'
+    throw "L’archive indiquée est vide. Aucune restauration n’a été effectuée."
 }
 
 $temporaryTarget = Get-PostgresTarget -ConnectionUrl $env:TEMP_DATABASE_URL -VariableName 'TEMP_DATABASE_URL'
 if (-not $temporaryTarget.Database.StartsWith('iwishop_restore_test_', [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw 'La base cible doit commencer par iwishop_restore_test_. Aucune restauration n’a été effectuée.'
+    throw "La base cible doit commencer par iwishop_restore_test_. Aucune restauration n’a été effectuée."
 }
 
 if (-not [string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
@@ -74,13 +74,13 @@ if (-not [string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
         $temporaryTarget.Port -eq $productionTarget.Port -and
         $temporaryTarget.Database -eq $productionTarget.Database
     ) {
-        throw 'La cible correspond à DATABASE_URL. Aucune restauration n’a été effectuée.'
+        throw "La cible correspond à DATABASE_URL. Aucune restauration n’a été effectuée."
     }
 }
 
 & $PgRestorePath '--list' '--file=NUL' $ArchivePath
 if ($LASTEXITCODE -ne 0) {
-    throw 'pg_restore --list a échoué. Aucune restauration n’a été effectuée.'
+    throw "pg_restore --list a échoué. Aucune restauration n’a été effectuée."
 }
 
 $pgRestoreArguments = @(

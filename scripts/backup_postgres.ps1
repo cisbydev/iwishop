@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$PgDumpPath = 'C:\Program Files\PostgreSQL\18\bin\pg_dump.exe',
     [string]$PgRestorePath = 'C:\Program Files\PostgreSQL\18\bin\pg_restore.exe',
@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if ([string]::IsNullOrWhiteSpace($env:DATABASE_URL)) {
-    throw 'DATABASE_URL est absente. Aucun backup n’a été créé.'
+    throw "DATABASE_URL est absente. Aucun backup n’a été créé."
 }
 
 if (-not (Test-Path -LiteralPath $PgDumpPath -PathType Leaf)) {
@@ -33,20 +33,20 @@ $pgDumpArguments = @(
 )
 & $PgDumpPath @pgDumpArguments
 if ($LASTEXITCODE -ne 0) {
-    throw 'pg_dump a échoué. L’archive doit être considérée comme non valide.'
+    throw "pg_dump a échoué. L’archive doit être considérée comme non valide."
 }
 
 if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
-    throw 'pg_dump n’a produit aucun fichier de sauvegarde.'
+    throw "pg_dump n’a produit aucun fichier de sauvegarde."
 }
 
 if ((Get-Item -LiteralPath $archivePath).Length -le 0) {
-    throw 'L’archive produite est vide et n’est pas valide.'
+    throw "L’archive produite est vide et n’est pas valide."
 }
 
 & $PgRestorePath '--list' '--file=NUL' $archivePath
 if ($LASTEXITCODE -ne 0) {
-    throw 'pg_restore --list a échoué. L’archive doit être considérée comme non valide.'
+    throw "pg_restore --list a échoué. L’archive doit être considérée comme non valide."
 }
 
 Write-Output "Archive PostgreSQL vérifiée : $archivePath"
