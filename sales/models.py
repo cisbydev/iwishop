@@ -199,3 +199,53 @@ class Remboursement(models.Model):
         if self.remboursement_corrige_id:
             return f"Correction {self.montant} du remboursement #{self.remboursement_corrige_id} sur {self.vente.numero}"
         return f"Remboursement {self.montant} sur {self.vente.numero}"
+
+
+class Facture(models.Model):
+    """Facture d'une vente, émise à la demande (au plus une par vente).
+
+    Numéro unique par boutique et par année, sans trou ni doublon :
+    attribué sous verrou par sales.services.factures.emettre_facture, la
+    seule voie de création. Une facture n'est jamais modifiée ni supprimée :
+    même numéro, même document. Les montants et les lignes sont lus sur la
+    vente, qui ne change plus une fois validée ; seuls les montants dérivés
+    (montant_du, statut_paiement) bougent, et la facture ne les affiche pas.
+    Elle est annulée si et seulement si sa vente l'est (est_annulee), sans
+    champ à saisir."""
+    boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE, related_name='factures')
+    vente = models.OneToOneField(Vente, on_delete=models.PROTECT, related_name='facture')
+    annee = models.PositiveSmallIntegerField()
+    sequence = models.PositiveIntegerField()
+    numero = models.CharField(max_length=20)
+    date_emission = models.DateTimeField(auto_now_add=True)
+    emise_par = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name='factures_emises'
+    )
+
+    # Copie figée au moment de l'émission : modifier ensuite les paramètres
+    # de la boutique ou la fiche du client ne change pas une facture déjà
+    # émise. Le logo est figé par son chemin dans le stockage : aucun code
+    # ne supprime un ancien logo, et un nouvel envoi ne l'écrase jamais
+    # (AWS_S3_FILE_OVERWRITE = False, FileSystemStorage en local).
+    nom_boutique = models.CharField(max_length=150)
+    adresse_boutique = models.TextField(blank=True, default='')
+    telephone_boutique = models.CharField(max_length=30, blank=True, default='')
+    logo_boutique = models.CharField(max_length=255, blank=True, default='')
+    nom_client = models.CharField(max_length=150, blank=True, default='')
+    telephone_client = models.CharField(max_length=20, blank=True, default='')
+
+    class Meta:
+        ordering = ['-annee', '-sequence']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['boutique', 'annee', 'sequence'], name='unique_sequence_facture_par_boutique_annee'
+            ),
+            models.UniqueConstraint(fields=['boutique', 'numero'], name='unique_numero_facture_par_boutique'),
+        ]
+
+    @property
+    def est_annulee(self):
+        return self.vente.statut == 'ANNULEE'
+
+    def __str__(self):
+        return f"Facture {self.numero} (vente {self.vente.numero})"

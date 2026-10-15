@@ -1,6 +1,7 @@
 import threading
 import time
 import uuid
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -10,6 +11,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase, APITransactionTestCase, APIClient
 
@@ -17,8 +19,9 @@ from parametres.models import ParametresBoutique
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from products.models import Produit, UniteVente, ProduitPrix
 from inventory.models import MouvementStock
-from .models import Vente, LigneVente, Client, Remboursement, StatutPaiement
+from .models import Vente, LigneVente, Client, Facture, Remboursement, StatutPaiement
 from .services.credit import enregistrer_remboursement
+from .services.factures import emettre_facture
 
 
 def _donner_abonnement_valide(boutique):
@@ -2165,3 +2168,296 @@ class RemboursementModePaiementTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data[0]['remboursements'][0]['mode_paiement'], "MOBILE_MONEY")
+
+
+def _vente_comptant(boutique, client="Awa"):
+    return Vente.objects.create(
+        boutique=boutique, client=client,
+        montant_total=Decimal("500.00"), montant_net=Decimal("500.00"), montant_paye=Decimal("500.00"),
+    )
+
+
+class FactureEmissionTests(APITestCase):
+    """emettre_facture : numéro unique par boutique et par année, copie
+    figée, au plus une facture par vente, jamais sur une vente annulée."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Awa", slug="boutique-facture")
+        self.user = User.objects.create_user(username="vendeur_facture", password="pass1234")
+        self.parametres = ParametresBoutique.objects.create(
+            boutique=self.boutique, nom_boutique="Nom des paramètres",
+            adresse="Rue 12, Bamako", telephone="70000000",
+        )
+        self.parametres.logo.name = "logos/logo_awa.png"
+        self.parametres.save()
+        self.annee = timezone.localdate().year
+
+    def test_premiere_facture_numero_et_copie_figee(self):
+        vente = _vente_comptant(self.boutique, client="Moussa")
+
+        facture, creee = emettre_facture(vente, self.user)
+
+        self.assertTrue(creee)
+        self.assertEqual(Facture.objects.count(), 1)
+        self.assertEqual(facture.numero, f"F-{self.annee}-0001")
+        self.assertEqual((facture.annee, facture.sequence), (self.annee, 1))
+        self.assertEqual(facture.boutique, self.boutique)
+        self.assertEqual(facture.vente, vente)
+        self.assertEqual(facture.emise_par, self.user)
+        # Même nom que les exports PDF des rapports, pas celui des paramètres.
+        self.assertEqual(facture.nom_boutique, "Boutique Awa")
+        self.assertEqual(facture.adresse_boutique, "Rue 12, Bamako")
+        self.assertEqual(facture.telephone_boutique, "70000000")
+        self.assertEqual(facture.logo_boutique, "logos/logo_awa.png")
+        self.assertEqual((facture.nom_client, facture.telephone_client), ("Moussa", ""))
+        self.assertFalse(facture.est_annulee)
+
+    def test_second_appel_sur_la_meme_vente_renvoie_la_meme_facture(self):
+        vente = _vente_comptant(self.boutique)
+        premiere, _ = emettre_facture(vente, self.user)
+
+        seconde, creee = emettre_facture(vente, self.user)
+
+        self.assertFalse(creee)
+        self.assertEqual(seconde.pk, premiere.pk)
+        self.assertEqual(Facture.objects.count(), 1)
+
+    def test_numeros_qui_se_suivent_et_isoles_par_boutique(self):
+        boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-facture-b")
+
+        numeros_a = [emettre_facture(_vente_comptant(self.boutique), self.user)[0].numero for _ in range(3)]
+        facture_b, _ = emettre_facture(_vente_comptant(boutique_b), self.user)
+
+        self.assertEqual(numeros_a, [f"F-{self.annee}-0001", f"F-{self.annee}-0002", f"F-{self.annee}-0003"])
+        self.assertEqual(facture_b.numero, f"F-{self.annee}-0001")
+        self.assertEqual(Facture.objects.filter(boutique=self.boutique).count(), 3)
+        self.assertEqual(Facture.objects.filter(boutique=boutique_b).count(), 1)
+
+    def test_nouvelle_annee_repart_a_1(self):
+        emettre_facture(_vente_comptant(self.boutique), self.user)
+
+        with patch('sales.services.factures.timezone.localdate', return_value=date(self.annee + 1, 1, 1)):
+            facture, _ = emettre_facture(_vente_comptant(self.boutique), self.user)
+
+        self.assertEqual(facture.numero, f"F-{self.annee + 1}-0001")
+        self.assertEqual(Facture.objects.filter(boutique=self.boutique).count(), 2)
+
+    def test_vente_annulee_refusee_sans_facture(self):
+        vente = _vente_comptant(self.boutique)
+        Vente.objects.filter(pk=vente.pk).update(statut='ANNULEE')
+
+        with self.assertRaisesMessage(ValidationError, "Impossible d'émettre une facture pour une vente annulée."):
+            emettre_facture(vente, self.user)
+
+        self.assertEqual(Facture.objects.count(), 0)
+
+    def test_facture_gardee_et_annulee_avec_sa_vente(self):
+        vente = _vente_comptant(self.boutique)
+        facture, _ = emettre_facture(vente, self.user)
+        Vente.objects.filter(pk=vente.pk).update(statut='ANNULEE')
+
+        facture_relue, creee = emettre_facture(vente, self.user)
+
+        self.assertFalse(creee)
+        self.assertEqual(facture_relue.numero, facture.numero)
+        self.assertTrue(facture_relue.est_annulee)
+        self.assertEqual(Facture.objects.count(), 1)
+
+    def test_vente_a_credit_copie_le_client(self):
+        client_credit = Client.objects.create(boutique=self.boutique, nom="Bintou", telephone="76000000")
+        vente = Vente.objects.create(
+            boutique=self.boutique, client_credit=client_credit,
+            montant_total=Decimal("500.00"), montant_net=Decimal("500.00"),
+            montant_paye=Decimal("200.00"), montant_du=Decimal("300.00"),
+            statut_paiement=StatutPaiement.PARTIEL,
+        )
+
+        facture, _ = emettre_facture(vente, self.user)
+
+        self.assertEqual((facture.nom_client, facture.telephone_client), ("Bintou", "76000000"))
+
+    def test_copie_figee_apres_modification_des_parametres_et_du_client(self):
+        client_credit = Client.objects.create(boutique=self.boutique, nom="Bintou", telephone="76000000")
+        vente = Vente.objects.create(
+            boutique=self.boutique, client_credit=client_credit,
+            montant_total=Decimal("500.00"), montant_net=Decimal("500.00"), montant_paye=Decimal("500.00"),
+        )
+        facture, _ = emettre_facture(vente, self.user)
+
+        self.boutique.nom = "Nouveau nom"
+        self.boutique.save()
+        self.parametres.adresse = "Nouvelle adresse"
+        self.parametres.telephone = "71111111"
+        self.parametres.logo.name = "logos/nouveau_logo.png"
+        self.parametres.save()
+        client_credit.nom = "Bintou Traoré"
+        client_credit.telephone = "77777777"
+        client_credit.save()
+
+        facture.refresh_from_db()
+        self.assertEqual(facture.nom_boutique, "Boutique Awa")
+        self.assertEqual(facture.adresse_boutique, "Rue 12, Bamako")
+        self.assertEqual(facture.telephone_boutique, "70000000")
+        self.assertEqual(facture.logo_boutique, "logos/logo_awa.png")
+        self.assertEqual((facture.nom_client, facture.telephone_client), ("Bintou", "76000000"))
+
+
+class FactureConcurrenceTests(APITransactionTestCase):
+    """Émissions concurrentes, avec deux vraies connexions PostgreSQL et un
+    entrelacement forcé : la première émission s'arrête juste avant de
+    créer sa facture (verrous pris), la seconde démarre et doit attendre."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-concurrence-facture")
+        self.user = User.objects.create_user(username="proprio_concurrence_facture", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+        _donner_abonnement_valide(self.boutique)
+        self.annee = timezone.localdate().year
+
+    def _attente_sur_verrou(self, pid):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", [pid])
+            ligne = cursor.fetchone()
+        return ligne is not None and ligne[0] == 'Lock'
+
+    def _emettre(self, vente, cle, resultats, pids=None):
+        try:
+            if pids is not None:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    pids.append(cursor.fetchone()[0])
+            facture, creee = emettre_facture(vente, self.user)
+            resultats[cle] = (facture.numero, creee)
+        except Exception as erreur:
+            resultats[cle] = repr(erreur)
+        finally:
+            connection.close()
+
+    def _premiere_en_pause_puis_seconde(self, premiere, seconde, pid_seconde, resultats):
+        """Lance `premiere`, qui s'arrête à son premier Facture.objects.create
+        (verrous pris), puis `seconde`. Renvoie True si la seconde a attendu
+        un verrou pendant la pause de la première."""
+        create_original = Facture.objects.create
+        en_pause = threading.Event()
+        liberer = threading.Event()
+        appels = []
+
+        def create_avec_pause(**kwargs):
+            appels.append(1)
+            if len(appels) == 1:
+                en_pause.set()
+                liberer.wait(timeout=10)
+            return create_original(**kwargs)
+
+        with patch.object(Facture.objects, 'create', side_effect=create_avec_pause):
+            thread_premiere = threading.Thread(target=premiere)
+            thread_premiere.start()
+            self.assertTrue(en_pause.wait(timeout=10), resultats)
+
+            thread_seconde = threading.Thread(target=seconde)
+            thread_seconde.start()
+            limite = time.monotonic() + 10
+            seconde_bloquee = False
+            while time.monotonic() < limite and thread_seconde.is_alive():
+                if pid_seconde and self._attente_sur_verrou(pid_seconde[0]):
+                    seconde_bloquee = True
+                    break
+                time.sleep(0.01)
+
+            liberer.set()
+            thread_premiere.join(timeout=15)
+            thread_seconde.join(timeout=15)
+        return seconde_bloquee
+
+    def test_deux_ventes_de_la_meme_boutique_numeros_1_et_2(self):
+        vente_a, vente_b = _vente_comptant(self.boutique), _vente_comptant(self.boutique)
+        resultats, pid_b = {}, []
+
+        seconde_bloquee = self._premiere_en_pause_puis_seconde(
+            lambda: self._emettre(vente_a, 'a', resultats),
+            lambda: self._emettre(vente_b, 'b', resultats, pid_b),
+            pid_b, resultats,
+        )
+
+        self.assertTrue(seconde_bloquee, f"La seconde émission aurait dû attendre le verrou : {resultats}")
+        self.assertEqual(resultats.get('a'), (f"F-{self.annee}-0001", True), resultats)
+        self.assertEqual(resultats.get('b'), (f"F-{self.annee}-0002", True), resultats)
+        self.assertEqual(Facture.objects.filter(boutique=self.boutique).count(), 2)
+
+    def test_meme_vente_deux_fois_une_seule_facture(self):
+        vente = _vente_comptant(self.boutique)
+        resultats, pid_b = {}, []
+
+        seconde_bloquee = self._premiere_en_pause_puis_seconde(
+            lambda: self._emettre(vente, 'a', resultats),
+            lambda: self._emettre(vente, 'b', resultats, pid_b),
+            pid_b, resultats,
+        )
+
+        self.assertTrue(seconde_bloquee, f"La seconde émission aurait dû attendre le verrou : {resultats}")
+        self.assertEqual(resultats.get('a'), (f"F-{self.annee}-0001", True), resultats)
+        self.assertEqual(resultats.get('b'), (f"F-{self.annee}-0001", False), resultats)
+        self.assertEqual(Facture.objects.count(), 1)
+
+    def test_emission_attend_lannulation_puis_est_refusee(self):
+        # L'annulation s'arrête juste avant de créer son mouvement de stock
+        # (verrou de la vente pris) ; l'émission démarre et doit attendre ce
+        # verrou, puis voit la vente annulée.
+        unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("60"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=2,
+        )
+        vente = _vente_comptant(self.boutique)
+        LigneVente.objects.create(
+            boutique=self.boutique, vente=vente, produit=produit, quantite=5,
+            type_vente='UNITE', unite=unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("100.00"),
+        )
+        create_original = MouvementStock.objects.create
+        annulation_en_pause = threading.Event()
+        liberer_annulation = threading.Event()
+        resultats, pid_emission = {}, []
+
+        def create_avec_pause(**kwargs):
+            annulation_en_pause.set()
+            liberer_annulation.wait(timeout=10)
+            return create_original(**kwargs)
+
+        def annuler():
+            try:
+                client = APIClient()
+                client.force_authenticate(user=self.user)
+                response = client.post(reverse('ventes-annuler', args=[vente.id]))
+                resultats['annulation'] = response.status_code
+            except Exception as erreur:
+                resultats['annulation'] = repr(erreur)
+            finally:
+                connection.close()
+
+        with patch.object(MouvementStock.objects, 'create', side_effect=create_avec_pause):
+            thread_annulation = threading.Thread(target=annuler)
+            thread_annulation.start()
+            self.assertTrue(annulation_en_pause.wait(timeout=10), resultats)
+
+            thread_emission = threading.Thread(target=self._emettre, args=(vente, 'emission', resultats, pid_emission))
+            thread_emission.start()
+            limite = time.monotonic() + 10
+            emission_bloquee = False
+            while time.monotonic() < limite and thread_emission.is_alive():
+                if pid_emission and self._attente_sur_verrou(pid_emission[0]):
+                    emission_bloquee = True
+                    break
+                time.sleep(0.01)
+
+            liberer_annulation.set()
+            thread_annulation.join(timeout=15)
+            thread_emission.join(timeout=15)
+
+        self.assertTrue(emission_bloquee, f"L'émission aurait dû attendre le verrou : {resultats}")
+        self.assertEqual(resultats.get('annulation'), status.HTTP_200_OK, resultats)
+        self.assertIn("Impossible d'émettre une facture pour une vente annulée.", str(resultats.get('emission')))
+        self.assertEqual(Facture.objects.count(), 0)
