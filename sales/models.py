@@ -233,6 +233,14 @@ class Facture(models.Model):
     logo_boutique = models.CharField(max_length=255, blank=True, default='')
     nom_client = models.CharField(max_length=150, blank=True, default='')
     telephone_client = models.CharField(max_length=20, blank=True, default='')
+    # Lignes et devise figées elles aussi : le nom d'un produit ou d'une
+    # unité et la devise de la boutique peuvent changer après coup. Les
+    # montants des lignes ne changent jamais (LigneVente) ; ils sont copiés
+    # pour que le PDF ne lise que la facture et la vente.
+    # Chaque ligne : {produit, unite, quantite, prix_unitaire, sous_total},
+    # montants en chaînes ("100.00").
+    lignes = models.JSONField(default=list, db_default=[], blank=True)
+    devise = models.CharField(max_length=10, blank=True, default='', db_default='')
 
     class Meta:
         ordering = ['-annee', '-sequence']

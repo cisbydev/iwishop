@@ -59,6 +59,17 @@ def emettre_facture(vente, utilisateur):
     else:
         nom_client, telephone_client = vente.client or '', ''
 
+    lignes = [
+        {
+            'produit': ligne.produit.nom,
+            'unite': ligne.unite.nom,
+            'quantite': ligne.quantite,
+            'prix_unitaire': str(ligne.prix_applique),
+            'sous_total': str(ligne.sous_total),
+        }
+        for ligne in vente.lignes.select_related('produit', 'unite').order_by('pk')
+    ]
+
     facture = Facture.objects.create(
         boutique=boutique,
         vente=vente,
@@ -73,5 +84,7 @@ def emettre_facture(vente, utilisateur):
         logo_boutique=parametres.logo.name if parametres.logo else '',
         nom_client=nom_client,
         telephone_client=telephone_client,
+        lignes=lignes,
+        devise=parametres.devise,
     )
     return facture, True

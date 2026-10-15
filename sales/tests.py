@@ -2301,6 +2301,60 @@ class FactureEmissionTests(APITestCase):
         self.assertEqual(facture.logo_boutique, "logos/logo_awa.png")
         self.assertEqual((facture.nom_client, facture.telephone_client), ("Bintou", "76000000"))
 
+    def test_lignes_et_devise_figees(self):
+        unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Sac", facteur_conversion=Decimal("1.000")
+        )
+        riz = Produit.objects.create(
+            boutique=self.boutique, nom="Riz",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+        )
+        huile = Produit.objects.create(
+            boutique=self.boutique, nom="Huile",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+        )
+        vente = _vente_comptant(self.boutique)
+        for produit, quantite, prix in ((riz, 2, "12500.00"), (huile, 1, "1500.50")):
+            LigneVente.objects.create(
+                boutique=self.boutique, vente=vente, produit=produit, quantite=quantite,
+                type_vente='PERSONNALISE', unite=unite, facteur_conversion_applique=Decimal("1.000"),
+                prix_applique=Decimal(prix),
+            )
+        facture, _ = emettre_facture(vente, self.user)
+
+        riz.nom = "Riz parfumé"
+        riz.save()
+        unite.nom = "Sac 50 kg"
+        unite.save()
+        self.parametres.devise = "XOF"
+        self.parametres.save()
+
+        facture.refresh_from_db()
+        self.assertEqual(facture.devise, "FCFA")
+        self.assertEqual(facture.lignes, [
+            {'produit': "Riz", 'unite': "Sac", 'quantite': 2, 'prix_unitaire': "12500.00", 'sous_total': "25000.00"},
+            {'produit': "Huile", 'unite': "Sac", 'quantite': 1, 'prix_unitaire': "1500.50", 'sous_total': "1500.50"},
+        ])
+
+    def test_insert_du_code_de_0021_sans_lignes_ni_devise(self):
+        # Imite le code d'avant 0022 : un INSERT avec seulement les colonnes
+        # de 0021. Sans db_default sur lignes et devise : violation NOT NULL.
+        vente = _vente_comptant(self.boutique)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO sales_facture (
+                    boutique_id, vente_id, annee, sequence, numero, date_emission,
+                    nom_boutique, adresse_boutique, telephone_boutique, logo_boutique,
+                    nom_client, telephone_client
+                ) VALUES (%s, %s, %s, 1, %s, NOW(), 'Boutique Awa', '', '', '', '', '')
+                """,
+                [self.boutique.pk, vente.pk, self.annee, f"F-{self.annee}-0001"],
+            )
+
+        facture = Facture.objects.get(vente=vente)
+        self.assertEqual((facture.lignes, facture.devise), ([], ''))
+
 
 class FactureConcurrenceTests(APITransactionTestCase):
     """Émissions concurrentes, avec deux vraies connexions PostgreSQL et un
