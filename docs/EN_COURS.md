@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-14.
+Mis à jour le 2026-10-15.
 
 ## Incident prod (2026-10-10 au 2026-10-13) : base Render expirée
 
@@ -14,13 +14,13 @@ Mis à jour le 2026-10-14.
 
 Décidé le 2026-10-13, après l'incident. Le commit 5+6 est passé d'abord (terminé le 2026-10-13).
 
-Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Prochaine étape : à décider (étape C, points à traiter).
+Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Plan de l'étape C validé le 2026-10-15, voir « Étape C : plan validé ». Commits 1 à 3 de l'étape C (scripts) faits le 2026-10-15, avec un 3 bis (`.gitignore`). Prochaine étape : les préalables P1 à P4 (Mahamadou, guidé), puis le commit 4.
 
 ### Constat (2026-10-13)
 
 - Render (doc « PostgreSQL backups ») : toute base payante a la restauration à un instant passé (PITR), sur 3 jours (espace Hobby) ou 7 jours (Pro ou plus) ; elle crée une **nouvelle** base, l'ancienne reste (il faut rebrancher les services). Pas de remplissage du passé : la fenêtre part du 2026-10-13. Sauvegardes « logiques » : **à déclencher à la main** (page Recovery), gardées 7 jours, téléchargeables. Aucune sauvegarde quotidienne automatique décrite. Non couvert : une erreur vue après la fenêtre, un problème de compte Render (toutes les copies chez Render). Ce que deviennent les sauvegardes si la base est supprimée : non dit, à vérifier.
 - Versions : PostgreSQL 18.6 sur Render (vu avec `psql` par Mahamadou le 2026-10-05), client local 18.4 (`pg_dump --version`, 2026-10-13) : même version majeure.
-- `scripts/backup_postgres.ps1` (`705bdf3`, doc `docs/postgresql-backup-restore.md`) : `pg_dump` au format custom de `DATABASE_URL` dans `backups/` (ignoré par git), vérifie que l'archive n'est pas vide et qu'elle se lit avec `pg_restore --list` (structure seulement, pas une restauration).
+- `scripts/backup_postgres.ps1` (`705bdf3`, doc `docs/postgresql-backup-restore.md`) : `pg_dump` au format custom de `DATABASE_URL` dans `backups/` (en fait, seuls `*.dump` et `*.sql` y étaient ignorés par git, relevé le 2026-10-15 ; dossier entier ignoré depuis `dbc5396`), vérifie que l'archive n'est pas vide et qu'elle se lit avec `pg_restore --list` (structure seulement, pas une restauration).
 - `scripts/restore_postgres_temp.ps1` : `pg_restore` dans `TEMP_DATABASE_URL`, seulement si le nom de la base commence par `iwishop_restore_test_` et avec `-ConfirmTemporaryRestore` ; refuse une cible identique à `DATABASE_URL` (hôte, port, base) ; ne crée ni ne supprime de base.
 - `backups/` : 15 archives, la plus récente du 2026-09-22, plusieurs de 0 octet (sauvegardes ratées laissées sur place). Aucune trace d'une restauration complète réussie : selon la doc des scripts, aucune archive n'est donc validée. Elles contiennent les données de toutes les boutiques (noms et téléphones des clients), non chiffrées, sur le PC. Les fichiers de R2 ne sont pas dans ces sauvegardes.
 
@@ -59,13 +59,55 @@ Fait le soir du 2026-10-14 par Mahamadou, dans sa propre fenêtre PowerShell. Ho
 - Limites : seuls les nombres de lignes sont comparés, pas le contenu ; l'application n'a pas tourné sur la base restaurée (seulement `check` et `showmigrations`) ; restauration avec PostgreSQL 18.4 en local, pour une prod en 18.6 ; fichiers de R2 hors sauvegarde.
 - Base de test supprimée le 2026-10-14 par Mahamadou : hôte, port et nom relus avant (`localhost`, 5432, `iwishop_restore_test_20261014`), `dropdb -i` confirmé, puis absence vérifiée (0 base de ce nom). Fenêtre PowerShell fermée ensuite (adresses effacées avec elle).
 
+### Étape C : plan validé (2026-10-15)
+
+Plan validé par Mahamadou le 2026-10-15, avec les décisions ci-dessous. Commits 1 à 3 (scripts) faits le 2026-10-15, voir sous chacun ; ensuite les préalables P1 à P4, puis le commit 4.
+
+Constats (doc de Render, Cloudflare et Healthchecks.io, lue le 2026-10-15) :
+- Une tâche planifiée Render peut joindre la base par son adresse interne (même région, même espace de travail). Facturée à la seconde (Starter : 0,00016 $/min), minimum 1 $ par mois et par tâche. Arrêtée au bout de 12 h. Exécution possible à la main (« Trigger Run »).
+- Render envoie un e-mail quand une exécution de tâche planifiée échoue (réglage « Only failure notifications »).
+- R2 : règles de cycle de vie par préfixe (suppression dans les 24 h après l'échéance) ; verrous de bucket par préfixe, prioritaires sur le cycle de vie, qu'on peut retirer depuis le tableau de bord ; offre gratuite de 10 Go par mois pour tout le compte (médias compris), sortie gratuite.
+- Healthchecks.io : plan gratuit de 20 contrôles.
+- À vérifier : construction d'une tâche planifiée depuis le Dockerfile du dépôt ; minutes de construction comprises dans l'espace Render ; e-mails sur le plan gratuit de Healthchecks.io.
+
+Décisions (Mahamadou, 2026-10-15) :
+1. Tâche planifiée Render, image Docker `postgres:18`, adresse interne de la base. Pas GitHub Actions : journaux publics (un message d'erreur peut contenir l'hôte), base à ouvrir à Internet, risque de configuration des workflows, tâches planifiées désactivées après 60 jours sans activité. Pas le PC : pas toujours allumé, horloge déjà décalée deux fois, adresse de la prod en permanence dessus.
+2. Chiffrement avec `age`. Seule la clé publique va sur Render. Une seule clé privée, jamais sur Render, ni dans le dépôt, ni dans la conversation, gardée en deux exemplaires à deux endroits différents, hors du PC. Archive en clair seulement sur le disque temporaire du conteneur (pour `pg_restore --list`), jamais envoyée. Clé privée perdue : toutes les archives chiffrées avec elle sont illisibles, définitivement ; restent la prod et la restauration à un instant passé de Render (3 jours) ; nouvelle paire de clés, sauvegarde lancée à la main. Le test de restauration mensuel, qui déchiffre, détecte une perte en un mois au plus. Clé privée qui fuit : nouvelle paire de clés.
+3. Alertes : e-mail de Render (exécution en échec ; le script s'arrête avec un code d'erreur à la moindre étape ratée) et Healthchecks.io (alarme « aucune nouvelle » : alerte si aucun signal de réussite en 24 h plus 2 h de marge ; seul moyen de savoir que la tâche n'a pas tourné du tout, comme lors de l'incident du 2026-10-10 ; signal d'échec aussi, pour une alerte immédiate).
+4. R2 : bucket dédié, séparé des médias, sans accès public ni adresse `r2.dev`, jeton dédié « Object Read & Write » limité à ce bucket. `daily/AAAA-MM-JJ.dump.age` supprimé après 30 jours, `monthly/AAAA-MM.dump.age` (première sauvegarde réussie du mois, copiée seulement si elle est absente) supprimé après 365 jours, par des règles de cycle de vie (pas de suppression dans notre code). Verrou du bucket sur les mêmes délais : oui.
+5. Fichier de comptes chiffré à côté de chaque archive : oui, en dernier (commit 6).
+6. Archive invalide (`pg_dump` en échec, fichier vide, `pg_restore --list` en échec) : supprimée.
+7. Heure : 03:00 UTC.
+8. Utilisateur PostgreSQL en lecture seule pour la sauvegarde : plus tard, chantier séparé (modification de la prod).
+
+Coût estimé : environ 1 $ par mois (minimum de la tâche Render) ; R2 et Healthchecks.io gratuits à ce volume (environ 42 archives de 0,2 Mo).
+
+Préalables (Mahamadou, dans les tableaux de bord, sans code ; valeurs secrètes seulement dans les variables de la tâche Render) :
+- P1. Cloudflare : bucket, deux règles de cycle de vie, verrous, jeton dédié.
+- P2. Paire de clés `age` (`age-keygen` sur le PC), clé privée rangée en deux exemplaires.
+- P3. Healthchecks.io : contrôle « iwishop-sauvegarde », période d'un jour, marge de 2 h, alerte par e-mail.
+- P4. Render : notifications d'échec par e-mail activées.
+
+Commits prévus (chacun vérifiable) :
+1. `fix(scripts)` : accents des deux scripts PowerShell (UTF-8 avec BOM). Preuves : `EF BB BF` en tête (`Format-Hex`), `git show` ne montre que ce changement, message lisible sous PowerShell 5.1 en lançant chaque script sans sa variable (vu abîmé avant).
+   - Fait : `820bebb` (2026-10-15). Écart avec le plan : le BOM seul cassait les deux scripts (« Jeton inattendu ») : avec lui, PowerShell lit bien l'apostrophe typographique ’, mais la prend pour un guillemet simple, qui coupait les chaînes `'n’a…'`. Sans BOM, elle était lue comme `â€™` et le script marchait par accident. Les 11 chaînes concernées passent entre guillemets doubles, texte inchangé. Preuves : `EF BB BF` en tête, 0 erreur d'analyse (PowerShell 5.1, fichier entier), les 19 messages de `throw` lisibles, message lisible en lançant chaque script sans sa variable (abîmé avant).
+2. `fix(scripts)` : `backup_postgres.ps1` supprime l'archive quand `pg_dump` échoue, quand elle est vide ou quand `pg_restore --list` échoue (décision 6). Preuve, en local seulement : adresse vers une base locale inexistante, nombre de fichiers de `backups/` compté avant et après ; un fichier de 0 octet apparaît sans le correctif, le compte ne bouge pas avec. Hors commit : suppression à la main des 5 archives de 0 octet, après les avoir listées.
+   - Fait : `3659f5d` (2026-10-15), par un `try`/`finally`, avec un avertissement à chaque suppression. Banc d'essai hors dépôt, dans un dossier vide, fichiers comptés, aucune base touchée (vrai `pg_dump` vers le port 1 de la machine, ou faux `pg_dump` en PowerShell) : connexion refusée (0 o), archive vide (0 o), archive illisible (25 o) laissaient 1 fichier avant, 0 après ; aucun fichier produit : 0 avant et après ; archive valide (copie de celle du 2026-10-14) : 1 fichier gardé. Contre-épreuve sans `$archiveValide = $true` : archive valide supprimée, détectée. Ctrl+C non testé. Les 5 archives de 0 octet sont encore là.
+3. `feat(scripts)` : `scripts/comptage_restauration.sql` (requête de l'étape B) et procédure dans `docs/postgresql-backup-restore.md`. Preuve : même format qu'à l'étape B sur la base locale.
+   - Fait : `63c37ab` (2026-10-15). Corps de la requête identique à celui de l'étape B, en-tête seul ajouté. Exception exacte `!scripts/comptage_restauration.sql` dans `.gitignore` (décidée par Mahamadou), `*.sql` reste ignoré partout ailleurs (vérifié avec `git check-ignore`). Requête lancée par Mahamadou sur la base de dev `sorashop_db` : code de sortie 0, 74 lignes au format `cle;valeur`, mêmes clés que la prod du 2026-10-14 sauf `purchases_paiementfournisseur` et sa séquence (migration `purchases/0017` absente de la base de dev) et les deux ventes témoins (prod seulement). La procédure de la doc n'a pas encore servi en entier : premier passage complet au test de restauration du commit 4.
+   - 3 bis. `dbc5396` (2026-10-15) : `fix(gitignore)`, dossier `/backups/` ignoré en entier. Seuls `*.dump` et `*.sql` l'étaient : le fichier de comptage de la base de dev apparaissait comme non suivi. Vérifié avec `git check-ignore` ; aucun fichier de `backups/` n'était suivi.
+4. `feat(ops)` : sauvegarde quotidienne (Dockerfile `postgres:18`, script bash en `set -euo pipefail`) : `pg_dump` dans un fichier temporaire, `pg_restore --list`, chiffrement, envoi dans `daily/`, taille de l'objet vérifiée dans R2, signal à Healthchecks.io (réussite ou échec). Sans effet tant que la tâche n'est pas créée sur Render. Preuves : exécution à la main, objet présent ; objet téléchargé, déchiffré avec la clé privée et restauré en local avec la procédure de l'étape B ; avec un jeton R2 faussé exprès, exécution en échec, les deux e-mails reçus, aucun objet partiel (objets comptés) ; deux matins de suite, les quotidiennes présentes sans intervention.
+5. `feat(ops)` : copie mensuelle. Preuves : `monthly/AAAA-MM` créé à la première exécution, toujours 1 objet dans `monthly/` à la suivante ; échéance de suppression affichée sur un objet (cycle de vie) ; suppression refusée depuis le tableau de bord (verrou).
+6. `feat(ops)` : fichier de comptes chiffré, comptage juste avant et juste après `pg_dump`, gardé seulement si les deux sont égaux, sinon marqué « non comparable » sans faire échouer la sauvegarde. Preuve : après une restauration, `Compare-Object` avec ce fichier n'affiche rien.
+7. `docs` : procédure complète (récupérer, déchiffrer et restaurer depuis R2 ; perte ou fuite de clé ; réponse à une alerte ; test mensuel).
+8. `docs` : `EN_COURS.md`.
+
 ### Points à traiter
 
-- Supprimer les archives de 0 octet de `backups/` ; et, dans `backup_postgres.ps1`, supprimer l'archive quand `pg_dump` échoue (d'où ces fichiers vides).
-- Étape B réussie : décider quoi faire des archives non chiffrées de `backups/`, la nouvelle comprise (données de clients sur le PC).
-- Accents abîmés dans les messages de `backup_postgres.ps1` et `restore_postgres_temp.ps1` (« vÃ©rifiÃ©e », relevé le 2026-10-14) : fichiers en UTF-8 sans BOM, lus dans l'ancien encodage de Windows par PowerShell 5.1. Sans effet sur la sauvegarde ni la restauration.
+- Supprimer à la main les 5 archives de 0 octet de `backups/`, après les avoir listées. Le script ne les crée plus (`3659f5d`).
+- Base de dev locale `sorashop_db` pas à jour de ses migrations (relevé le 2026-10-15 : table `purchases_paiementfournisseur` absente, migration `purchases/0017`, sans doute aussi 0018 et 0019). À vérifier avec `showmigrations`, puis décider du `migrate` en dev.
+- Étape B réussie : décider quoi faire des archives non chiffrées de `backups/`, la nouvelle comprise (données de clients sur le PC), une fois la chaîne de l'étape C prouvée.
 - Deux autres bases locales vues à la relecture du 2026-10-14, laissées intactes : `iwishop_restore_test_20260911` et `iwishop_restore_test_current_20260911` (anciens essais probables du 2026-09-11). Vérifier ce qu'elles contiennent, puis décider de les supprimer (copies de données de clients sur le PC).
-- La requête de comptage de l'étape B n'est pas dans le dépôt (dossier de travail de la session). L'ajouter dans `scripts/` pour les tests de restauration mensuels (étapes C et D).
 
 ## Fait récemment
 
