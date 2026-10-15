@@ -87,6 +87,9 @@ desktop.ini
 *.backup
 # Exception exacte : requête de comptage (aucune donnée, seulement des SELECT).
 !scripts/comptage_restauration.sql
+# Dossier des sauvegardes locales, en entier : archives, mais aussi fichiers de
+# comptage et tout ce qu'on y dépose pendant un test de restauration.
+/backups/
 
 # Convention pour tout fichier de test/scratch pouvant contenir des
 # identifiants en clair (commande pg_dump collée, DATABASE_URL de prod,
