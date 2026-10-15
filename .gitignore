@@ -85,6 +85,8 @@ desktop.ini
 *.dump
 *.sql
 *.backup
+# Exception exacte : requête de comptage (aucune donnée, seulement des SELECT).
+!scripts/comptage_restauration.sql
 
 # Convention pour tout fichier de test/scratch pouvant contenir des
 # identifiants en clair (commande pg_dump collée, DATABASE_URL de prod,

@@ -53,24 +53,82 @@ Le script refuse une cible sans préfixe temporaire, une URL manquante, une
 archive absente ou vide, et une cible identique à `DATABASE_URL` sur l'hôte,
 le port et la base. Il ne crée ni ne supprime de base.
 
-## Contrôles après restauration
+## Saisir une adresse sans l'afficher
 
-Dans un shell où `DATABASE_URL` pointe uniquement vers la base temporaire :
+Ne jamais taper une adresse de base en clair dans la ligne de commande : elle
+resterait dans l'historique de PowerShell. La saisir masquée :
 
 ```powershell
-python manage.py check
-python manage.py showmigrations
+$s = Read-Host "Adresse de la base" -AsSecureString
+$env:DATABASE_URL = [System.Net.NetworkCredential]::new('', $s).Password
+Remove-Variable s
 ```
 
-Ne pas lancer `migrate`. Effectuer ensuite uniquement des comptages en lecture
-des utilisateurs, boutiques, produits, ventes, achats, dépenses, et, si les
-modules existent, abonnements/paiements, `OutstandingToken` et
-`BlacklistedToken`.
+Vérifier ensuite sans l'afficher, par exemple
+`([uri]$env:DATABASE_URL).Host -like '*render.com'` (doit donner `True`).
 
-Avec `psql` connecté uniquement à la base temporaire, vérifier aussi le nombre
-de tables utilisateur, séquences, contraintes et index. Les archives custom
-complètes sont censées contenir schéma et données, y compris les migrations
-Django, mais seule une restauration suivie de ces contrôles le confirme.
+## Contrôles après restauration
+
+`scripts/comptage_restauration.sql` compte, en lecture seule, les lignes de
+chaque table, la dernière valeur de chaque séquence, le nombre de tables,
+séquences, index et contraintes, et les deux ventes témoins. Une ligne par
+élément, au format `cle;valeur`, sans donnée de client hormis les numéros des
+deux ventes témoins.
+
+```powershell
+$psql = 'C:\Program Files\PostgreSQL\18\bin\psql.exe'
+$comptage = '.\scripts\comptage_restauration.sql'
+```
+
+1. Compter la source juste avant et juste après la sauvegarde. Une base en
+   service peut changer pendant `pg_dump` : sans ces deux comptages égaux,
+   l'archive n'a rien de fixe à quoi être comparée.
+
+   ```powershell
+   & $psql -X -q -A -t -F ';' -v ON_ERROR_STOP=1 -d $env:DATABASE_URL -f $comptage -o .\backups\comptage_source_avant.txt
+   .\scripts\backup_postgres.ps1
+   & $psql -X -q -A -t -F ';' -v ON_ERROR_STOP=1 -d $env:DATABASE_URL -f $comptage -o .\backups\comptage_source_apres.txt
+   Compare-Object (Get-Content .\backups\comptage_source_avant.txt) (Get-Content .\backups\comptage_source_apres.txt)
+   ```
+
+   `Compare-Object` ne doit rien afficher. Sinon, refaire la sauvegarde. Les
+   tables `django_cache_table`, `django_session` et `token_blacklist_*`
+   changent à chaque connexion ou requête limitée, même sans activité visible.
+
+2. Après la restauration, compter la base temporaire et comparer :
+
+   ```powershell
+   & $psql -X -q -A -t -F ';' -v ON_ERROR_STOP=1 -d $env:TEMP_DATABASE_URL -f $comptage -o .\backups\comptage_restauree.txt
+   Compare-Object (Get-Content .\backups\comptage_source_apres.txt) (Get-Content .\backups\comptage_restauree.txt)
+   ```
+
+   `Compare-Object` ne doit rien afficher.
+
+3. Faire pointer la session sur la base temporaire seulement (l'adresse de la
+   source est alors remplacée), et relire l'hôte et le nom avant de continuer :
+
+   ```powershell
+   $env:DATABASE_URL = $env:TEMP_DATABASE_URL
+   ([uri]$env:DATABASE_URL).Host
+   ([uri]$env:DATABASE_URL).AbsolutePath
+   ```
+
+4. Contrôles Django, sans `migrate` :
+
+   ```powershell
+   $env:SENTRY_DSN = ''
+   python manage.py check
+   python manage.py showmigrations | Select-String '\[ \]'
+   (python manage.py showmigrations | Select-String '\[X\]').Count
+   ```
+
+   `check` sans problème et aucune migration non appliquée (`[ ]`). Comparer
+   le nombre de migrations appliquées à la ligne `table:django_migrations` du
+   comptage (126 et 126 à l'étape B ; un écart peut venir d'une migration
+   supprimée du code depuis, à examiner).
+
+Ces contrôles comparent des nombres de lignes, pas leur contenu. Premier
+passage réussi : étape B du 2026-10-14 (voir `docs/EN_COURS.md`).
 
 ## Destruction de la base temporaire
 
