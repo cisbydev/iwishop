@@ -6,6 +6,7 @@ import { useSupportView } from '../context/supportViewContextValue';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import { getPlagePeriode } from '../utils/periode';
 import { telechargerBlob } from '../utils/telechargerBlob';
+import FactureActions from './FactureActions';
 import { Ban, History, Calendar, FileDown, FileSpreadsheet } from 'lucide-react';
 
 // Les deux exports (PDF, Excel) du rapport détaillé des ventes suivent
@@ -96,6 +97,12 @@ export default function SalesHistory() {
     } finally {
       setAnnulationEnCours(null);
     }
+  };
+
+  // La facture renvoyée par l'API remplace celle de la vente affichée :
+  // pas besoin de recharger la page.
+  const handleFactureEmise = (venteId, facture) => {
+    setVentes((precedentes) => precedentes.map((v) => (v.id === venteId ? { ...v, facture } : v)));
   };
 
   const handlePeriodeRapide = (nouvellePeriode) => {
@@ -276,6 +283,8 @@ export default function SalesHistory() {
                     {formatCurrency(vente.montant_net, devise)}
                   </td>
                   <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
+                    <div className="flex items-start justify-end gap-2">
+                    <FactureActions vente={vente} modeSupport={modeSupport} onFactureEmise={handleFactureEmise} />
                     {!estAnnulee && estProprietaire ? (
                       <button
                         type="button"
@@ -288,6 +297,7 @@ export default function SalesHistory() {
                         {annulationEnCours === vente.id ? 'Annulation...' : <Ban className="h-4 w-4" />}
                       </button>
                     ) : null}
+                    </div>
                   </td>
                 </tr>
                 );
