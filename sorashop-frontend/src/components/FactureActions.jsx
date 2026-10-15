@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileDown, FileText } from 'lucide-react';
+import { FileDown, FileText, Share2 } from 'lucide-react';
 import api from '../services/api';
 import { messageErreur } from '../services/errorUtils';
 import { telechargerBlob } from '../utils/telechargerBlob';
@@ -15,9 +15,19 @@ const BOUTON =
 //   désactivé en Vue Support (lecture seule, refusé par l'API).
 // - présent : numéro, badge « Annulée » le cas échéant, « Télécharger »
 //   (permis en Vue Support : c'est une lecture).
+//
+// « Partager » : avec le fichier PDF via le partage du téléphone (WhatsApp y
+// figure), quand le navigateur sait partager un fichier. Sinon (ordinateur,
+// navigateur ancien, ou partage refusé parce que l'attente du PDF a fait
+// expirer le geste de l'utilisateur, cas de Safari) : le PDF est téléchargé
+// et un lien ouvre WhatsApp avec le numéro de la facture. Un lien plutôt
+// qu'un window.open : cliqué par l'utilisateur, il n'est jamais bloqué. Pas
+// de numéro de client prérempli : les téléphones sont enregistrés sans
+// indicatif pays, que wa.me exige.
 export default function FactureActions({ vente, modeSupport, onFactureEmise }) {
-  const [enCours, setEnCours] = useState(null); // null | 'creation' | 'telechargement'
+  const [enCours, setEnCours] = useState(null); // null | 'creation' | 'telechargement' | 'partage'
   const [erreur, setErreur] = useState('');
+  const [lienWhatsApp, setLienWhatsApp] = useState('');
   const facture = vente.facture;
 
   if (facture === undefined) return null;
@@ -37,24 +47,64 @@ export default function FactureActions({ vente, modeSupport, onFactureEmise }) {
     }
   };
 
+  const nomFichier = facture ? `facture-${facture.numero}.pdf` : '';
+
+  // Réponse d'erreur en blob (responseType de toute la requête) : pas de
+  // JSON lisible, on distingue seulement sur le statut HTTP.
+  const messageEchecPdf = (err) => (
+    err.response?.status === 404
+      ? 'Facture introuvable.'
+      : 'Impossible de télécharger la facture. Vérifiez votre connexion puis réessayez.'
+  );
+
+  const recupererPdf = async () => {
+    const response = await api.get(`ventes/factures/${facture.id}/pdf/`, { responseType: 'blob' });
+    return response.data;
+  };
+
   const telecharger = async () => {
     if (enCours) return;
     setEnCours('telechargement');
     setErreur('');
+    setLienWhatsApp('');
     try {
-      const response = await api.get(`ventes/factures/${facture.id}/pdf/`, { responseType: 'blob' });
-      telechargerBlob(response.data, `facture-${facture.numero}.pdf`);
+      telechargerBlob(await recupererPdf(), nomFichier);
     } catch (err) {
-      // Réponse d'erreur en blob (responseType de toute la requête) : pas de
-      // JSON lisible, on distingue seulement sur le statut HTTP.
-      setErreur(
-        err.response?.status === 404
-          ? 'Facture introuvable.'
-          : 'Impossible de télécharger la facture. Vérifiez votre connexion puis réessayez.'
-      );
+      setErreur(messageEchecPdf(err));
     } finally {
       setEnCours(null);
     }
+  };
+
+  const partager = async () => {
+    if (enCours) return;
+    setEnCours('partage');
+    setErreur('');
+    setLienWhatsApp('');
+    let pdf;
+    try {
+      pdf = await recupererPdf();
+    } catch (err) {
+      setErreur(messageEchecPdf(err));
+      setEnCours(null);
+      return;
+    }
+    const titre = `Facture ${facture.numero}`;
+    const fichier = new File([pdf], nomFichier, { type: 'application/pdf' });
+    try {
+      if (navigator.canShare?.({ files: [fichier] })) {
+        await navigator.share({ files: [fichier], title: titre, text: titre });
+        return;
+      }
+    } catch (err) {
+      // Partage fermé par l'utilisateur : rien à signaler.
+      if (err?.name === 'AbortError') return;
+      // Autre refus (geste expiré...) : repli ci-dessous.
+    } finally {
+      setEnCours(null);
+    }
+    telechargerBlob(pdf, nomFichier);
+    setLienWhatsApp(`https://wa.me/?text=${encodeURIComponent(titre)}`);
   };
 
   return (
@@ -88,7 +138,26 @@ export default function FactureActions({ vente, modeSupport, onFactureEmise }) {
             <FileDown className="h-4 w-4" />
             {enCours === 'telechargement' ? 'Téléchargement...' : 'Télécharger'}
           </button>
+          <button
+            type="button"
+            onClick={partager}
+            disabled={enCours !== null}
+            aria-label={`Partager la facture ${facture.numero}`}
+            className={`${BOUTON} border-green-200 bg-green-50 text-green-800 hover:bg-green-100`}
+          >
+            <Share2 className="h-4 w-4" />
+            {enCours === 'partage' ? 'Préparation...' : 'Partager'}
+          </button>
         </div>
+      )}
+      {lienWhatsApp && (
+        <p className="max-w-xs whitespace-normal text-right text-xs text-slate-600">
+          PDF téléchargé : joignez-le dans{' '}
+          <a href={lienWhatsApp} target="_blank" rel="noopener noreferrer" className="font-semibold text-green-800 underline">
+            WhatsApp
+          </a>
+          .
+        </p>
       )}
       {erreur && (
         <p role="alert" className="max-w-xs whitespace-normal text-right text-xs text-red-700">
