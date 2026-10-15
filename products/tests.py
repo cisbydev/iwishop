@@ -1,17 +1,19 @@
 from copy import deepcopy
 from decimal import Decimal
 from io import BytesIO
+from unittest.mock import patch
 
-from PIL import Image
+from PIL import ExifTags, Image, ImageCms, ImageFile
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.files.storage import InMemoryStorage, default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
 
@@ -21,6 +23,7 @@ from inventory.models import MouvementStock
 from purchases.models import Achat, LigneAchat
 from sales.models import Vente, LigneVente
 from .models import Produit, UniteVente, ProduitPrix
+from .photos import traiter_photo
 
 
 UPLOAD_TEST_STORAGES = deepcopy(settings.STORAGES)
@@ -852,3 +855,146 @@ class PaginationListeTests(APITestCase):
         self.assertEqual(len(response.data['results']), 5)
         self.assertIsNone(response.data['next'])
         self.assertIsNotNone(response.data['previous'])
+
+
+def _fichier_image(image, format_, nom='photo.jpg', **options):
+    buffer = BytesIO()
+    image.save(buffer, format=format_, **options)
+    return SimpleUploadedFile(nom, buffer.getvalue())
+
+
+def _relire(octets):
+    image = Image.open(BytesIO(octets))
+    image.load()
+    return image
+
+
+class TraiterPhotoTests(SimpleTestCase):
+    """traiter_photo (plan validé le 2026-10-16, D1 à D3) : contrôle de la
+    photo envoyée, puis WebP, 800 px au plus, orientation appliquée,
+    métadonnées supprimées."""
+
+    def test_grande_photo_reduite_a_800_px_en_webp(self):
+        octets = traiter_photo(_fichier_image(Image.new('RGB', (3000, 2000), 'red'), 'JPEG'))
+
+        sortie = _relire(octets)
+        self.assertEqual(sortie.format, 'WEBP')
+        self.assertEqual(sortie.size, (800, 533))
+
+    def test_photo_en_hauteur_garde_ses_proportions(self):
+        sortie = _relire(traiter_photo(_fichier_image(Image.new('RGB', (1000, 2000), 'red'), 'JPEG')))
+
+        self.assertEqual(sortie.size, (400, 800))
+
+    def test_petite_photo_jamais_agrandie(self):
+        sortie = _relire(traiter_photo(_fichier_image(Image.new('RGB', (300, 200), 'red'), 'JPEG')))
+
+        self.assertEqual(sortie.size, (300, 200))
+
+    def test_exif_et_position_gps_supprimes(self):
+        exif = Image.Exif()
+        exif[ExifTags.Base.Make] = "Appareil de test"
+        gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
+        gps[ExifTags.GPS.GPSLatitudeRef] = 'N'
+        gps[ExifTags.GPS.GPSLatitude] = (12.0, 39.0, 0.0)
+        icc = ImageCms.ImageCmsProfile(ImageCms.createProfile('sRGB')).tobytes()
+        fichier = _fichier_image(Image.new('RGB', (100, 100), 'red'), 'JPEG', exif=exif, icc_profile=icc)
+        source = Image.open(BytesIO(fichier.read()))
+        self.assertIn(ExifTags.GPS.GPSLatitude, source.getexif().get_ifd(ExifTags.IFD.GPSInfo))
+        self.assertIn('icc_profile', source.info)
+
+        sortie = _relire(traiter_photo(fichier))
+
+        self.assertEqual(len(sortie.getexif()), 0)
+        for cle in ('exif', 'xmp', 'icc_profile'):
+            self.assertNotIn(cle, sortie.info)
+
+    def test_orientation_exif_appliquee(self):
+        # Photo prise téléphone tourné : 200 x 100 en pixels, orientation 6
+        # (90° dans le sens horaire), affichée 100 x 200.
+        exif = Image.Exif()
+        exif[ExifTags.Base.Orientation] = 6
+        fichier = _fichier_image(Image.new('RGB', (200, 100), 'red'), 'JPEG', exif=exif)
+
+        sortie = _relire(traiter_photo(fichier))
+
+        self.assertEqual(sortie.size, (100, 200))
+        self.assertEqual(len(sortie.getexif()), 0)
+
+    def test_transparence_gardee(self):
+        image = Image.new('RGBA', (20, 20), (0, 0, 255, 255))
+        image.putpixel((0, 0), (0, 0, 0, 0))
+
+        sortie = _relire(traiter_photo(_fichier_image(image, 'PNG', nom='logo.png')))
+
+        self.assertEqual(sortie.mode, 'RGBA')
+        self.assertEqual(sortie.getpixel((0, 0))[3], 0)
+        self.assertEqual(sortie.getpixel((10, 10))[3], 255)
+
+    def test_photo_cmjn_convertie(self):
+        sortie = _relire(traiter_photo(_fichier_image(Image.new('CMYK', (50, 50)), 'JPEG')))
+
+        self.assertEqual(sortie.mode, 'RGB')
+
+    def test_vrai_type_png_nomme_jpg_accepte(self):
+        fichier = _fichier_image(Image.new('RGB', (50, 50), 'red'), 'PNG', nom='photo.jpg')
+
+        self.assertEqual(_relire(traiter_photo(fichier)).format, 'WEBP')
+
+    def test_formats_refuses_avec_le_message_de_d2(self):
+        gif = _fichier_image(Image.new('RGB', (50, 50), 'red'), 'GIF', nom='photo.gif')
+        svg = SimpleUploadedFile('photo.svg', b'<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+        # En-tête d'un fichier HEIC (boîte « ftyp » de marque « heic ») :
+        # Pillow ne sait pas le lire.
+        heic = SimpleUploadedFile('IMG_0001.HEIC', b'\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic' + b'\x00' * 64)
+        texte = SimpleUploadedFile('photo.jpg', b"pas une image, juste du texte")
+
+        for fichier in (gif, svg, heic, texte):
+            with self.subTest(fichier=fichier.name):
+                with self.assertRaisesMessage(ValidationError, "Format d'image non accepté. Choisissez une photo JPG ou PNG."):
+                    traiter_photo(fichier)
+
+    def test_fichier_trop_lourd_refuse(self):
+        fichier = SimpleUploadedFile('photo.jpg', b'\x00' * (5 * 1024 * 1024 + 1))
+
+        with self.assertRaisesMessage(ValidationError, "L'image ne doit pas dépasser 5 Mo."):
+            traiter_photo(fichier)
+
+    def test_plus_de_40_megapixels_refuse_avant_decodage(self):
+        # 8000 x 6000 = 48 mégapixels, en noir et blanc 1 bit : fichier
+        # léger, mais refusé sur ses dimensions, lues dans l'en-tête.
+        fichier = _fichier_image(Image.new('1', (8000, 6000)), 'PNG', nom='photo.png')
+
+        # ImageFile.load (et non Image.load) : c'est elle qui décode un
+        # fichier ouvert par Image.open.
+        with patch.object(ImageFile.ImageFile, 'load', side_effect=AssertionError("décodage avant le contrôle")):
+            with self.assertRaisesMessage(ValidationError, "L'image est trop grande (40 mégapixels au plus)."):
+                traiter_photo(fichier)
+
+    def test_bombe_de_decompression_refusee(self):
+        # Au-delà du double de Image.MAX_IMAGE_PIXELS, Pillow refuse dès
+        # l'ouverture (DecompressionBombError) : même message, pas de 500.
+        fichier = _fichier_image(Image.new('RGB', (100, 100), 'red'), 'PNG', nom='photo.png')
+
+        with patch.object(Image, 'MAX_IMAGE_PIXELS', 1000):
+            with self.assertRaisesMessage(ValidationError, "L'image est trop grande (40 mégapixels au plus)."):
+                traiter_photo(fichier)
+
+    def test_image_tronquee_refusee(self):
+        complete = _fichier_image(Image.new('RGB', (200, 200), 'red'), 'JPEG').read()
+        fichier = SimpleUploadedFile('photo.jpg', complete[: len(complete) // 2])
+
+        with self.assertRaisesMessage(ValidationError, "Image illisible ou incomplète. Choisissez une autre photo."):
+            traiter_photo(fichier)
+
+    def test_image_animee_premiere_image_seulement(self):
+        rouge, bleue = Image.new('RGB', (40, 40), (255, 0, 0)), Image.new('RGB', (40, 40), (0, 0, 255))
+        fichier = _fichier_image(rouge, 'WEBP', nom='anim.webp', save_all=True, append_images=[bleue], lossless=True)
+        self.assertEqual(Image.open(BytesIO(fichier.read())).n_frames, 2)
+
+        sortie = _relire(traiter_photo(fichier))
+
+        self.assertEqual(getattr(sortie, 'n_frames', 1), 1)
+        r, g, b = sortie.convert('RGB').getpixel((20, 20))
+        self.assertGreater(r, 200)
+        self.assertLess(b, 50)
