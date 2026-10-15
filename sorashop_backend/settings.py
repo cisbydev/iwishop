@@ -331,3 +331,9 @@ STORAGES = {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
     },
 }
+
+# Tests : fichiers en mémoire, jamais le vrai R2 (que le .env local peut
+# configurer) ni media/ sur le disque. Prouvé par
+# parametres.tests.StockageDesTestsTests.
+if TESTING:
+    STORAGES["default"] = {"BACKEND": "django.core.files.storage.InMemoryStorage"}

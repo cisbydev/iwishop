@@ -253,3 +253,19 @@ class FormaterMontantTests(APITestCase):
         ParametresBoutique.objects.create(boutique=self.boutique, devise="EUR")
 
         self.assertEqual(formater_montant(Decimal("12.30"), self.boutique), "12,3 EUR")
+
+
+class StockageDesTestsTests(APITestCase):
+    """Sous `manage.py test`, le stockage des fichiers est en mémoire, sans
+    override_settings : un test ne doit jamais appeler le vrai R2 (que le
+    .env local peut configurer), ni écrire dans media/."""
+
+    def test_stockage_par_defaut_en_memoire(self):
+        self.assertEqual(settings.STORAGES['default'], {'BACKEND': 'django.core.files.storage.InMemoryStorage'})
+        self.assertIsInstance(default_storage, InMemoryStorage)
+
+    def test_fichier_ecrit_puis_relu_en_memoire(self):
+        chemin = default_storage.save('logos/essai_stockage.png', image_valide())
+
+        with default_storage.open(chemin, 'rb') as fichier:
+            self.assertTrue(fichier.read().startswith(b'\x89PNG'))
