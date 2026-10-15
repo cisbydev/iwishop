@@ -10,6 +10,65 @@ Mis à jour le 2026-10-15.
 - Aucun commit n'a été poussé pendant la panne : à la rédaction de cette note, `main` = `origin/main`, sur `b9053a7`. Règle tant qu'une panne dure : tout commit poussé est noté « non vérifié en prod », et on les vérifie tous après la réparation.
 - Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07. Remise à l'heure par Mahamadou le même jour, vérifiée avec `date` et `Get-Date` (2026-10-13) avant le commit de cette note (`ccfcb3c`, daté du 2026-10-13). Les dates de cette note viennent de Mahamadou et de Render, pas du PC.
 
+## En cours : facture (phase 1)
+
+Plan validé par Mahamadou le 2026-10-15, livré en deux temps. Livraison 1 (commits 1 à 5, avec 2 bis, 3 bis, 3 ter et 4 bis) faite le 2026-10-15 et vérifiée en local par Mahamadou : écran, vue téléphone (375 px), deux PDF d'exemple (vente normale, vente à crédit annulée). Prochaine étape : push de la livraison 1, puis son test en prod (ci-dessous) ; ensuite la livraison 2.
+
+### Décisions (Mahamadou, 2026-10-15)
+
+1. Numéro `F-AAAA-NNNN`, une suite par boutique et par année (repart à 1 au 1er janvier, fuseau `Africa/Bamako`), sans trou ni doublon : verrou sur la vente puis sur la boutique (NO KEY UPDATE, qui ne bloque pas les clés étrangères des autres écritures de la boutique). Pas d'interblocage : partout, l'ordre est vente, produits, boutique.
+2. Facture émise à la demande seulement : bouton dans l'historique des ventes (livraison 1), case « Facture » à la vente (livraison 2).
+3. Facture annulée si et seulement si sa vente l'est (déduit, jamais saisi). Le numéro est gardé, jamais réutilisé ; tampon « ANNULÉE » sur le PDF.
+4. Tout vendeur peut émettre (propriétaire et employés) ; l'annulation de la vente reste au propriétaire.
+5. Contenu : lignes, total, remise, net, mode de paiement ; vente à crédit : « Vente à crédit, acompte versé à la vente : X » (l'acompte ne change plus après la vente). Jamais de reste dû ni de remboursements : même numéro, même document (un « remboursement » dans iWiShop est le remboursement d'une dette par le client). Pas de NIF, RCCM ni TVA.
+6. Pas de lien public vers le PDF.
+
+Précisions :
+- Copie figée à l'émission : coordonnées de la boutique (`Boutique.nom`, comme les exports des rapports), client, lignes (noms du produit et de l'unité), devise, logo par son chemin dans le stockage. La même facture donne toujours le même fichier PDF, au tampon près. Règle : ne jamais supprimer un ancien logo utilisé par une facture.
+- Vente hors ligne : numéro attribué à la synchronisation (`demander_facture` à la création, même transaction que la vente ; backend livré par le commit 2, frontend en livraison 2).
+- Route du PDF : `GET /api/ventes/factures/{id}/pdf/` (lecture : permise abonnement expiré, pour un employé et en Vue Support ; autre boutique : même 404 qu'une facture inexistante).
+
+### Livraison 1 (commits du 2026-10-15)
+
+1. `5434e72` `feat(sales)` : modèle `Facture` et `emettre_facture`. 11 tests, dont 3 de concurrence sur PostgreSQL, vus échouer sans le verrou de la boutique (numéro en double) et sans celui de la vente (facture sur vente annulée).
+2. `73c1097` `feat(sales)` : API (`POST ventes/{id}/facture/`, champ `facture`, `demander_facture`). 12 tests ; vente annulée : 400 (500 avec la `ValidationError` de Django, vu échouer).
+   - 2 bis. `46ddbe5` : lignes et devise figées (migration 0022 avec `db_default` ; INSERT SQL brut du code de 0021 accepté, `NotNullViolation` sans `db_default`, vu échouer).
+3. `040a1c2` `feat(sales)` : PDF A4 (reportlab). Séparateur des milliers en espace insécable (U+202F absent d'Helvetica). Logo illisible : PDF sans logo, journalisé en ERROR (événement Sentry).
+   - 3 bis. `53487d1` `fix(reports)` : export PDF des rapports avec un logo. Avant : `TypeError` (`Image` recevait un `ImageReader`), donc erreur 500 pour toute boutique avec un logo.
+   - 3 ter. `6ba8f22` `test` : stockage des fichiers en mémoire pendant les tests (`TESTING`), jamais le vrai R2.
+4. `52eae9c` `feat(frontend)` : historique des ventes, créer et télécharger la facture.
+   - 4 bis. `daff0e6` `fix(frontend)` : sur téléphone, boutons en icône seule (`aria-label` et `title` gardés), numéro sans coupure.
+5. `95891f3` `feat(frontend)` : partage (fichier PDF via le partage du téléphone, sinon PDF téléchargé et lien `wa.me`).
+
+Suites complètes en local : backend 630 tests OK ; frontend 271 tests OK, lint et build OK. Chaque correctif a son test vu échouer avant.
+
+### Test en prod de la livraison 1 (Mahamadou)
+
+- Sur une boutique de test, jamais celle d'un client : un numéro de facture ne se supprime pas.
+- Migrations `sales` 0021 et 0022 appliquées par `build.sh`.
+- Créer une facture depuis l'historique, la télécharger, l'ouvrir ; annuler la vente : badge « Annulée » et tampon sur le PDF.
+- Envoyer un logo en prod (R2) : visible dans les paramètres, dans le PDF d'une facture émise ensuite, et dans les deux exports PDF des rapports (corrigés par le 3 bis).
+- Vrai partage WhatsApp sur Android (Chrome) : le PDF arrive dans WhatsApp. Sur iPhone (Safari) si possible. Les tests simulent `navigator.share`, ils ne prouvent pas ce point.
+- Vue Support : PDF téléchargeable, création refusée.
+- Sentry : aucune erreur nouvelle.
+
+### Livraison 2
+
+6. `feat(frontend)` : case « Facture » à la vente et file hors ligne (`demander_facture` gardé dans IndexedDB), message « Numéro de facture attribué à la synchronisation ».
+
+### Hors phase 1
+
+- Avoir (phase 2). Il demande d'abord le retour partiel ou le remboursement au client, qui n'existent pas aujourd'hui (seulement l'annulation complète).
+- Annuler une facture seule et la réémettre.
+- Numéro du client prérempli dans WhatsApp (les téléphones sont enregistrés sans indicatif pays, que `wa.me` exige).
+- Lien public signé vers le PDF.
+- Export de la liste des factures.
+
+### Base de dev locale `sorashop_db` (2026-10-15)
+
+- 7 migrations appliquées : `purchases` 0015 à 0019 et `sales` 0021 et 0022 (`showmigrations` n'en montre plus aucune en attente).
+- Ventes « Démo facture » créées par l'API, compte `admin`, boutique 1 : #101 sans facture (puis F-2026-0003 créée à l'écran par Mahamadou), #103 (F-2026-0001), #104 (F-2026-0002, vente annulée). Deux entrées de stock « Démo facture » de 10 (MAO et Timini). La vente #102 n'existe pas (tentative refusée pour stock insuffisant, numéro consommé).
+
 ## Chantier prioritaire : sauvegarde de la base
 
 Décidé le 2026-10-13, après l'incident. Le commit 5+6 est passé d'abord (terminé le 2026-10-13).
@@ -109,7 +168,6 @@ Commits prévus (chacun vérifiable) :
 
 ### Points à traiter
 
-- Base de dev locale `sorashop_db` pas à jour de ses migrations (relevé le 2026-10-15 : table `purchases_paiementfournisseur` absente, migration `purchases/0017`, sans doute aussi 0018 et 0019). À vérifier avec `showmigrations`, puis décider du `migrate` en dev.
 - Étape B réussie : décider quoi faire des archives non chiffrées de `backups/`, la nouvelle comprise (données de clients sur le PC), une fois la chaîne de l'étape C prouvée.
 - Deux autres bases locales vues à la relecture du 2026-10-14, laissées intactes : `iwishop_restore_test_20260911` et `iwishop_restore_test_current_20260911` (anciens essais probables du 2026-09-11). Vérifier ce qu'elles contiennent, puis décider de les supprimer (copies de données de clients sur le PC).
 
@@ -444,6 +502,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Vérifier `create_superuser_auto` : mot de passe en variable d'environnement, commande idempotente.
 - Chantier séparé (relevé le 2026-10-05) : Unités de vente et Employés n'ont aucun état « en cours » (risque de double envoi).
 - Sentry.
+- Plus tard (relevé le 2026-10-15) : historique des ventes en cartes sur téléphone. Le tableau défile déjà horizontalement (900 px minimum) ; le 4 bis de la facture ne fait que raccourcir la colonne Actions.
 
 ## En attente, côté Mahamadou
 
@@ -451,3 +510,4 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
 - Vérifier que la ligne `postgresql://` est supprimée de l'historique PowerShell.
+- Identifiants R2 du `.env` local refusés par R2 (403, relevé le 2026-10-15) : à vérifier, sans afficher de secret. En attendant, en local, un logo ne s'affiche pas (PDF sans logo, erreur dans les journaux) ; les tests n'appellent plus R2 (`6ba8f22`).
