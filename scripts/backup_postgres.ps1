@@ -31,22 +31,36 @@ $pgDumpArguments = @(
     "--file=$archivePath",
     "--dbname=$env:DATABASE_URL"
 )
-& $PgDumpPath @pgDumpArguments
-if ($LASTEXITCODE -ne 0) {
-    throw "pg_dump a échoué. L’archive doit être considérée comme non valide."
-}
+# Une archive ratée ne doit jamais rester dans backups/ : elle passerait pour
+# une sauvegarde. Supprimée quelle que soit la cause de l'arrêt (throw du
+# script ou erreur d'un outil).
+$archiveValide = $false
+try {
+    & $PgDumpPath @pgDumpArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "pg_dump a échoué. L’archive doit être considérée comme non valide."
+    }
 
-if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
-    throw "pg_dump n’a produit aucun fichier de sauvegarde."
-}
+    if (-not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
+        throw "pg_dump n’a produit aucun fichier de sauvegarde."
+    }
 
-if ((Get-Item -LiteralPath $archivePath).Length -le 0) {
-    throw "L’archive produite est vide et n’est pas valide."
-}
+    if ((Get-Item -LiteralPath $archivePath).Length -le 0) {
+        throw "L’archive produite est vide et n’est pas valide."
+    }
 
-& $PgRestorePath '--list' '--file=NUL' $archivePath
-if ($LASTEXITCODE -ne 0) {
-    throw "pg_restore --list a échoué. L’archive doit être considérée comme non valide."
+    & $PgRestorePath '--list' '--file=NUL' $archivePath
+    if ($LASTEXITCODE -ne 0) {
+        throw "pg_restore --list a échoué. L’archive doit être considérée comme non valide."
+    }
+
+    $archiveValide = $true
+}
+finally {
+    if (-not $archiveValide -and (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
+        Remove-Item -LiteralPath $archivePath -Force
+        Write-Warning "Archive non valide supprimée : $archivePath"
+    }
 }
 
 Write-Output "Archive PostgreSQL vérifiée : $archivePath"
