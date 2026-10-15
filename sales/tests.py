@@ -1,15 +1,21 @@
+import re
 import threading
 import time
 import uuid
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from PIL import Image as ImagePil
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.reverse import reverse
@@ -2694,3 +2700,207 @@ class FactureApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(Vente.objects.count(), 0)
         self.assertEqual(Facture.objects.count(), 0)
+
+
+def _textes_pdf(contenu):
+    """Chaînes affichées dans un PDF non compressé (pageCompression=0),
+    décodées : octal (\\351 -> é) et caractères échappés (\\( -> ()."""
+    textes = []
+    for brut in re.findall(rb"\((.*?)\) Tj", contenu):
+        octets = re.sub(rb"\\([0-7]{3})", lambda m: bytes([int(m.group(1), 8)]), brut)
+        octets = re.sub(rb"\\(.)", rb"\1", octets)
+        textes.append(octets.decode('cp1252'))
+    return textes
+
+
+# Stockage en mémoire : le .env local peut configurer R2, qu'un test ne
+# doit jamais appeler (même principe que parametres.tests).
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
+class FacturePdfTests(APITestCase):
+    """GET ventes/factures/{id}/pdf/ : PDF A4 qui ne lit que la facture
+    figée et sa vente."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique Awa", slug="boutique-facture-pdf")
+        self.proprietaire = User.objects.create_user(username="proprio_facture_pdf", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.parametres = ParametresBoutique.objects.create(boutique=self.boutique, adresse="Rue 12, Bamako")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Sac", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Riz",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+        )
+        self.client.force_authenticate(user=self.proprietaire)
+        self.annee = timezone.localdate().year
+
+    def _vente(self, **champs):
+        valeurs = {
+            'boutique': self.boutique, 'client': "Awa",
+            'montant_total': Decimal("25000.00"), 'montant_net': Decimal("25000.00"),
+            'montant_paye': Decimal("25000.00"),
+        }
+        valeurs.update(champs)
+        vente = Vente.objects.create(**valeurs)
+        LigneVente.objects.create(
+            boutique=self.boutique, vente=vente, produit=self.produit, quantite=2,
+            type_vente='PERSONNALISE', unite=self.unite, facteur_conversion_applique=Decimal("1.000"),
+            prix_applique=Decimal("12500.00"),
+        )
+        return vente
+
+    def _vente_a_credit(self, acompte):
+        client_credit = Client.objects.create(boutique=self.boutique, nom="Bintou", telephone="76000000")
+        return self._vente(
+            client=None, client_credit=client_credit, montant_paye=Decimal(acompte),
+            montant_du=Decimal("25000.00") - Decimal(acompte), statut_paiement=StatutPaiement.PARTIEL,
+        )
+
+    def _pdf(self, facture, **en_tetes):
+        return self.client.get(reverse('factures-pdf', args=[facture.id]), **en_tetes)
+
+    def test_pdf_a4_telecharge(self):
+        facture, _ = emettre_facture(self._vente(), self.proprietaire)
+
+        response = self._pdf(facture)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response['Content-Type'], 'application/pdf')
+        self.assertEqual(
+            response['Content-Disposition'], f'attachment; filename="facture-F-{self.annee}-0001.pdf"'
+        )
+        self.assertTrue(response.content.startswith(b'%PDF'))
+        self.assertIn(b'/MediaBox [ 0 0 595.2756 841.8898 ]', response.content)
+
+    def test_contenu_et_separateur_des_milliers(self):
+        facture, _ = emettre_facture(self._vente(), self.proprietaire)
+
+        textes = _textes_pdf(self._pdf(facture).content)
+
+        for attendu in (
+            "Boutique Awa", "Rue 12, Bamako", "FACTURE", f"N° F-{self.annee}-0001", "Client : Awa",
+            "Riz", "Sac", "2", "12 500 FCFA", "25 000 FCFA", "Net à payer", "Mode de paiement : Espèces",
+        ):
+            self.assertIn(attendu, textes)
+        self.assertNotIn("ANNULÉE", textes)
+
+    def test_vente_a_credit_acompte_sans_reste_du(self):
+        facture, _ = emettre_facture(self._vente_a_credit("2000"), self.proprietaire)
+
+        textes = _textes_pdf(self._pdf(facture).content)
+
+        self.assertIn("Vente à crédit, acompte versé à la vente : 2 000 FCFA", textes)
+        self.assertIn("Mode de paiement de l'acompte : Espèces", textes)
+        self.assertIn("Client : Bintou (tél. 76000000)", textes)
+        self.assertFalse([texte for texte in textes if "Reste" in texte or "dû" in texte], textes)
+
+    def test_vente_a_credit_sans_acompte_sans_mode(self):
+        facture, _ = emettre_facture(self._vente_a_credit("0"), self.proprietaire)
+
+        textes = _textes_pdf(self._pdf(facture).content)
+
+        self.assertIn("Vente à crédit, acompte versé à la vente : 0 FCFA", textes)
+        self.assertFalse([texte for texte in textes if texte.startswith("Mode de paiement")], textes)
+
+    def test_tampon_annulee(self):
+        vente = self._vente()
+        facture, _ = emettre_facture(vente, self.proprietaire)
+        Vente.objects.filter(pk=vente.pk).update(statut='ANNULEE')
+
+        textes = _textes_pdf(self._pdf(facture).content)
+
+        self.assertIn("ANNULÉE", textes)
+        self.assertIn("FACTURE ANNULÉE", textes)
+
+    def test_meme_facture_meme_fichier(self):
+        # Même numéro, même document : ni le renommage d'un produit, ni la
+        # devise ou les coordonnées de la boutique, ni un remboursement ne
+        # changent le fichier.
+        vente = self._vente_a_credit("2000")
+        facture, _ = emettre_facture(vente, self.proprietaire)
+        premier = self._pdf(facture).content
+
+        self.produit.nom = "Riz parfumé"
+        self.produit.save()
+        self.parametres.devise = "XOF"
+        self.parametres.adresse = "Nouvelle adresse"
+        self.parametres.save()
+        enregistrer_remboursement(vente, Decimal("5000"), self.proprietaire)
+
+        self.assertEqual(self._pdf(facture).content, premier)
+
+    def test_facture_dune_autre_boutique_meme_404_quune_facture_inexistante(self):
+        autre_boutique = Boutique.objects.create(nom="Autre", slug="autre-boutique-facture-pdf")
+        facture_autre, _ = emettre_facture(_vente_comptant(autre_boutique), self.proprietaire)
+        id_inexistant = facture_autre.id + 1000
+
+        autre = self._pdf(facture_autre)
+        inexistante = self.client.get(reverse('factures-pdf', args=[id_inexistant]))
+
+        self.assertEqual(autre.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(inexistante.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(autre.data, inexistante.data)
+
+    def test_lecture_permise_vue_support_abonnement_expire_et_employe(self):
+        facture, _ = emettre_facture(self._vente(), self.proprietaire)
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+        expire = self._pdf(facture)
+        employe = User.objects.create_user(username="employe_facture_pdf", password="pass1234")
+        Profil.objects.create(user=employe, boutique=self.boutique, est_proprietaire=False)
+        self.client.force_authenticate(user=employe)
+        par_employe = self._pdf(facture)
+        support = User.objects.create_superuser(username="support_facture_pdf", password="pass1234")
+        self.client.force_authenticate(user=support)
+        en_support = self._pdf(facture, HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique.id))
+
+        self.assertEqual(expire.status_code, status.HTTP_200_OK)
+        self.assertEqual(par_employe.status_code, status.HTTP_200_OK)
+        self.assertEqual(en_support.status_code, status.HTTP_200_OK)
+
+    def test_caracteres_speciaux_affiches_tels_quels(self):
+        facture, _ = emettre_facture(self._vente(client="Awa & Fils <SARL>"), self.proprietaire)
+
+        response = self._pdf(facture)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Le Paragraph découpe « <SARL> » en plusieurs chaînes, affichées
+        # bout à bout : on les recolle.
+        self.assertIn("Client : Awa & Fils <SARL>", "".join(_textes_pdf(response.content)))
+
+    def test_logo_fige_dans_le_pdf(self):
+        tampon = BytesIO()
+        ImagePil.new('RGB', (40, 20), (37, 99, 235)).save(tampon, format='PNG')
+        self.parametres.logo.name = default_storage.save('logos/logo_awa.png', ContentFile(tampon.getvalue()))
+        self.parametres.save()
+        facture, _ = emettre_facture(self._vente(), self.proprietaire)
+
+        self.assertIn(b'/Subtype /Image', self._pdf(facture).content)
+
+    def test_logo_illisible_pdf_sans_logo(self):
+        self.parametres.logo.name = "logos/absent.png"
+        self.parametres.save()
+        facture, _ = emettre_facture(self._vente(), self.proprietaire)
+
+        with self.assertLogs('sales.services.facture_pdf', level='ERROR') as journal_absent:
+            absent = self._pdf(facture)
+        with patch('sales.services.facture_pdf.default_storage.open', side_effect=RuntimeError("refus R2")):
+            with self.assertLogs('sales.services.facture_pdf', level='ERROR') as journal_refuse:
+                refuse = self._pdf(facture)
+
+        for response in (absent, refuse):
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertNotIn(b'/Subtype /Image', response.content)
+        for journal in (journal_absent, journal_refuse):
+            self.assertEqual(len(journal.records), 1)
+            self.assertEqual(journal.records[0].getMessage(), "Logo de facture illisible : logos/absent.png")

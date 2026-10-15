@@ -24,6 +24,12 @@ def formater_montant(montant, boutique):
     Même rendu que formatCurrency côté frontend (utils/formatters.js,
     Intl fr-FR) : 0 à 2 décimales (100 FCFA, 1 234,5 FCFA), virgule
     décimale, espace fine insécable entre les milliers."""
+    return f"{formater_nombre(montant)} {devise_boutique(boutique)}"
+
+
+def formater_nombre(montant):
+    """Montant sans devise, au rendu de formater_montant. Pour un document
+    qui porte sa propre devise figée (facture)."""
     montant = Decimal(montant).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
     entier, _, decimales = f"{abs(montant):.2f}".partition('.')
     decimales = decimales.rstrip('0')
@@ -32,4 +38,4 @@ def formater_montant(montant, boutique):
         texte += f",{decimales}"
     if montant < 0:
         texte = f"-{texte}"
-    return f"{texte} {devise_boutique(boutique)}"
+    return texte

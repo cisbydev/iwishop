@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
 from django.db.models import Min, Prefetch, Q, Sum
+from django.http import HttpResponse
 from django_filters.rest_framework import DjangoFilterBackend
 from tenants.mixins import BoutiqueScopedMixin
 from notifications.services import verifier_stock_bas
@@ -12,7 +13,7 @@ from inventory.models import MouvementStock
 from products.models import Produit
 from accounts.permissions import RestrictedActionsForOwnerMixin
 from parametres.services import formater_montant
-from .models import Vente, LigneVente, Client, Remboursement
+from .models import Vente, LigneVente, Client, Facture, Remboursement
 from .serializers import (
     VenteSerializer, ClientSerializer, RemboursementSerializer,
     ClientAvecDetteSerializer, HistoriqueClientSerializer,
@@ -21,6 +22,7 @@ from .serializers import (
 from .services.credit import (
     avertissement_plafond_credit, corriger_remboursement, enregistrer_remboursement,
 )
+from .services.facture_pdf import generer_pdf_facture
 from .services.factures import emettre_facture
 
 class VenteViewSet(
@@ -160,6 +162,21 @@ class VenteViewSet(
             FactureResumeSerializer(facture).data,
             status=status.HTTP_201_CREATED if creee else status.HTTP_200_OK,
         )
+
+
+class FactureViewSet(BoutiqueScopedMixin, viewsets.GenericViewSet):
+    # Lecture seule : le PDF reste accessible abonnement expiré et en Vue
+    # Support (get_queryset ne filtre que par boutique). La facture d'une
+    # autre boutique donne le même 404 qu'une facture inexistante.
+    queryset = Facture.objects.select_related('vente')
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=True, methods=['get'])
+    def pdf(self, request, pk=None):
+        facture = self.get_object()
+        response = HttpResponse(generer_pdf_facture(facture), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="facture-{facture.numero}.pdf"'
+        return response
 
 
 class ClientViewSet(
