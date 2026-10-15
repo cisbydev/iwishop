@@ -7,6 +7,7 @@ import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { alerterErreur } from '../services/errorUtils';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
+import FactureActions from './FactureActions';
 import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff, CloudOff, X } from 'lucide-react';
 
 export default function Sales() {
@@ -40,6 +41,13 @@ export default function Sales() {
   const [successMessage, setSuccessMessage] = useState('');
   const [venteEnAttenteMessage, setVenteEnAttenteMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Facture : demandée à la vente (case décochée par défaut). En ligne, le
+  // backend l'émet dans la même transaction que la vente ; hors ligne, le
+  // flag part dans la file d'attente et le numéro est attribué à la
+  // synchronisation.
+  const [demanderFacture, setDemanderFacture] = useState(false);
+  const [factureEmise, setFactureEmise] = useState(null); // { venteId, facture }
+  const [avertissementFacture, setAvertissementFacture] = useState('');
   // Date de la dernière sauvegarde du catalogue utilisé (cf. catalogueCache) -
   // non nul tant que l'écran affiche des données issues du cache plutôt que
   // du dernier chargement réseau réussi. Reste affiché en permanence, pas
@@ -304,6 +312,8 @@ export default function Sales() {
     }
 
     setIsSubmitting(true);
+    setFactureEmise(null);
+    setAvertissementFacture('');
 
     if (venteACredit && clientCreditMode === 'nouveau') {
       try {
@@ -332,6 +342,7 @@ export default function Sales() {
         prix_applique: item.prix_unitaire,
       })),
       ...(venteACredit ? { client_credit: Number(clientCreditIdEffectif) } : {}),
+      ...(demanderFacture ? { demander_facture: true } : {}),
     };
 
     try {
@@ -342,6 +353,16 @@ export default function Sales() {
       if (response.data?.avertissement) {
         setAvertissementCredit(response.data.avertissement);
       }
+      if (demanderFacture) {
+        if (response.data?.facture) {
+          setFactureEmise({ venteId: response.data.id, facture: response.data.facture });
+        } else {
+          // Backend pas encore déployé (champ absent) : la vente est
+          // enregistrée, la facture se crée ensuite depuis l'historique.
+          setAvertissementFacture("La facture n'a pas été émise : créez-la depuis l'historique des ventes.");
+        }
+      }
+      setDemanderFacture(false);
       setPanier([]);
       setRemise(0);
       setMontantPaye('');
@@ -358,7 +379,12 @@ export default function Sales() {
         // rejouée automatiquement dès le retour du réseau (cf. syncEngine).
         try {
           await ajouterVenteEnAttente(payload);
-          setVenteEnAttenteMessage("Vente enregistrée - sera envoyée dès que la connexion revient.");
+          setVenteEnAttenteMessage(
+            demanderFacture
+              ? "Vente enregistrée - sera envoyée dès que la connexion revient. Numéro de facture attribué à la synchronisation."
+              : "Vente enregistrée - sera envoyée dès que la connexion revient."
+          );
+          setDemanderFacture(false);
           setPanier([]);
           setRemise(0);
           setMontantPaye('');
@@ -414,6 +440,23 @@ export default function Sales() {
       {successMessage && (
         <div className="p-4 bg-green-100 text-green-700 rounded-lg flex items-center gap-2">
           <CheckCircle className="w-5 h-5" /> {successMessage}
+        </div>
+      )}
+
+      {factureEmise && (
+        <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-medium text-blue-900">Facture émise pour cette vente.</p>
+          <FactureActions
+            vente={{ id: factureEmise.venteId, statut: 'VALIDEE', facture: factureEmise.facture }}
+            modeSupport={modeSupport}
+            onFactureEmise={() => {}}
+          />
+        </div>
+      )}
+
+      {avertissementFacture && (
+        <div role="alert" className="p-4 bg-amber-100 text-amber-800 rounded-lg text-sm">
+          {avertissementFacture}
         </div>
       )}
 
@@ -719,6 +762,17 @@ export default function Sales() {
                 </div>
               )}
             </div>
+
+            <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-4 text-sm font-medium text-slate-700">
+              <input
+                type="checkbox"
+                checked={demanderFacture}
+                onChange={(e) => setDemanderFacture(e.target.checked)}
+                disabled={modeSupport}
+                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+              />
+              Facture
+            </label>
 
             {!venteACredit && (
               <>

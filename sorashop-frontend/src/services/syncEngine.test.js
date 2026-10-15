@@ -58,6 +58,21 @@ describe('syncEngine', () => {
     expect(mocks.marquerStatut).not.toHaveBeenCalled();
   });
 
+  it('renvoie la demande de facture enregistrée hors ligne : le numéro est attribué à la synchronisation', async () => {
+    const vente = venteEnAttente({ payload: { montant_paye: 500, lignes: [], demander_facture: true } });
+    mocks.listerVentesEnAttente.mockResolvedValue([vente]);
+    mocks.post.mockResolvedValue({ data: { id: 42, facture: { id: 3, numero: 'F-2026-0003' } } });
+
+    await synchroniserVentesEnAttente();
+
+    expect(mocks.post).toHaveBeenCalledWith('ventes/', expect.objectContaining({
+      demander_facture: true,
+      cle_idempotence: 'cle-1',
+      synchronisation_differee: true,
+    }));
+    expect(mocks.supprimerVenteEnAttente).toHaveBeenCalledWith('cle-1');
+  });
+
   it('laisse la vente EN_ATTENTE (avec tentative incrémentée) sur un échec réseau', async () => {
     const vente = venteEnAttente();
     mocks.listerVentesEnAttente.mockResolvedValue([vente]);
