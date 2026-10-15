@@ -12,7 +12,7 @@ Mis à jour le 2026-10-15.
 
 ## En cours : facture (phase 1)
 
-Plan validé par Mahamadou le 2026-10-15, livré en deux temps. Livraison 1 (commits 1 à 5, avec 2 bis, 3 bis, 3 ter et 4 bis) faite le 2026-10-15 et vérifiée en local par Mahamadou : écran, vue téléphone (375 px), deux PDF d'exemple (vente normale, vente à crédit annulée). Poussée le 2026-10-15 (`4c7734e`, CI verte, backend et frontend), puis vérifiée en prod par Mahamadou le même jour sur une boutique de test : livraison 1 terminée (voir « Test en prod de la livraison 1 »). Prochaine étape : livraison 2 (commit 6).
+Plan validé par Mahamadou le 2026-10-15, livré en deux temps. Livraison 1 (commits 1 à 5, avec 2 bis, 3 bis, 3 ter et 4 bis) faite le 2026-10-15 et vérifiée en local par Mahamadou : écran, vue téléphone (375 px), deux PDF d'exemple (vente normale, vente à crédit annulée). Poussée le 2026-10-15 (`4c7734e`, CI verte, backend et frontend), puis vérifiée en prod par Mahamadou le même jour sur une boutique de test : livraison 1 terminée (voir « Test en prod de la livraison 1 »). Livraison 2 (commit 6) faite le 2026-10-15, pas encore poussée. Prochaine étape : push de la livraison 2, puis son test en prod (voir « Livraison 2 »).
 
 ### Décisions (Mahamadou, 2026-10-15)
 
@@ -56,7 +56,14 @@ Pas dans ce compte rendu, donc non vérifiés en prod : Vue Support (PDF téléc
 
 ### Livraison 2
 
-6. `feat(frontend)` : case « Facture » à la vente et file hors ligne (`demander_facture` gardé dans IndexedDB), message « Numéro de facture attribué à la synchronisation ».
+6. `4cb0d1f` `feat(frontend)` : case « Facture » à la vente (décochée par défaut, désactivée en Vue Support). Cochée : `demander_facture` envoyé ; en ligne, numéro affiché avec « Télécharger » et « Partager » ; champ `facture` absent (backend pas déployé) : avertissement vers l'historique. Hors ligne : la demande part dans la file IndexedDB avec la vente, message « Numéro de facture attribué à la synchronisation ». Le moteur de synchronisation renvoie déjà le payload tel quel (inchangé). 6 tests, vus échouer sans le flag, sans l'avertissement, sans le message hors ligne et sans la remise à zéro de la case. Frontend : lint, 277 tests et build OK.
+
+Limite connue : une vente hors ligne envoyée une première fois à un ancien backend reste sans facture au second envoi (rejeu sans écriture) ; la créer depuis l'historique.
+
+Test en prod de la livraison 2 (Mahamadou, boutique de test) :
+- Vente en ligne, case cochée : numéro affiché, PDF téléchargeable.
+- Vente hors ligne (mode avion), case cochée : message de synchronisation ; retour du réseau : la vente apparaît dans l'historique avec son numéro.
+- Vente sans la case : aucune facture.
 
 ### Hors phase 1
 
