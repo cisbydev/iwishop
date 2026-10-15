@@ -4,10 +4,14 @@ from zoneinfo import ZoneInfo
 from io import BytesIO
 
 from django.contrib.auth.models import User
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from openpyxl import load_workbook
+from PIL import Image as ImagePil
 from rest_framework import status
 from rest_framework.reverse import reverse
 from rest_framework.test import APITestCase
@@ -1374,3 +1378,54 @@ class JournalCaisseAchatsTests(APITestCase):
         self.assertEqual(data['sorties']['achats'], Decimal("0.00"))
         self.assertEqual(data['sorties']['nombre_paiements_fournisseurs'], 0)
         self.assertEqual(data['informations']['dette_fournisseurs_restante'], Decimal("0.00"))
+
+
+# Stockage en mémoire : le .env local peut configurer R2, qu'un test ne
+# doit jamais appeler.
+@override_settings(STORAGES={
+    'default': {'BACKEND': 'django.core.files.storage.InMemoryStorage'},
+    'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+})
+class ExportsPdfLogoTests(VentesDetailleesTestsBase):
+    """Exports PDF des rapports avec le logo de la boutique : le logo est
+    dessiné, et un logo illisible donne un PDF sans logo, journalisé."""
+
+    def setUp(self):
+        super().setUp()
+        self.parametres = ParametresBoutique.objects.create(boutique=self.boutique)
+        self.client.force_authenticate(user=self.proprietaire)
+        self._creer_vente_avec_ligne(timezone.make_aware(datetime(2026, 9, 15, 10, 0)))
+
+    def _logo_valide(self):
+        tampon = BytesIO()
+        ImagePil.new('RGB', (40, 20), (37, 99, 235)).save(tampon, format='PNG')
+        self.parametres.logo.name = default_storage.save('logos/logo.png', ContentFile(tampon.getvalue()))
+        self.parametres.save()
+
+    def _exports(self):
+        return (
+            self.client.get(reverse('resume-financier-export-pdf')),
+            self.client.get(reverse('ventes-detaillees-export-pdf'), {"date_debut": "2026-09-01", "date_fin": "2026-09-30"}),
+        )
+
+    def test_logo_dessine_dans_les_deux_exports(self):
+        self._logo_valide()
+
+        for response in self._exports():
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIn(b'/Subtype /Image', response.content)
+
+    def test_logo_illisible_pdf_sans_logo_et_journalise(self):
+        self.parametres.logo.name = "logos/absent.png"
+        self.parametres.save()
+
+        with self.assertLogs('reports.views', level='ERROR') as journal:
+            reponses = self._exports()
+
+        for response in reponses:
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertNotIn(b'/Subtype /Image', response.content)
+        self.assertEqual(
+            [record.getMessage() for record in journal.records],
+            ["Logo de boutique illisible : logos/absent.png"] * 2,
+        )

@@ -1,3 +1,4 @@
+import logging
 from io import BytesIO
 
 from django.http import HttpResponse
@@ -48,6 +49,8 @@ XLSX_GRIS_LIGNE_ALTERNEE = 'F1F5F9'  # slate-100
 XLSX_GRIS_BORDURE = 'E2E8F0'        # slate-200
 XLSX_VERT_POSITIF = '059669'        # emerald-600
 XLSX_ROUGE_NEGATIF = 'DC2626'       # red-600
+
+logger = logging.getLogger(__name__)
 
 
 def calculer_resume_financier(boutique, date_debut, date_fin):
@@ -173,21 +176,28 @@ def logo_flowable_pdf(parametres):
     # pour l'affichage du logo côté frontend, cf. Settings.jsx/
     # logoIndisponible) : jamais d'erreur, juste pas de logo dans le PDF le
     # cas échéant. Partagé par tous les exports PDF des rapports.
+    #
+    # Même méthode que la facture (sales.services.facture_pdf._logo) :
+    # Image reçoit les octets (reportlab refuse un ImageReader : TypeError,
+    # donc erreur 500 sur tout export d'une boutique avec logo), et toute
+    # exception est rattrapée (sur R2, un refus d'accès arrive en botocore
+    # ClientError), journalisée en ERROR pour que Sentry la remonte.
     if not parametres.logo:
         return None
     try:
         with parametres.logo.open('rb') as fichier_logo:
-            lecteur_image = ImageReader(BytesIO(fichier_logo.read()))
-    except (OSError, ValueError):
+            donnees_logo = fichier_logo.read()
+        largeur_logo, hauteur_logo = ImageReader(BytesIO(donnees_logo)).getSize()
+    except Exception:
+        logger.error("Logo de boutique illisible : %s", parametres.logo.name, exc_info=True)
         return None
 
-    largeur_logo, hauteur_logo = lecteur_image.getSize()
     if not largeur_logo or not hauteur_logo:
         return None
 
     hauteur_cible = 1.5 * cm
     largeur_cible = largeur_logo * (hauteur_cible / hauteur_logo)
-    return Image(lecteur_image, width=largeur_cible, height=hauteur_cible)
+    return Image(BytesIO(donnees_logo), width=largeur_cible, height=hauteur_cible)
 
 
 def entete_pdf(boutique, parametres, titre, texte_periode, largeur_disponible):
