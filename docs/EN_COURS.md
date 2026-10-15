@@ -10,9 +10,17 @@ Mis à jour le 2026-10-15.
 - Aucun commit n'a été poussé pendant la panne : à la rédaction de cette note, `main` = `origin/main`, sur `b9053a7`. Règle tant qu'une panne dure : tout commit poussé est noté « non vérifié en prod », et on les vérifie tous après la réparation.
 - Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07. Remise à l'heure par Mahamadou le même jour, vérifiée avec `date` et `Get-Date` (2026-10-13) avant le commit de cette note (`ccfcb3c`, daté du 2026-10-13). Les dates de cette note viennent de Mahamadou et de Render, pas du PC.
 
-## En cours : facture (phase 1)
+## Prochaines étapes (ordre décidé par Mahamadou le 2026-10-15)
 
-Plan validé par Mahamadou le 2026-10-15, livré en deux temps. Livraison 1 (commits 1 à 5, avec 2 bis, 3 bis, 3 ter et 4 bis) faite le 2026-10-15 et vérifiée en local par Mahamadou : écran, vue téléphone (375 px), deux PDF d'exemple (vente normale, vente à crédit annulée). Poussée le 2026-10-15 (`4c7734e`, CI verte, backend et frontend), puis vérifiée en prod par Mahamadou le même jour sur une boutique de test : livraison 1 terminée (voir « Test en prod de la livraison 1 »). Livraison 2 (commit 6) faite le 2026-10-15, pas encore poussée. Prochaine étape : push de la livraison 2, puis son test en prod (voir « Livraison 2 »).
+1. Photo de produit.
+2. Site public séparé (domaine).
+3. Reprise de la sauvegarde automatique : 2FA Cloudflare, puis le commit 4 (voir « Chantier : sauvegarde de la base »).
+
+## Terminé le 2026-10-15 : facture (phase 1)
+
+Phase 1 terminée et vérifiée en prod le 2026-10-15 (livraisons 1 et 2).
+
+Plan validé par Mahamadou le 2026-10-15, livré en deux temps. Livraison 1 (commits 1 à 5, avec 2 bis, 3 bis, 3 ter et 4 bis) faite le 2026-10-15 et vérifiée en local par Mahamadou : écran, vue téléphone (375 px), deux PDF d'exemple (vente normale, vente à crédit annulée). Poussée le 2026-10-15 (`4c7734e`, CI verte, backend et frontend), puis vérifiée en prod par Mahamadou le même jour sur une boutique de test : livraison 1 terminée (voir « Test en prod de la livraison 1 »). Livraison 2 (commit 6) poussée le 2026-10-15 (`2fc3b74`, CI verte, backend et frontend, run 38819444966), puis vérifiée en prod le même jour (voir « Livraison 2 »).
 
 ### Décisions (Mahamadou, 2026-10-15)
 
@@ -60,10 +68,12 @@ Pas dans ce compte rendu, donc non vérifiés en prod : Vue Support (PDF téléc
 
 Limite connue : une vente hors ligne envoyée une première fois à un ancien backend reste sans facture au second envoi (rejeu sans écriture) ; la créer depuis l'historique.
 
-Test en prod de la livraison 2 (Mahamadou, boutique de test) :
-- Vente en ligne, case cochée : numéro affiché, PDF téléchargeable.
-- Vente hors ligne (mode avion), case cochée : message de synchronisation ; retour du réseau : la vente apparaît dans l'historique avec son numéro.
-- Vente sans la case : aucune facture.
+Test en prod de la livraison 2 : fait le 2026-10-15 par Mahamadou sur la boutique de test (Boutique 2), captures à l'appui. Constats, tous OK :
+- Case « Facture » visible sous « Vente à crédit ».
+- Vente hors ligne (mode avion), case cochée : message « Numéro de facture attribué à la synchronisation » et bandeau « 1 vente en attente » ; après le retour de la connexion, la vente #45 apparaît dans l'historique avec F-2026-0006.
+- Dans l'historique : F-2026-0005 sur la vente #42.
+
+Pas dans ce compte rendu, donc non vérifiés en prod : vente en ligne avec la case (numéro, « Télécharger » et « Partager » sur l'écran de vente) et vente sans la case (aucune facture) ; couverts par les tests.
 
 ### Hors phase 1
 
@@ -78,11 +88,11 @@ Test en prod de la livraison 2 (Mahamadou, boutique de test) :
 - 7 migrations appliquées : `purchases` 0015 à 0019 et `sales` 0021 et 0022 (`showmigrations` n'en montre plus aucune en attente).
 - Ventes « Démo facture » créées par l'API, compte `admin`, boutique 1 : #101 sans facture (puis F-2026-0003 créée à l'écran par Mahamadou), #103 (F-2026-0001), #104 (F-2026-0002, vente annulée). Deux entrées de stock « Démo facture » de 10 (MAO et Timini). La vente #102 n'existe pas (tentative refusée pour stock insuffisant, numéro consommé).
 
-## Chantier prioritaire : sauvegarde de la base
+## Chantier : sauvegarde de la base
 
 Décidé le 2026-10-13, après l'incident. Le commit 5+6 est passé d'abord (terminé le 2026-10-13).
 
-Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Plan de l'étape C validé le 2026-10-15, voir « Étape C : plan validé ». Commits 1 à 3 de l'étape C (scripts) faits le 2026-10-15, avec un 3 bis (`.gitignore`), poussés le 2026-10-15 (`866bbc7`). Préalables P1 à P4 faits le 2026-10-15. Commit 4 mis en pause le 2026-10-15 au profit de la facture (phase 1). À la reprise : 2FA Cloudflare, puis le commit 4.
+Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Plan de l'étape C validé le 2026-10-15, voir « Étape C : plan validé ». Commits 1 à 3 de l'étape C (scripts) faits le 2026-10-15, avec un 3 bis (`.gitignore`), poussés le 2026-10-15 (`866bbc7`). Préalables P1 à P4 faits le 2026-10-15. Commit 4 mis en pause le 2026-10-15 au profit de la facture (phase 1). Reprise après la photo de produit et le site public (voir « Prochaines étapes ») : 2FA Cloudflare, puis le commit 4.
 
 ### Constat (2026-10-13)
 
