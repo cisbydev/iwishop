@@ -12,7 +12,7 @@ Mis à jour le 2026-10-15.
 
 ## En cours : facture (phase 1)
 
-Plan validé par Mahamadou le 2026-10-15, livré en deux temps. Livraison 1 (commits 1 à 5, avec 2 bis, 3 bis, 3 ter et 4 bis) faite le 2026-10-15 et vérifiée en local par Mahamadou : écran, vue téléphone (375 px), deux PDF d'exemple (vente normale, vente à crédit annulée). Prochaine étape : push de la livraison 1, puis son test en prod (ci-dessous) ; ensuite la livraison 2.
+Plan validé par Mahamadou le 2026-10-15, livré en deux temps. Livraison 1 (commits 1 à 5, avec 2 bis, 3 bis, 3 ter et 4 bis) faite le 2026-10-15 et vérifiée en local par Mahamadou : écran, vue téléphone (375 px), deux PDF d'exemple (vente normale, vente à crédit annulée). Poussée le 2026-10-15 (`4c7734e`, CI verte, backend et frontend), puis vérifiée en prod par Mahamadou le même jour sur une boutique de test : livraison 1 terminée (voir « Test en prod de la livraison 1 »). Prochaine étape : livraison 2 (commit 6).
 
 ### Décisions (Mahamadou, 2026-10-15)
 
@@ -42,15 +42,17 @@ Précisions :
 
 Suites complètes en local : backend 630 tests OK ; frontend 271 tests OK, lint et build OK. Chaque correctif a son test vu échouer avant.
 
-### Test en prod de la livraison 1 (Mahamadou)
+### Test en prod de la livraison 1 : fait le 2026-10-15 (Mahamadou)
 
-- Sur une boutique de test, jamais celle d'un client : un numéro de facture ne se supprime pas.
+Sur une boutique de test, jamais celle d'un client (un numéro de facture ne se supprime pas). Constats de Mahamadou, tous OK :
+- CI verte pour `4c7734e` (run 38810033222, backend et frontend, lu sur l'API publique de GitHub).
 - Migrations `sales` 0021 et 0022 appliquées par `build.sh`.
-- Créer une facture depuis l'historique, la télécharger, l'ouvrir ; annuler la vente : badge « Annulée » et tampon sur le PDF.
-- Envoyer un logo en prod (R2) : visible dans les paramètres, dans le PDF d'une facture émise ensuite, et dans les deux exports PDF des rapports (corrigés par le 3 bis).
-- Vrai partage WhatsApp sur Android (Chrome) : le PDF arrive dans WhatsApp. Sur iPhone (Safari) si possible. Les tests simulent `navigator.share`, ils ne prouvent pas ce point.
-- Vue Support : PDF téléchargeable, création refusée.
+- Facture créée depuis l'historique, téléchargée ; vente annulée : tampon « ANNULÉE » sur le PDF.
+- Logo en prod (R2) : présent dans le PDF de la facture et dans les exports PDF des rapports (corrigés par le 3 bis).
+- Vrai partage WhatsApp sur Android : OK.
 - Sentry : aucune erreur nouvelle.
+
+Pas dans ce compte rendu, donc non vérifiés en prod : Vue Support (PDF téléchargeable, création refusée ; couverts par les tests) et partage sur iPhone (Safari).
 
 ### Livraison 2
 
