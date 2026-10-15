@@ -14,7 +14,7 @@ Mis à jour le 2026-10-15.
 
 Décidé le 2026-10-13, après l'incident. Le commit 5+6 est passé d'abord (terminé le 2026-10-13).
 
-Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Plan de l'étape C validé le 2026-10-15, voir « Étape C : plan validé ». Commits 1 à 3 de l'étape C (scripts) faits le 2026-10-15, avec un 3 bis (`.gitignore`), poussés le 2026-10-15 (`866bbc7`). Préalables P1 et P2 faits le 2026-10-15. Prochaine étape : P3 (Healthchecks.io) puis P4 (Render) (Mahamadou, guidé), puis le commit 4.
+Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Plan de l'étape C validé le 2026-10-15, voir « Étape C : plan validé ». Commits 1 à 3 de l'étape C (scripts) faits le 2026-10-15, avec un 3 bis (`.gitignore`), poussés le 2026-10-15 (`866bbc7`). Préalables P1 à P4 faits le 2026-10-15. Commit 4 mis en pause le 2026-10-15 au profit de la facture (phase 1). À la reprise : 2FA Cloudflare, puis le commit 4.
 
 ### Constat (2026-10-13)
 
@@ -88,8 +88,10 @@ Préalables (Mahamadou, dans les tableaux de bord, sans code ; valeurs secrètes
 - P2. Paire de clés `age` (`age-keygen` sur le PC), clé privée rangée en deux exemplaires.
   - Fait par Mahamadou le 2026-10-15 : `age-keygen` (v1.3.2, windows-amd64, dans `C:\Tools\age`) lancé sur le PC avec `-o` vers la clé USB (`E:`) : clé privée écrite directement sur `E:` par `-o`, aucun fichier sur le disque du PC. Affichée une fois à l'écran pour la copie papier (`Select-String`, ligne `AGE-SECRET-KEY` seule), puis `Clear-Host`. Aller-retour prouvé : texte chiffré avec la clé publique (`age-keygen -y`), déchiffré avec la clé privée de la clé USB ; fichier de test supprimé. Deux exemplaires, clé USB et papier, à deux endroits.
 - P3. Healthchecks.io : contrôle « iwishop-sauvegarde », période d'un jour, marge de 2 h, alerte par e-mail.
+  - Fait par Mahamadou le 2026-10-15 : contrôle « iwishop-sauvegarde » créé, période 1 jour, marge 2 h (vérifié sur capture), alerte par e-mail ; contrôle d'exemple supprimé. L'URL de ping n'est notée nulle part : elle ira seulement dans les variables de la tâche Render.
 - P4. Render : notifications d'échec par e-mail activées.
-- Double authentification (2FA) Cloudflare : pas encore activée (2026-10-15). Obligatoire avant la mise en service de la tâche planifiée.
+  - Fait par Mahamadou le 2026-10-15 : le réglage par défaut de l'espace de travail Render est « Only failure notifications » (vérifié sur la page Notifications du service iwishop, qui utilise ce défaut). La future tâche planifiée devrait en hériter : à vérifier sur sa page Notifications une fois créée.
+- Double authentification (2FA) Cloudflare : pas encore activée (2026-10-15). Obligatoire avant la création du jeton R2 (décidé par Mahamadou le 2026-10-15), donc avant la création de la tâche planifiée et sa mise en service.
 
 Commits prévus (chacun vérifiable) :
 1. `fix(scripts)` : accents des deux scripts PowerShell (UTF-8 avec BOM). Preuves : `EF BB BF` en tête (`Format-Hex`), `git show` ne montre que ce changement, message lisible sous PowerShell 5.1 en lançant chaque script sans sa variable (vu abîmé avant).
@@ -107,7 +109,6 @@ Commits prévus (chacun vérifiable) :
 
 ### Points à traiter
 
-- Supprimer à la main les 5 archives de 0 octet de `backups/`, après les avoir listées. Le script ne les crée plus (`3659f5d`).
 - Base de dev locale `sorashop_db` pas à jour de ses migrations (relevé le 2026-10-15 : table `purchases_paiementfournisseur` absente, migration `purchases/0017`, sans doute aussi 0018 et 0019). À vérifier avec `showmigrations`, puis décider du `migrate` en dev.
 - Étape B réussie : décider quoi faire des archives non chiffrées de `backups/`, la nouvelle comprise (données de clients sur le PC), une fois la chaîne de l'étape C prouvée.
 - Deux autres bases locales vues à la relecture du 2026-10-14, laissées intactes : `iwishop_restore_test_20260911` et `iwishop_restore_test_current_20260911` (anciens essais probables du 2026-09-11). Vérifier ce qu'elles contiennent, puis décider de les supprimer (copies de données de clients sur le PC).
