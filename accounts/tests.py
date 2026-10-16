@@ -912,3 +912,45 @@ class LoginThrottlingTests(APITestCase):
             for entree in valeur:
                 self.assertIsInstance(entree, float)
             self.assertNotIn(mot_de_passe_distinctif, str(valeur))
+
+
+class MeBoutiqueIdTests(APITestCase):
+    """Isolation hors ligne (plan validé le 2026-10-16) : accounts/me/
+    renvoie l'id de la boutique ACTIVE, avec laquelle le frontend marque
+    ventes et catalogue, y compris sans X-Boutique-Active."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique A", slug="boutique-me-a")
+        self.boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-me-b")
+        self.url = reverse('me')
+
+    def test_une_seule_boutique_sans_entete(self):
+        user = User.objects.create_user(username="me_une_boutique", password="pass1234")
+        Profil.objects.create(user=user, boutique=self.boutique_b, est_proprietaire=False)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual((response.data['boutique_id'], response.data['boutique_nom']), (self.boutique_b.id, "Boutique B"))
+
+    def test_deux_boutiques_l_id_suit_x_boutique_active(self):
+        user = User.objects.create_user(username="me_deux_boutiques", password="pass1234")
+        Profil.objects.create(user=user, boutique=self.boutique_a, est_proprietaire=True)
+        Profil.objects.create(user=user, boutique=self.boutique_b, est_proprietaire=True)
+        self.client.force_authenticate(user=user)
+
+        for boutique in (self.boutique_b, self.boutique_a):
+            with self.subTest(boutique=boutique.nom):
+                response = self.client.get(self.url, HTTP_X_BOUTIQUE_ACTIVE=str(boutique.id))
+                self.assertEqual(response.data['boutique_id'], boutique.id)
+                self.assertEqual(response.data['boutique_nom'], boutique.nom)
+
+    def test_sans_profil_boutique_id_nul(self):
+        admin = User.objects.create_superuser(username="me_sans_profil", email="m@example.com", password="x")
+        self.client.force_authenticate(user=admin)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data['boutique_id'])

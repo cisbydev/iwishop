@@ -59,15 +59,19 @@ class EmployeCreateSerializer(serializers.ModelSerializer):
 
 
 class MeSerializer(serializers.ModelSerializer):
-    """Multi-boutique : est_proprietaire/boutique_nom reflètent le Profil
-    de la boutique ACTIVE (résolue via boutique_de sur la requête en
-    contexte), pas "un profil quelconque" de l'utilisateur."""
+    """Multi-boutique : est_proprietaire/boutique_nom/boutique_id reflètent
+    le Profil de la boutique ACTIVE (résolue via boutique_de sur la requête
+    en contexte), pas "un profil quelconque" de l'utilisateur."""
     est_proprietaire = serializers.SerializerMethodField()
     boutique_nom = serializers.SerializerMethodField()
+    # Isolation hors ligne : le frontend marque ventes et catalogue avec
+    # cette boutique, même sans X-Boutique-Active (boutique par défaut
+    # choisie par le serveur).
+    boutique_id = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'est_proprietaire', 'boutique_nom']
+        fields = ['id', 'username', 'first_name', 'last_name', 'est_proprietaire', 'boutique_nom', 'boutique_id']
 
     def _profil_actif(self, obj):
         request = self.context.get('request')
@@ -88,3 +92,7 @@ class MeSerializer(serializers.ModelSerializer):
     def get_boutique_nom(self, obj):
         profil = self._profil_actif(obj)
         return profil.boutique.nom if profil else None
+
+    def get_boutique_id(self, obj):
+        profil = self._profil_actif(obj)
+        return profil.boutique_id if profil else None
