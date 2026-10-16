@@ -13,7 +13,7 @@ from .models import Produit
 
 logger = logging.getLogger(__name__)
 
-# Photo de produit (plan validé le 2026-10-16, D1 à D3) : le fichier envoyé
+# Photo de produit (plan validé le 2026-10-15, D1 à D3) : le fichier envoyé
 # n'est jamais stocké tel quel. Il est contrôlé (taille, nombre de pixels,
 # format lu dans le contenu et non dans l'extension), puis ré-encodé en
 # WebP, réduit à 800 px au plus sur son plus grand côté, orientation

@@ -1205,7 +1205,7 @@ def _relire(octets):
 
 
 class TraiterPhotoTests(SimpleTestCase):
-    """traiter_photo (plan validé le 2026-10-16, D1 à D3) : contrôle de la
+    """traiter_photo (plan validé le 2026-10-15, D1 à D3) : contrôle de la
     photo envoyée, puis WebP, 800 px au plus, orientation appliquée,
     métadonnées supprimées."""
 
