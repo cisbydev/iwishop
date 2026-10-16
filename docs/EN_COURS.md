@@ -21,7 +21,7 @@ Mis à jour le 2026-10-16.
 
 Plan proposé et validé par Mahamadou le 2026-10-15 : D1 à D8 acceptées, avec deux ajouts (test HEIC sur un vrai iPhone et message de refus, à D2 ; URL signées et cache des miniatures, en livraison 2).
 
-État : commit 1 (`a561005`, `traiter_photo`) fait le 2026-10-15 ; vérifications en prod faites le 2026-10-16 (voir plus bas) ; commits 2 (`b047434`), 2 bis (`bba2b20`), 3 (`43c3ab0`) et 4 (`ec6e689`) faits le 2026-10-16. Rien n'est poussé : push à la fin de la livraison 1 (décidé par Mahamadou le 2026-10-16). `.env` local passé au stockage local et vérification à l'œil en local faites le 2026-10-16 (voir plus bas). Prochaine étape : le commit 5 (`docs`), puis le push de la livraison 1 sur accord de Mahamadou, puis le test en prod. Les exigences viennent de Mahamadou (une photo par produit, compression à environ 800 px, vérification du vrai type de fichier, stockage R2 par boutique, suppression avec le produit, image par défaut hors ligne, médias non sauvegardés) : elles n'étaient pas encore écrites dans ce fichier.
+État : commit 1 (`a561005`, `traiter_photo`) fait le 2026-10-15 ; vérifications en prod faites le 2026-10-16 (voir plus bas) ; commits 2 (`b047434`), 2 bis (`bba2b20`), 3 (`43c3ab0`) et 4 (`ec6e689`) faits le 2026-10-16. Rien n'est poussé : push à la fin de la livraison 1 (décidé par Mahamadou le 2026-10-16). `.env` local passé au stockage local et vérification à l'œil en local faites le 2026-10-16 (voir plus bas). Commit 5 (`14a7043`, `docs`) fait ; livraison 1 poussée le 2026-10-16 (`20b0ac0..14a7043`, CI verte, run 38945554155, backend et frontend) et vérifiée en prod le même jour (voir « Test en prod de la livraison 1 »), sauf iPhone (HEIC) et photo prise avec l'appareil photo. Les exigences viennent de Mahamadou (une photo par produit, compression à environ 800 px, vérification du vrai type de fichier, stockage R2 par boutique, suppression avec le produit, image par défaut hors ligne, médias non sauvegardés) : elles n'étaient pas encore écrites dans ce fichier.
 
 ### Constats dans le code (2026-10-15)
 
@@ -83,11 +83,59 @@ Livraison 1 (fonction complète en ligne, image par défaut hors ligne) :
    - Fait : `ec6e689` (2026-10-16, non poussé). Miniature de 40 px (`loading="lazy"`) à la place de l'initiale ; hors ligne, aucune photo demandée au réseau, retour de la miniature avec la connexion ; aperçu local gardé hors ligne. 4 tests, 4 contre-épreuves vues échouer. Frontend : lint, 290 tests et build OK.
 5. `docs` : `EN_COURS.md`.
 
-Livraison 2 (à décider ensuite) :
+Livraison 2 : décisions de Mahamadou du 2026-10-16, sur le plan proposé le même jour (rien n'est codé) :
+1. Écran de vente : champ de recherche avec liste de résultats illustrés (miniature, nom, stock, prix renvoyé par l'API), à la place du `<select>` ; pas de grille.
+2. Pas de cache hors ligne des photos pour l'instant : livraison 2b (cache des miniatures dans IndexedDB, avec règle CORS sur `iwishop-media`) en attente. D7 inchangée (image par défaut hors ligne).
+3. Miniature de 160 px générée par le serveur à l'envoi : oui (champ `photo_miniature`, migration additive).
+4. Réduction dans le navigateur avant l'envoi : 1 200 px au plus (le serveur ne garde que 800 px ; pas de 1 600 px, inutile pour l'instant).
+5. sRGB : attendre une comparaison sur un vrai iPhone.
+6. Bucket public pour les photos : à décider avec le chantier du site public.
+7. Priorité : vérifier l'isolation du catalogue hors ligne et de la file des ventes hors ligne (boutique, utilisateur, déconnexion), sans rien corriger : voir « Constat : isolation hors ligne ».
+
+Découpage retenu, à confirmer après le constat : livraison 2a = miniature de 160 px (backend), commande `generer_miniatures`, sélecteur avec recherche et miniatures, miniature dans la liste et le sélecteur avec rechargement des URL expirées, `docs` ; livraison 2c = réduction dans le navigateur (1 200 px), puis sRGB si la comparaison le justifie, `docs`.
+
+Pistes de la livraison 2, avant ces décisions :
 - Réduction de la photo dans le navigateur avant l'envoi (économie de données mobiles, le serveur garde tous ses contrôles).
 - Photo dans l'écran de vente.
 - Cache des miniatures (relevé par Mahamadou le 2026-10-15) : les URL signées changent à chaque chargement de la liste, donc le navigateur ne garde pas les miniatures en cache et les retélécharge à chaque visite (données mobiles). Options : URL signées plus longues, ou cache (par exemple par le chemin du fichier, sans la signature).
 - Conversion vers sRGB pour les photos d'iPhone (relevé le 2026-10-15) : D3 retire le profil couleur ICC, et les photos d'iPhone (Display P3) peuvent alors paraître un peu plus ternes. Convertir vers sRGB avant l'enregistrement, si c'est visible sur un vrai téléphone.
+
+### Constat : isolation hors ligne (2026-10-16, rien n'est corrigé)
+
+Demandé en priorité par Mahamadou le 2026-10-16. Preuve : `sorashop-frontend/src/services/isolationHorsLigne.constat.test.js` (non suivi par git, pas commité), 3 tests qui passent aujourd'hui : vraie IndexedDB en mémoire (`fake-indexeddb`), vrai `api.js` avec ses intercepteurs, seul le réseau d'axios remplacé pour lire les requêtes envoyées.
+
+- Catalogue hors ligne (`catalogueCache.js`) : une seule entrée, `{produits, prix, unites, derniere_maj}`, sans boutique ni utilisateur. Une fois la boutique active passée de 1 à 2, `chargerCatalogueCache()` rend le catalogue de la boutique 1 (prix d'achat compris). `Sales.jsx` l'affiche hors ligne sans contrôle de boutique. Gardé après la déconnexion.
+- File des ventes hors ligne (`offlineQueue.js`) : chaque entrée ne garde que `cle_idempotence`, `payload`, `horodatage_client`, `statut`, `tentatives` ; ni boutique ni utilisateur. Gardée après la déconnexion. `syncEngine.js` rejoue toutes les ventes `EN_ATTENTE` et `ECHEC_AUTRE` avec l'en-tête `X-Boutique-Active` et le jeton du moment de la synchronisation : prouvé avec une vente faite par X dans la boutique 1, envoyée après déconnexion de X et connexion de Y dans la boutique 2 (`X-Boutique-Active: 2`, `Bearer jeton-de-Y`).
+- Déconnexion (`api.logout`, appelée par `AuthContext.logout`) : n'efface que le jeton d'accès (et le cookie côté serveur). `boutique_active_id` reste aussi dans `localStorage`.
+- Conséquences, d'après le backend (`sales/serializers.py`) :
+  - Autre boutique : produit refusé en 400 (« n'appartient pas à votre boutique »), vente en `ECHEC_AUTRE`, retentée à chaque synchronisation ; elle passe si l'on revient sur la bonne boutique. Pas de perte, pas d'écriture dans la mauvaise boutique (les identifiants de produit sont uniques sur toute la base).
+  - Même boutique, autre utilisateur (deux vendeurs sur un même téléphone) : la vente est acceptée et enregistrée avec Y comme vendeur (`utilisateur = request.user`), sans aucun signal. Risque principal : mauvaise attribution du vendeur.
+  - Catalogue d'une autre boutique affiché hors ligne : une vente faite avec ce catalogue finit en `ECHEC_AUTRE` ; et un utilisateur d'une autre boutique, sur le même appareil, voit hors ligne le catalogue de la précédente (prix d'achat compris).
+- Point de vigilance pour la correction : effacer la file des ventes à la déconnexion perdrait des ventes non envoyées (de l'argent). Piste : marquer chaque vente et le catalogue avec l'utilisateur et la boutique à la création, ne rejouer que les ventes de l'utilisateur et de la boutique en cours, prévenir à la déconnexion s'il reste des ventes non envoyées ; effacer seulement le catalogue. Ventes déjà en file sans marque : voir le plan ci-dessous. Correction planifiée le 2026-10-16, avant la livraison 2a.
+
+### Correction de l'isolation hors ligne : plan validé le 2026-10-16
+
+Contraintes posées par Mahamadou et plan validé le 2026-10-16, avec ses trois réponses (409 avant la clé d'idempotence ; tout vendeur peut envoyer une vente sans marque après confirmation explicite ; refus d'une vente hors ligne si le contexte est inconnu). La condition ajoutée à la réponse 3 (contexte enregistré durablement, pour vendre après un rechargement hors ligne) a été retirée par Mahamadou le 2026-10-16 : voir « Décision : seule la page Ventes marche hors ligne ». Passe avant la livraison 2a de la photo.
+
+1. Aucune vente non envoyée n'est jamais effacée : une entrée de la file ne disparaît qu'après un envoi réussi, comme aujourd'hui ; pas de bouton « supprimer ».
+2. Marque : `accounts/me/` renvoie aussi `boutique_id` (ajout). Contexte de session `{utilisateur_id, utilisateur_nom, boutique_id, boutique_nom}` recopié de `accounts/me/` à chaque chargement en ligne, gardé en mémoire (module lisible par `syncEngine`, hors de React), effacé à la déconnexion volontaire. Pas d'enregistrement durable : sans réseau, une app rechargée affiche de toute façon l'écran de connexion. Chaque vente de la file porte ces quatre champs (pas de nouvelle version de la base IndexedDB). Contexte inconnu : vente hors ligne refusée (« Reconnectez-vous en ligne avant de vendre hors ligne »), panier intact. Catalogue : une entrée par couple utilisateur-boutique, lue seulement pour le contexte en cours ; l'ancienne entrée sans marque est supprimée au premier chargement en ligne (donnée qui se retélécharge).
+3. Serveur : `utilisateur_attendu` et `boutique_attendue`, facultatifs, en écriture seulement, sur `POST /api/ventes/`. Absents (ancienne version) : rien ne change. Différents de `request.user` ou de la boutique de la requête : 409 `{"detail": …, "code": "VENTE_AUTRE_COMPTE"}`, aucune écriture, contrôlé avant la recherche de la clé d'idempotence. Envoyés aussi pour une vente en ligne. Pas de colonne, pas de migration.
+4. Synchronisation : seules les ventes de l'utilisateur et de la boutique en cours sont rejouées ; les autres restent en file, sans changer de statut, comptées à part dans le bandeau (« N ventes en attente du compte X (boutique) : connectez-vous avec ce compte pour les envoyer »). 409 alors que la marque locale correspondait : `ECHEC_AUTRE`, vente gardée.
+5. Déconnexion volontaire (`Account.jsx`) : s'il reste des ventes non envoyées, confirmation (avec « Envoyer maintenant » si en ligne) ; puis effacement de tous les catalogues, de `boutique_active_id` et du contexte de session ; jamais de la file. Session expirée (`authFailureHandler`) : rien n'est effacé.
+6. Ventes déjà en file sans marque : jamais envoyées automatiquement ni supprimées ; montrées à part (« Ventes à vérifier (créées avant la mise à jour) » : date, montant, produits) ; une seule action, ouverte à tout vendeur, après la confirmation explicite « Envoyer avec mon compte (nom) et ma boutique (nom) » : la vente reçoit la marque en cours, puis part ; le serveur garde tous ses contrôles. Même traitement pour une vente sans marque ajoutée par un ancien frontend encore ouvert.
+7. Le test de constat devient un test de non-régression, inversé, vu échouer sur le code d'avant chaque correctif.
+
+Décision : seule la page Ventes marche hors ligne (Mahamadou, 2026-10-16). Constat qui l'a motivée : une app rechargée hors ligne ne peut pas vendre du tout, contexte ou pas. Au démarrage, `bootstrapAuthentication` (`api.js`) appelle `token/refresh/` ; hors ligne, l'appel échoue, `isAuthenticated` reste faux et `App.jsx` affiche l'écran de connexion. Situation lue dans le code, pas reproduite ; elle date de `56829ac` (jeton de rafraîchissement dans un cookie HttpOnly, jeton d'accès en mémoire seulement). Décidé :
+- Limite connue, acceptée pour l'instant : une app ouverte ou rechargée sans réseau affiche l'écran de connexion (lu dans le code, à confirmer sur un téléphone). Consigne aux clients : ouvrir l'app avec du réseau, puis laisser l'onglet ouvert ; les ventes faites ensuite hors ligne partent au retour du réseau.
+- Mode « session hors ligne » : chantier possible, à faire seulement si des clients le demandent. Principe noté : entrer dans l'app sans jeton quand le rafraîchissement échoue faute de réseau (pas sur un refus du serveur) et qu'un contexte de session est enregistré durablement ; ventes seulement mises en file ; envoi au retour du réseau, après un vrai rafraîchissement (cookie encore valable, sinon `ECHEC_AUTH`, vente gardée).
+- La condition de la réponse 3 (contexte durable et test du rechargement hors ligne) est retirée du plan actuel.
+
+Découpage :
+- Livraison A (backend, sans effet visible tant que le frontend n'envoie pas les champs) : 1. `feat(sales)` : `utilisateur_attendu`, `boutique_attendue`, 409 `VENTE_AUTRE_COMPTE`. 2. `feat(accounts)` : `boutique_id` dans `accounts/me/`.
+  - Faite le 2026-10-16 : `ae4ea49` (6 tests, 5 contre-épreuves vues échouer) et `02ed419` (3 tests, 2 contre-épreuves) ; suite backend 667 OK. Poussée seule le 2026-10-16 (`14a7043..02ed419`), CI verte (run 38955608986, backend et frontend). Vérifiée en prod le 2026-10-16 par Mahamadou : Render sert `02ed419` (« Live ») ; une vente normale passe comme avant ; `accounts/me/` renvoie `"boutique_id": 4` avec `"boutique_nom": "Boutique 2"` (boutique de test), lu dans l'onglet Réseau du navigateur. Le 409 n'est pas vérifié en prod (aucun frontend n'envoie encore les champs) : couvert par les tests.
+- Livraison B (frontend, après le déploiement de A) : 3. contexte de session (en mémoire), marque des ventes et du catalogue, vente hors ligne refusée sans contexte (partie « catalogue » du test inversé). 4. synchronisation limitée au compte en cours, bandeau « autre compte » et « à vérifier », envoi confirmé des ventes sans marque, 409 traité (partie « file »). 5. déconnexion : avertissement, effacement des catalogues, de `boutique_active_id` et du contexte (partie « déconnexion »). 6. `docs`.
+- Mode « session hors ligne » : hors de ce plan (chantier possible, si des clients le demandent).
+- Vérification en prod : deux comptes de la boutique de test sur un même téléphone (vente hors ligne avec A, déconnexion avertie, connexion avec B : vente de A « en attente d'un autre compte » ; reconnexion avec A : elle part, vendeur A).
 
 ### Stockage des fichiers en développement (relevé le 2026-10-16)
 
@@ -129,9 +177,16 @@ Relevé en préparant (2026-10-16) :
 8. Largeur téléphone (375 px, outils de développement) : fiche lisible, boutons utilisables.
 9. Hors ligne (outils de développement, Réseau, « Hors connexion ») : images par défaut sans recharger ; de retour en ligne, les miniatures reviennent.
 
-### Test en prod de la livraison 1 (Mahamadou, boutique de test)
+### Test en prod de la livraison 1 : fait le 2026-10-16 (Mahamadou, boutique de test)
 
+Photo de produit, livraison 1 : vérifiée en prod le 2026-10-16. Constats de Mahamadou :
+- Capture du tableau de bord Cloudflare : objet `produits/4/8dd8947e0a8745ffb8c04efc4378fd43.webp` dans `iwishop-media`, type `image/webp`, 34,72 Ko, créé le 16 Oct 2026 à 18:29:45 UTC. Boutique 4 = boutique de test. Fichier rangé dans le dossier de la boutique, sous un nom aléatoire, en WebP. Image envoyée : une capture d'écran de téléphone, pas une photo d'appareil photo.
+- Changement et retrait de la photo : vérifiés par Mahamadou, sans capture.
+- Suppression du fichier dans le bucket : après « Retirer la photo » dans l'app, Cloudflare affiche « Failed to find Object » pour `produits/4/8dd8947e0a8745ffb8c04efc4378fd43.webp` (capture du 2026-10-16) : le fichier est bien supprimé par l'app.
+
+Pas dans ce compte rendu, donc non vérifiés en prod :
 - Sur un vrai iPhone (Safari) : choisir une photo de la galerie (HEIC) ; elle doit arriver en JPEG et être acceptée. Si elle est refusée, le message doit être « Format d'image non accepté. Choisissez une photo JPG ou PNG. »
+- Une photo prise avec l'appareil photo (grande image avec métadonnées EXIF, dont l'orientation et la position GPS) : réduction à 800 px et retrait des métadonnées prouvés seulement par les tests.
 
 ### Vérifications en prod avant le commit 2 : faites le 2026-10-16 (Mahamadou, en lecture seule)
 
@@ -644,6 +699,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Vérifier `create_superuser_auto` : mot de passe en variable d'environnement, commande idempotente.
 - Chantier séparé (relevé le 2026-10-05) : Unités de vente et Employés n'ont aucun état « en cours » (risque de double envoi).
 - Sentry.
+- Plus tard, seulement si des clients le demandent (décidé le 2026-10-16) : mode « session hors ligne », pour ouvrir ou recharger l'app sans réseau et vendre (voir « Correction de l'isolation hors ligne »).
 - Plus tard (relevé le 2026-10-16) : logos non compressés (jusqu'à 1,59 Mo vus dans `iwishop-media`), dans un dossier `logos/` commun à toutes les boutiques. Même traitement possible que la photo de produit ; attention, une facture garde le chemin de son logo (ne jamais supprimer un ancien logo utilisé par une facture).
 - Plus tard (relevé le 2026-10-15) : historique des ventes en cartes sur téléphone. Le tableau défile déjà horizontalement (900 px minimum) ; le 4 bis de la facture ne fait que raccourcir la colonne Actions.
 
