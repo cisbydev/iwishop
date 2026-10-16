@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-15.
+Mis à jour le 2026-10-16.
 
 ## Incident prod (2026-10-10 au 2026-10-13) : base Render expirée
 
@@ -8,13 +8,94 @@ Mis à jour le 2026-10-15.
 - Mahamadou l'a passée au plan payant (`0.1c-256mb`, 6 $/mois) le 2026-10-13. La prod remarche (constat de Mahamadou).
 - Intégrité des données : établie par Mahamadou le 2026-10-13 : les ventes V-2F621063 et V-AD91351B (Bintou) sont présentes, la caisse du 2026-10-05 affiche ses chiffres, `iwishop-db` est « Available ».
 - Aucun commit n'a été poussé pendant la panne : à la rédaction de cette note, `main` = `origin/main`, sur `b9053a7`. Règle tant qu'une panne dure : tout commit poussé est noté « non vérifié en prod », et on les vérifie tous après la réparation.
+- Horloge du PC décalée une fois de plus le 2026-10-16 : elle affichait le 2026-10-15 (et a reculé de plusieurs heures après une première correction). Mise à l'heure à la main par Mahamadou, synchronisation automatique désactivée pour la journée ; vérifiée avec `Get-Date` (vendredi 2026-10-16) avant les commits `b047434` et `bba2b20`. À réactiver et revérifier ensuite.
 - Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07. Remise à l'heure par Mahamadou le même jour, vérifiée avec `date` et `Get-Date` (2026-10-13) avant le commit de cette note (`ccfcb3c`, daté du 2026-10-13). Les dates de cette note viennent de Mahamadou et de Render, pas du PC.
 
 ## Prochaines étapes (ordre décidé par Mahamadou le 2026-10-15)
 
-1. Photo de produit.
+1. Photo de produit (voir « Photo de produit : plan validé le 2026-10-15 »).
 2. Site public séparé (domaine).
 3. Reprise de la sauvegarde automatique : 2FA Cloudflare, puis le commit 4 (voir « Chantier : sauvegarde de la base »).
+
+## Photo de produit : plan validé le 2026-10-15
+
+Plan proposé et validé par Mahamadou le 2026-10-15 : D1 à D8 acceptées, avec deux ajouts (test HEIC sur un vrai iPhone et message de refus, à D2 ; URL signées et cache des miniatures, en livraison 2).
+
+État : commit 1 (`a561005`, `traiter_photo`) fait le 2026-10-15 ; vérifications en prod faites le 2026-10-16 (voir plus bas) ; commits 2 (`b047434`) et 2 bis (`bba2b20`) faits le 2026-10-16. Rien n'est poussé : push à la fin de la livraison 1 (décidé par Mahamadou le 2026-10-16). Prochaine étape : le commit 3 (la photo dans la fiche produit). Les exigences viennent de Mahamadou (une photo par produit, compression à environ 800 px, vérification du vrai type de fichier, stockage R2 par boutique, suppression avec le produit, image par défaut hors ligne, médias non sauvegardés) : elles n'étaient pas encore écrites dans ce fichier.
+
+### Constats dans le code (2026-10-15)
+
+- `Produit.photo` existe déjà : `ImageField`, `upload_to='produits/'` (dossier commun à toutes les boutiques), extensions JPG, JPEG, PNG, WEBP et 5 Mo maximum (`tenants/validators.py`) ; Pillow vérifie seulement que le fichier se décode. Ni compression, ni retrait des métadonnées EXIF (la position GPS d'une photo de téléphone est gardée). Remplacer ou retirer une photo ne supprime jamais l'ancien fichier. La photo s'envoie en multipart avec le produit (`ProduitSerializer`, `fields='__all__'`).
+- Droits sur les produits : tout vendeur peut modifier un produit ; seul le propriétaire peut le supprimer, et la suppression est refusée (400) si le produit a des ventes, achats ou mouvements de stock.
+- Stockage : R2 privé, URL signées qui expirent au bout d'une heure (`AWS_QUERYSTRING_AUTH` non défini, défaut de django-storages).
+- Frontend : aucun écran n'affiche ni n'envoie de photo de produit. Le catalogue hors ligne (`catalogueCache`) garde les produits tels que l'API les renvoie, avec des URL signées qui expirent.
+- Base de dev : 4 produits, aucun avec photo. Prod (2026-10-16) : 5 produits, aucun avec photo (voir « Vérifications en prod »).
+
+### Décisions (validées par Mahamadou le 2026-10-15)
+
+1. D1. Sortie en WebP qualité 80, 800 px au plus sur le plus grand côté, jamais d'agrandissement. Environ 30 à 80 Ko par photo ; WebP 25 à 35 % plus léger que JPEG, lu par tous les navigateurs récents.
+2. D2. Entrée : 5 Mo maximum (inchangé), 40 mégapixels maximum (« bombes de décompression »), JPEG, PNG ou WebP selon le format lu par Pillow dans le contenu, quelle que soit l'extension. Refusé avec un message clair : GIF, SVG, HEIC d'iPhone, texte renommé en `.jpg`. Message de ces refus : « Format d'image non accepté. Choisissez une photo JPG ou PNG. » (Pillow ne lit pas le HEIC : il passe par le même chemin qu'un fichier illisible). Image animée : seule la première image est gardée. À tester sur un vrai iPhone : Safari convertit la photo HEIC en JPEG à l'envoi (voir « Test en prod de la livraison 1 »).
+3. D3. Toujours ré-encoder : le fichier envoyé n'est jamais stocké tel quel. Orientation EXIF appliquée, puis toutes les métadonnées supprimées (GPS compris). Transparence d'un PNG gardée.
+4. D4. Chemin `produits/<id de la boutique>/<uuid>.webp`, dans le bucket médias actuel, qui reste privé avec des URL signées. Le nom de fichier envoyé n'est jamais utilisé ; nouveau nom à chaque envoi.
+5. D5. API dédiée : `POST /api/produits/{id}/photo/` (multipart, champ `photo`) et `DELETE /api/produits/{id}/photo/`. Dans le produit, `photo` passe en lecture seule (son URL).
+6. D6. Droits : envoyer ou retirer une photo est permis à quiconque peut modifier un produit (employés compris, comme aujourd'hui). Supprimer le produit reste réservé au propriétaire.
+7. D7. Hors ligne : image par défaut, pas de mise en cache des photos en phase 1 (les URL signées expirent au bout d'une heure).
+8. D8. Les photos restent hors de la sauvegarde de la base (une photo perdue se renvoie). À revoir avec la reprise de la sauvegarde.
+
+### Validation et sécurité de l'envoi
+
+- Ordre des contrôles : taille, puis ouverture par Pillow avec la limite de pixels, puis format réel. Toute erreur donne un 400 avec un message, jamais un 500.
+- Accès : produit d'une autre boutique, même 404 qu'un produit inexistant ; abonnement expiré, 403 ; Vue Support refusée (écriture).
+- Le ré-encodage neutralise tout contenu caché dans le fichier d'origine.
+
+### Compression
+
+Pillow, déjà installé (12.3.0) et déjà utilisé par `ImageField` : aucune nouvelle dépendance ; orientation, redimensionnement et WebP. `pyvips`, plus rapide, demanderait une bibliothèque système sur Render et sous Windows. Le traitement est une fonction pure, `traiter_photo(fichier) -> octets WebP`, testable sans base ni stockage.
+
+### Suppression
+
+- L'ancien fichier est supprimé après le commit (`transaction.on_commit`) : au remplacement, au retrait, et à la suppression réussie du produit.
+- Si la base échoue après l'envoi, le nouveau fichier est supprimé.
+- Un échec de suppression dans R2 est journalisé en ERROR (événement Sentry), sans bloquer la requête : au pire, un fichier orphelin reste dans le bucket.
+- Supprimer une boutique laisserait ses fichiers en place : à noter, aucune boutique ne se supprime aujourd'hui.
+
+### Écrans React
+
+- Fiche produit : « Choisir une photo » (`accept="image/jpeg,image/png,image/webp"`, qui propose aussi l'appareil photo sur téléphone), aperçu, envoi avec état « en cours », « Retirer la photo ». Erreurs dans la page, double clic ignoré, actions désactivées en Vue Support. À la création : le produit est enregistré d'abord, puis la photo est envoyée ; si l'envoi échoue, le message dit « produit créé, photo non envoyée ».
+- Liste des produits : miniature, sinon image par défaut dans quatre cas : pas de photo, champ absent (backend pas encore déployé), image qui ne se charge pas (`onError`, par exemple URL expirée), catalogue hors ligne.
+
+### Tests
+
+- Backend : dimensions de sortie (rapport gardé, pas d'agrandissement) ; WebP ; EXIF supprimé (photo de test avec GPS) et orientation appliquée ; transparence gardée ; vrai type (PNG nommé `.jpg` accepté ; texte nommé `.jpg`, GIF, SVG et HEIC refusés avec le message de D2) ; 5 Mo et 40 mégapixels ; chemin par boutique sans le nom d'origine (par exemple `../../x.php.jpg`) ; suppression après commit (remplacement, retrait, suppression du produit) et pas de suppression si la base échoue ; échec de R2 journalisé sans bloquer ; 404 identique pour une autre boutique, Vue Support, abonnement expiré, employé autorisé ; nombre de requêtes de la liste inchangé. Fichiers comptés dans le stockage en mémoire ; chaque correctif vu échouer avant.
+- Frontend : envoi en `FormData` et aperçu ; erreur dans la page et double clic ; retrait ; image par défaut dans les quatre cas ; Vue Support.
+
+### Découpage proposé
+
+Livraison 1 (fonction complète en ligne, image par défaut hors ligne) :
+1. `feat(products)` : `traiter_photo` (Pillow : vrai type, limite de pixels, EXIF et orientation, 800 px, WebP), avec ses tests.
+   - Fait : `a561005` (2026-10-15, non poussé). 14 tests, vus échouer sans l'orientation, sans le contrôle du format, avec le décodage avant le contrôle des pixels, sans la bombe rattrapée, avec agrandissement, avec EXIF ou ICC repassés à l'enregistrement. Suite backend : 644 OK. Pillow 12 n'écrit dans un WebP que les métadonnées passées en option à `save()` ; `info.clear()` gardé par précaution.
+2. `feat(products)` : API `POST`/`DELETE` de la photo, chemin par boutique, suppression après commit, `photo` en lecture seule, avec ses tests. Migration de `upload_to` : changement d'état seulement, à vérifier avec `sqlmigrate`.
+   - Fait : `b047434` (2026-10-16, non poussé). `POST` et `DELETE` répondent 200 avec le produit ; une photo envoyée avec le produit (`POST`/`PUT`/`PATCH produits/`) est ignorée sans erreur (deux choix validés par Mahamadou le 2026-10-16). Fichier écrit avant la transaction, produit verrouillé (`select_for_update`), ancien fichier supprimé par `on_commit`, nouveau fichier supprimé si la base échoue. Migration `products/0015` : `sqlmigrate` affiche `-- (no-op)`. 19 tests (dont un de concurrence sur PostgreSQL), qui remplacent les 5 tests d'envoi par le produit ; 9 contre-épreuves, toutes vues échouer. Suite backend : 658 OK, `check` et `makemigrations --check` OK.
+   - 2 bis. `bba2b20` (2026-10-16, non poussé) : « plan validé le 2026-10-16 » corrigé en « 2026-10-15 » dans deux commentaires du commit 1.
+3. `feat(frontend)` : la photo dans la fiche produit.
+4. `feat(frontend)` : la miniature dans la liste, et l'image par défaut.
+5. `docs` : `EN_COURS.md`.
+
+Livraison 2 (à décider ensuite) :
+- Réduction de la photo dans le navigateur avant l'envoi (économie de données mobiles, le serveur garde tous ses contrôles).
+- Photo dans l'écran de vente.
+- Cache des miniatures (relevé par Mahamadou le 2026-10-15) : les URL signées changent à chaque chargement de la liste, donc le navigateur ne garde pas les miniatures en cache et les retélécharge à chaque visite (données mobiles). Options : URL signées plus longues, ou cache (par exemple par le chemin du fichier, sans la signature).
+- Conversion vers sRGB pour les photos d'iPhone (relevé le 2026-10-15) : D3 retire le profil couleur ICC, et les photos d'iPhone (Display P3) peuvent alors paraître un peu plus ternes. Convertir vers sRGB avant l'enregistrement, si c'est visible sur un vrai téléphone.
+
+### Test en prod de la livraison 1 (Mahamadou, boutique de test)
+
+- Sur un vrai iPhone (Safari) : choisir une photo de la galerie (HEIC) ; elle doit arriver en JPEG et être acceptée. Si elle est refusée, le message doit être « Format d'image non accepté. Choisissez une photo JPG ou PNG. »
+
+### Vérifications en prod avant le commit 2 : faites le 2026-10-16 (Mahamadou, en lecture seule)
+
+1. Base de prod, dans sa fenêtre PowerShell habituelle, requête en lecture seule (`BEGIN READ ONLY` puis `ROLLBACK`) : 5 produits, 0 avec photo. Rien à reprendre : « reprise des photos déjà en prod » retirée de la livraison 2.
+2. Bucket médias : `CLOUDFLARE_R2_BUCKET_NAME` vaut `iwishop-media` sur Render ; dans Cloudflare, `iwishop-media` n'a aucun domaine personnalisé, son adresse publique de développement (`r2.dev`) est désactivée, et il est distinct d'`iwishop-backups`. D4 confirmée.
+3. En plus : un logo envoyé en prod le 2026-10-15 à 21:39 est présent dans `iwishop-media/logos/`. Les identifiants R2 de la prod marchent donc ; le refus 403 ne concerne que le `.env` local (voir « En attente, côté Mahamadou »).
 
 ## Terminé le 2026-10-15 : facture (phase 1)
 
@@ -521,6 +602,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Vérifier `create_superuser_auto` : mot de passe en variable d'environnement, commande idempotente.
 - Chantier séparé (relevé le 2026-10-05) : Unités de vente et Employés n'ont aucun état « en cours » (risque de double envoi).
 - Sentry.
+- Plus tard (relevé le 2026-10-16) : logos non compressés (jusqu'à 1,59 Mo vus dans `iwishop-media`), dans un dossier `logos/` commun à toutes les boutiques. Même traitement possible que la photo de produit ; attention, une facture garde le chemin de son logo (ne jamais supprimer un ancien logo utilisé par une facture).
 - Plus tard (relevé le 2026-10-15) : historique des ventes en cartes sur téléphone. Le tableau défile déjà horizontalement (900 px minimum) ; le 4 bis de la facture ne fait que raccourcir la colonne Actions.
 
 ## En attente, côté Mahamadou
@@ -529,4 +611,4 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
 - Vérifier que la ligne `postgresql://` est supprimée de l'historique PowerShell.
-- Identifiants R2 du `.env` local refusés par R2 (403, relevé le 2026-10-15) : à vérifier, sans afficher de secret. En attendant, en local, un logo ne s'affiche pas (PDF sans logo, erreur dans les journaux) ; les tests n'appellent plus R2 (`6ba8f22`).
+- Identifiants R2 du `.env` local refusés par R2 (403, relevé le 2026-10-15) : à vérifier, sans afficher de secret. Seul le `.env` local est en cause : ceux de la prod marchent (logo envoyé en prod le 2026-10-15 à 21:39, présent dans `iwishop-media/logos/`, constat de Mahamadou du 2026-10-16). En attendant, en local, un logo ne s'affiche pas (PDF sans logo, erreur dans les journaux) ; les tests n'appellent plus R2 (`6ba8f22`).
