@@ -11,6 +11,9 @@ class ProduitSerializer(serializers.ModelSerializer):
     class Meta:
         model = Produit
         fields = '__all__'
+        # D5 : la photo s'envoie par POST/DELETE produits/{id}/photo/
+        # (contrôlée et ré-encodée) ; ici, seulement son URL.
+        read_only_fields = ['photo']
         # `reference` est blank=True (auto-générée si omise, voir
         # Produit.save()) : le UniqueTogetherValidator que DRF générerait
         # automatiquement pour (boutique, reference) - audit point 9 -

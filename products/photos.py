@@ -1,9 +1,17 @@
+import logging
+from functools import partial
 from io import BytesIO
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from django.core.files.base import ContentFile
+from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
 from tenants.validators import TAILLE_MAX_IMAGE
+
+from .models import Produit
+
+logger = logging.getLogger(__name__)
 
 # Photo de produit (plan validé le 2026-10-16, D1 à D3) : le fichier envoyé
 # n'est jamais stocké tel quel. Il est contrôlé (taille, nombre de pixels,
@@ -69,3 +77,53 @@ def traiter_photo(fichier):
     sortie = BytesIO()
     propre.save(sortie, format='WEBP', quality=QUALITE_WEBP, method=6)
     return sortie.getvalue()
+
+
+def _supprimer_fichier(nom):
+    """Supprime un fichier du stockage sans jamais faire échouer la requête :
+    un échec (R2 injoignable) est journalisé en ERROR (événement Sentry) et
+    laisse au pire un fichier orphelin dans le bucket."""
+    try:
+        Produit._meta.get_field('photo').storage.delete(nom)
+    except Exception:
+        logger.error("Photo de produit non supprimée du stockage : %s", nom, exc_info=True)
+
+
+def supprimer_photo_apres_commit(nom):
+    """L'ancien fichier n'est supprimé qu'une fois la base à jour : si la
+    transaction échoue, la photo encore référencée reste en place."""
+    if nom:
+        transaction.on_commit(partial(_supprimer_fichier, nom))
+
+
+def enregistrer_photo(produit, octets):
+    """Enregistre la photo (octets WebP de traiter_photo) et remplace
+    l'ancienne. Le fichier est écrit avant la transaction (pas d'appel
+    réseau pendant le verrou) ; si la base échoue ensuite, il est supprimé.
+    Le produit est verrouillé (select_for_update) : deux envois simultanés
+    ne lisent jamais le même ancien fichier, sinon l'un des nouveaux
+    resterait orphelin."""
+    champ = Produit._meta.get_field('photo')
+    nouveau = champ.storage.save(champ.generate_filename(produit, 'photo.webp'), ContentFile(octets))
+    try:
+        with transaction.atomic():
+            verrouille = Produit.objects.select_for_update().get(pk=produit.pk)
+            ancien = verrouille.photo.name
+            verrouille.photo = nouveau
+            verrouille.save(update_fields=['photo'])
+            supprimer_photo_apres_commit(ancien)
+    except Exception:
+        _supprimer_fichier(nouveau)
+        raise
+    return verrouille
+
+
+def retirer_photo(produit):
+    with transaction.atomic():
+        verrouille = Produit.objects.select_for_update().get(pk=produit.pk)
+        ancien = verrouille.photo.name
+        if ancien:
+            verrouille.photo = None
+            verrouille.save(update_fields=['photo'])
+            supprimer_photo_apres_commit(ancien)
+    return verrouille

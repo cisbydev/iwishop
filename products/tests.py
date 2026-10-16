@@ -1,3 +1,5 @@
+import threading
+import time
 from copy import deepcopy
 from decimal import Decimal
 from io import BytesIO
@@ -8,14 +10,14 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.files.storage import InMemoryStorage, default_storage
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.reverse import reverse
-from rest_framework.test import APITestCase
+from rest_framework.test import APITestCase, APITransactionTestCase
 
 from tenants.models import Abonnement, Boutique, FormuleAbonnement, Profil
 from categories.models import Categorie
@@ -23,7 +25,7 @@ from inventory.models import MouvementStock
 from purchases.models import Achat, LigneAchat
 from sales.models import Vente, LigneVente
 from .models import Produit, UniteVente, ProduitPrix
-from .photos import traiter_photo
+from .photos import enregistrer_photo, traiter_photo
 
 
 UPLOAD_TEST_STORAGES = deepcopy(settings.STORAGES)
@@ -668,21 +670,272 @@ class ProduitReferenceUniciteParBoutiqueTests(APITestCase):
         self.assertNotEqual(reponse_1.data['reference'], reponse_2.data['reference'])
 
 
-class ProduitPhotoUploadTests(APITestCase):
-    """Audit point 10 : Produit.photo n'avait ni limite de taille ni de
-    format - seul le contenu réellement décodable comme image (Pillow,
-    via ImageField) était vérifié."""
+def _fichiers_stockes(stockage, dossier='produits'):
+    """Tous les fichiers du stockage sous `dossier`, sous-dossiers compris :
+    on compte les fichiers, jamais les seules réponses de l'API."""
+    try:
+        dossiers, fichiers = stockage.listdir(dossier)
+    except FileNotFoundError:
+        return []
+    noms = [f'{dossier}/{nom}' for nom in fichiers]
+    for sous_dossier in dossiers:
+        noms += _fichiers_stockes(stockage, f'{dossier}/{sous_dossier}')
+    return sorted(noms)
+
+
+def _photo_jpeg(taille=(1600, 1200), nom='IMG_0001.jpg'):
+    buffer = BytesIO()
+    Image.new('RGB', taille, 'red').save(buffer, format='JPEG')
+    return SimpleUploadedFile(nom, buffer.getvalue(), content_type='image/jpeg')
+
+
+class _StockageEnMemoireMixin:
+    """Stockage en mémoire neuf pour chaque test (vide au départ)."""
+
+    def _stockage_neuf(self):
+        reglages = override_settings(STORAGES=deepcopy(UPLOAD_TEST_STORAGES))
+        reglages.enable()
+        self.addCleanup(reglages.disable)
+        self.assertIsInstance(default_storage, InMemoryStorage)
+        self.assertEqual(_fichiers_stockes(default_storage), [])
+        return default_storage
+
+
+class ProduitPhotoApiTests(_StockageEnMemoireMixin, APITestCase):
+    """POST et DELETE produits/{id}/photo/ (D4 à D6) : photo contrôlée,
+    ré-encodée et rangée par boutique ; ancien fichier supprimé après le
+    commit ; mêmes refus que toute écriture sur un produit."""
+
+    MESSAGE_FORMAT = "Format d'image non accepté. Choisissez une photo JPG ou PNG."
 
     def setUp(self):
-        self._upload_settings = override_settings(
-            DEBUG=True,
-            STORAGES=deepcopy(UPLOAD_TEST_STORAGES),
+        self.stockage = self._stockage_neuf()
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-photo-api")
+        self.proprietaire = User.objects.create_user(username="proprio_photo", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.employe = User.objects.create_user(username="employe_photo", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("100"), prix_unitaire=Decimal("150"), prix_douzaine=Decimal("1500"),
         )
-        self._upload_settings.enable()
-        self.addCleanup(self._upload_settings.disable)
-        self.assertIsInstance(default_storage, InMemoryStorage)
+        self.url = reverse('produit-photo', args=[self.produit.id])
+        self.chemin_attendu = rf'^produits/{self.boutique.id}/[0-9a-f]{{32}}\.webp$'
 
-        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-photo-upload")
+    def _envoyer(self, fichier=None, user=None, **extra):
+        self.client.force_authenticate(user=user or self.proprietaire)
+        return self.client.post(self.url, {'photo': fichier or _photo_jpeg()}, format='multipart', **extra)
+
+    def _retirer(self, user=None, **extra):
+        self.client.force_authenticate(user=user or self.proprietaire)
+        return self.client.delete(self.url, **extra)
+
+    def _photo_en_place(self):
+        """Photo déjà enregistrée par l'API."""
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self._envoyer().status_code, status.HTTP_200_OK)
+        self.produit.refresh_from_db()
+        return self.produit.photo.name
+
+    def test_envoi_enregistre_un_webp_800_px_dans_le_dossier_de_la_boutique(self):
+        response = self._envoyer()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.produit.refresh_from_db()
+        nom = self.produit.photo.name
+        self.assertRegex(nom, self.chemin_attendu)
+        self.assertEqual(_fichiers_stockes(self.stockage), [nom])
+        with self.stockage.open(nom) as fichier:
+            image = Image.open(fichier)
+            self.assertEqual((image.format, image.size), ('WEBP', (800, 600)))
+        self.assertTrue(response.data['photo'].endswith(nom))
+
+    def test_nom_du_fichier_envoye_jamais_utilise(self):
+        buffer = BytesIO()
+        Image.new('RGB', (50, 50), 'red').save(buffer, format='PNG')
+        fichier = SimpleUploadedFile('../../x.php.jpg', buffer.getvalue(), content_type='image/jpeg')
+
+        response = self._envoyer(fichier)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.produit.refresh_from_db()
+        self.assertRegex(self.produit.photo.name, self.chemin_attendu)
+        self.assertNotIn('php', self.produit.photo.name)
+
+    def test_remplacement_supprime_l_ancien_fichier_seulement_apres_le_commit(self):
+        ancien = self._photo_en_place()
+
+        with self.captureOnCommitCallbacks() as callbacks:
+            response = self._envoyer()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.produit.refresh_from_db()
+        nouveau = self.produit.photo.name
+        self.assertNotEqual(nouveau, ancien)
+        # Avant le commit, les deux fichiers sont encore là.
+        self.assertEqual(_fichiers_stockes(self.stockage), sorted([ancien, nouveau]))
+        for callback in callbacks:
+            callback()
+        self.assertEqual(_fichiers_stockes(self.stockage), [nouveau])
+
+    def test_echec_de_la_base_supprime_le_nouveau_fichier_et_garde_l_ancien(self):
+        ancien = self._photo_en_place()
+
+        with self.captureOnCommitCallbacks() as callbacks:
+            with patch.object(Produit, 'save', side_effect=DatabaseError("panne simulée")):
+                with self.assertRaises(DatabaseError):
+                    self._envoyer()
+
+        self.assertEqual(callbacks, [])
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.photo.name, ancien)
+        self.assertEqual(_fichiers_stockes(self.stockage), [ancien])
+
+    def test_retrait_supprime_le_fichier(self):
+        self._photo_en_place()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._retirer()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.data['photo'])
+        self.produit.refresh_from_db()
+        self.assertFalse(self.produit.photo)
+        self.assertEqual(_fichiers_stockes(self.stockage), [])
+
+    def test_retrait_sans_photo_ne_fait_rien(self):
+        with self.captureOnCommitCallbacks() as callbacks:
+            response = self._retirer()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(callbacks, [])
+
+    def test_suppression_du_produit_supprime_sa_photo(self):
+        self._photo_en_place()
+        self.client.force_authenticate(user=self.proprietaire)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.delete(reverse('produit-detail', args=[self.produit.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(_fichiers_stockes(self.stockage), [])
+
+    def test_suppression_refusee_du_produit_garde_sa_photo(self):
+        nom = self._photo_en_place()
+        MouvementStock.objects.create(
+            boutique=self.boutique, produit=self.produit, type_mouvement='ENTREE', quantite=5,
+        )
+        self.client.force_authenticate(user=self.proprietaire)
+
+        with self.captureOnCommitCallbacks(execute=True) as callbacks:
+            response = self.client.delete(reverse('produit-detail', args=[self.produit.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(callbacks, [])
+        self.assertEqual(_fichiers_stockes(self.stockage), [nom])
+
+    def test_echec_de_suppression_dans_le_stockage_journalise_sans_bloquer(self):
+        ancien = self._photo_en_place()
+
+        with patch.object(InMemoryStorage, 'delete', side_effect=OSError("R2 injoignable")):
+            with self.assertLogs('products.photos', level='ERROR') as journaux:
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self._envoyer()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn(ancien, journaux.output[0])
+        # Au pire, l'ancien fichier reste orphelin.
+        self.assertEqual(len(_fichiers_stockes(self.stockage)), 2)
+
+    def test_fichiers_refuses_400_avec_message_sans_rien_stocker(self):
+        buffer = BytesIO()
+        Image.new('RGB', (10, 10)).save(buffer, format='GIF')
+        cas = [
+            ('texte nommé .jpg', fichier_non_image(), self.MESSAGE_FORMAT),
+            ('GIF', SimpleUploadedFile('photo.gif', buffer.getvalue(), content_type='image/gif'), self.MESSAGE_FORMAT),
+            ('plus de 5 Mo', image_trop_lourde(), "L'image ne doit pas dépasser 5 Mo."),
+        ]
+        for libelle, fichier, message in cas:
+            with self.subTest(libelle):
+                response = self._envoyer(fichier)
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.data, [message])
+
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.post(self.url, {}, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, ["Aucune photo envoyée."])
+
+        self.produit.refresh_from_db()
+        self.assertFalse(self.produit.photo)
+        self.assertEqual(_fichiers_stockes(self.stockage), [])
+
+    def test_produit_d_une_autre_boutique_meme_404_qu_un_produit_inexistant(self):
+        boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-photo-api-b")
+        user_b = User.objects.create_user(username="proprio_photo_b", password="pass1234")
+        Profil.objects.create(user=user_b, boutique=boutique_b, est_proprietaire=True)
+        nom = self._photo_en_place()
+        inexistant = reverse('produit-photo', args=[Produit.objects.order_by('-pk').first().pk + 1000])
+        self.client.force_authenticate(user=user_b)
+
+        for methode in ('post', 'delete'):
+            with self.subTest(methode):
+                envoi = getattr(self.client, methode)
+                autre = envoi(self.url, {'photo': _photo_jpeg()}, format='multipart')
+                absent = envoi(inexistant, {'photo': _photo_jpeg()}, format='multipart')
+                self.assertEqual(autre.status_code, status.HTTP_404_NOT_FOUND)
+                self.assertEqual((autre.status_code, autre.data), (absent.status_code, absent.data))
+
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.photo.name, nom)
+        self.assertEqual(_fichiers_stockes(self.stockage), [nom])
+
+    def test_vue_support_refusee(self):
+        nom = self._photo_en_place()
+        admin = User.objects.create_superuser(username="admin_photo", email="admin@example.com", password="x")
+        entete = {'HTTP_X_SUPPORT_BOUTIQUE': str(self.boutique.id)}
+
+        for response in (self._envoyer(user=admin, **entete), self._retirer(user=admin, **entete)):
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.data['detail'], "La Vue Support est en lecture seule.")
+
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.photo.name, nom)
+        self.assertEqual(_fichiers_stockes(self.stockage), [nom])
+
+    def test_abonnement_expire_refuse(self):
+        nom = self._photo_en_place()
+        formule = FormuleAbonnement.objects.create(nom="Standard", duree_jours=30, prix=5000)
+        Abonnement.objects.create(
+            boutique=self.boutique, formule=formule,
+            date_debut=timezone.localdate() - timezone.timedelta(days=40),
+            date_fin=timezone.localdate() - timezone.timedelta(days=10),
+            statut='EXPIRE',
+        )
+
+        for response in (self._envoyer(), self._retirer()):
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertEqual(response.data['code'], 'ABONNEMENT_EXPIRE')
+
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.photo.name, nom)
+        self.assertEqual(_fichiers_stockes(self.stockage), [nom])
+
+    def test_employe_peut_envoyer_et_retirer(self):
+        self.assertEqual(self._envoyer(user=self.employe).status_code, status.HTTP_200_OK)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self._retirer(user=self.employe).status_code, status.HTTP_200_OK)
+        self.assertEqual(_fichiers_stockes(self.stockage), [])
+
+
+class ProduitPhotoLectureSeuleTests(_StockageEnMemoireMixin, APITestCase):
+    """D5 : dans le produit, `photo` est en lecture seule (son URL). Une
+    photo envoyée avec le produit est ignorée : elle ne passerait par
+    aucun des contrôles de traiter_photo."""
+
+    def setUp(self):
+        self.stockage = self._stockage_neuf()
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-photo-lecture-seule")
         self.user = User.objects.create_user(username="user_photo", password="pass1234")
         Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
         self.client.force_authenticate(user=self.user)
@@ -696,48 +949,130 @@ class ProduitPhotoUploadTests(APITestCase):
         payload.update(overrides)
         return payload
 
-    def test_upload_extension_non_autorisee_refuse(self):
-        """Une vraie image, mais dans un format hors liste blanche (GIF)."""
-        buffer = BytesIO()
-        Image.new('RGB', (10, 10)).save(buffer, format='GIF')
-        buffer.seek(0)
-        fichier = SimpleUploadedFile('photo.gif', buffer.read(), content_type='image/gif')
-
-        response = self.client.post(self.url_list, self._payload(photo=fichier), format='multipart')
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_upload_fichier_non_image_refuse(self):
-        """Non-régression : un fichier renommé en .jpg mais qui n'est pas
-        une vraie image reste rejeté (vérification de contenu, pas juste
-        de nom - déjà assurée par Pillow via ImageField avant ce correctif)."""
-        response = self.client.post(
-            self.url_list, self._payload(photo=fichier_non_image()), format='multipart'
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_upload_trop_lourd_refuse(self):
-        response = self.client.post(
-            self.url_list, self._payload(photo=image_trop_lourde()), format='multipart'
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_upload_image_valide_toujours_autorise(self):
-        """Non-régression : une image normale (bon format, taille
-        raisonnable) reste acceptée."""
-        response = self.client.post(
-            self.url_list, self._payload(photo=image_valide()), format='multipart'
-        )
+    def test_photo_envoyee_avec_le_produit_ignoree(self):
+        response = self.client.post(self.url_list, self._payload(photo=image_valide()), format='multipart')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data['photo'])
+        self.assertEqual(_fichiers_stockes(self.stockage), [])
+
+    def test_modification_du_produit_garde_sa_photo(self):
+        produit = Produit.objects.get(pk=self.client.post(self.url_list, self._payload(), format='json').data['id'])
+        self.client.post(reverse('produit-photo', args=[produit.id]), {'photo': _photo_jpeg()}, format='multipart')
+        produit.refresh_from_db()
+        nom = produit.photo.name
+        self.assertTrue(nom)
+        url_detail = reverse('produit-detail', args=[produit.id])
+
+        # PUT sans photo, comme le formulaire du frontend.
+        put = self.client.put(url_detail, self._payload(nom="Renommé"), format='json')
+        patch_ = self.client.patch(url_detail, {'photo': image_valide()}, format='multipart')
+
+        self.assertEqual((put.status_code, patch_.status_code), (status.HTTP_200_OK, status.HTTP_200_OK))
+        produit.refresh_from_db()
+        self.assertEqual((produit.nom, produit.photo.name), ("Renommé", nom))
+        self.assertEqual(_fichiers_stockes(self.stockage), [nom])
 
     def test_creation_sans_photo_toujours_autorisee(self):
-        """Non-régression : la photo reste optionnelle."""
         response = self.client.post(self.url_list, self._payload(), format='multipart')
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_liste_avec_photos_nombre_de_requetes_constant(self):
+        def creer(n):
+            for i in range(n):
+                Produit.objects.create(
+                    boutique=self.boutique, nom=f"Produit {i}-{n}", photo=f"produits/{self.boutique.id}/{i}-{n}.webp",
+                    prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+                )
+
+        # Utilisateur relu avant chaque appel : voir ProduitListQueryCountTests.
+        creer(2)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as premier:
+            self.client.get(self.url_list)
+        creer(5)
+        self.client.force_authenticate(user=User.objects.get(pk=self.user.pk))
+        with CaptureQueriesContext(connection) as second:
+            response = self.client.get(self.url_list)
+
+        self.assertEqual(len(response.data['results']), 7)
+        self.assertTrue(all(p['photo'] for p in response.data['results']))
+        self.assertEqual(len(premier.captured_queries), len(second.captured_queries))
+
+
+class ProduitPhotoConcurrenceTests(_StockageEnMemoireMixin, APITransactionTestCase):
+    """Deux envois simultanés sur le même produit, avec deux vraies
+    connexions PostgreSQL : le premier s'arrête juste avant d'enregistrer
+    (verrou pris), le second doit attendre, puis lire le nouveau fichier du
+    premier comme « ancien » et le supprimer. Sans le verrou, les deux
+    liraient le même ancien fichier, et l'un des nouveaux resterait
+    orphelin dans le stockage."""
+
+    def setUp(self):
+        self.stockage = self._stockage_neuf()
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-photo-concurrence")
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Produit",
+            prix_achat=Decimal("100"), prix_unitaire=Decimal("150"), prix_douzaine=Decimal("1500"),
+        )
+        self.octets = traiter_photo(_photo_jpeg(taille=(20, 20)))
+        enregistrer_photo(self.produit, self.octets)
+
+    def _attente_sur_verrou(self, pid):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", [pid])
+            ligne = cursor.fetchone()
+        return ligne is not None and ligne[0] == 'Lock'
+
+    def _envoyer(self, cle, resultats, pids=None):
+        try:
+            if pids is not None:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_backend_pid()")
+                    pids.append(cursor.fetchone()[0])
+            enregistrer_photo(Produit.objects.get(pk=self.produit.pk), self.octets)
+            resultats[cle] = 'ok'
+        except Exception as erreur:
+            resultats[cle] = repr(erreur)
+        finally:
+            connection.close()
+
+    def test_deux_envois_simultanes_aucun_fichier_orphelin(self):
+        save_original = Produit.save
+        en_pause, liberer = threading.Event(), threading.Event()
+        appels, resultats, pid_b = [], {}, []
+
+        def save_avec_pause(instance, *args, **kwargs):
+            appels.append(1)
+            if len(appels) == 1:
+                en_pause.set()
+                liberer.wait(timeout=10)
+            return save_original(instance, *args, **kwargs)
+
+        with patch.object(Produit, 'save', autospec=True, side_effect=save_avec_pause):
+            thread_a = threading.Thread(target=self._envoyer, args=('a', resultats))
+            thread_a.start()
+            self.assertTrue(en_pause.wait(timeout=10), resultats)
+
+            thread_b = threading.Thread(target=self._envoyer, args=('b', resultats, pid_b))
+            thread_b.start()
+            limite = time.monotonic() + 10
+            b_bloque = False
+            while time.monotonic() < limite and thread_b.is_alive():
+                if pid_b and self._attente_sur_verrou(pid_b[0]):
+                    b_bloque = True
+                    break
+                time.sleep(0.01)
+
+            liberer.set()
+            thread_a.join(timeout=15)
+            thread_b.join(timeout=15)
+
+        self.assertTrue(b_bloque, f"Le second envoi aurait dû attendre le verrou : {resultats}")
+        self.assertEqual(resultats, {'a': 'ok', 'b': 'ok'})
+        self.produit.refresh_from_db()
+        self.assertEqual(_fichiers_stockes(self.stockage), [self.produit.photo.name])
 
 
 class ProduitListQueryCountTests(APITestCase):

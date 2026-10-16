@@ -13,6 +13,15 @@ import uuid
 # qui a ses propres valeurs en dur).
 UNITES_PAR_DEFAUT = [('Unité', Decimal('1.000')), ('Douzaine', Decimal('12.000'))]
 
+
+def chemin_photo_produit(instance, filename):
+    # D4 : un dossier par boutique, un nouveau nom à chaque envoi. Le nom du
+    # fichier envoyé n'est jamais utilisé (ni chemin, ni extension) : la
+    # photo est toujours ré-encodée en WebP (products.photos.traiter_photo).
+    # Référencée par la migration 0015 : ne pas renommer.
+    return f'produits/{instance.boutique_id}/{uuid.uuid4().hex}.webp'
+
+
 class Produit(models.Model):
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
     nom = models.CharField(max_length=150)
@@ -42,11 +51,12 @@ class Produit(models.Model):
     stock_minimum = models.IntegerField(default=5, validators=[MinValueValidator(0)])
 
     # Média et dates
-    # Extensions + taille bornées (audit point 10) - le contenu réel est
-    # déjà vérifié comme étant une image décodable par Pillow (ImageField),
-    # mais rien ne limitait jusqu'ici le format ou le poids du fichier.
+    # Extensions + taille bornées (audit point 10). Depuis D5, la photo ne
+    # s'envoie plus avec le produit (champ en lecture seule dans
+    # ProduitSerializer) mais par POST/DELETE produits/{id}/photo/, qui la
+    # contrôle et la ré-encode (products.photos).
     photo = models.ImageField(
-        upload_to='produits/', blank=True, null=True,
+        upload_to=chemin_photo_produit, blank=True, null=True,
         validators=[extensions_image_autorisees, valider_taille_image],
     )
     date_creation = models.DateTimeField(auto_now_add=True)

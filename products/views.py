@@ -1,13 +1,16 @@
 from django.db.models import ProtectedError
 from rest_framework import viewsets, status
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import MultiPartParser
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from tenants.mixins import BoutiqueScopedMixin
 from accounts.permissions import RestrictedActionsForOwnerMixin
 from .models import Produit, UniteVente, ProduitPrix
+from .photos import enregistrer_photo, retirer_photo, supprimer_photo_apres_commit, traiter_photo
 from .serializers import ProduitSerializer, UniteVenteSerializer, ProduitPrixSerializer
 
 class ProduitViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewsets.ModelViewSet):
@@ -39,6 +42,34 @@ class ProduitViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewse
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def perform_destroy(self, instance):
+        photo = instance.photo.name
+        super().perform_destroy(instance)
+        # Seulement si la suppression a réussi (ProtectedError sinon).
+        supprimer_photo_apres_commit(photo)
+
+    # D5, D6 : quiconque peut modifier le produit (employés compris) envoie
+    # ou retire sa photo. get_object() : produit d'une autre boutique, même
+    # 404 qu'un produit inexistant ; Vue Support refusée (403, écriture).
+    # Action personnalisée : _verifier_acces() appelé ici (voir
+    # BoutiqueScopedMixin.get_queryset).
+    @action(detail=True, methods=['post', 'delete'], parser_classes=[MultiPartParser])
+    def photo(self, request, pk=None):
+        produit = self.get_object()
+        self._verifier_acces(self._boutique_effective())
+
+        if request.method == 'DELETE':
+            produit = retirer_photo(produit)
+        else:
+            fichier = request.FILES.get('photo')
+            if fichier is None:
+                # Message seul, comme ceux de traiter_photo (getErrorMessage
+                # du frontend l'affiche tel quel).
+                raise ValidationError("Aucune photo envoyée.")
+            produit = enregistrer_photo(produit, traiter_photo(fichier))
+
+        return Response(self.get_serializer(produit).data)
 
 
 class UniteVenteViewSet(BoutiqueScopedMixin, RestrictedActionsForOwnerMixin, viewsets.ModelViewSet):
