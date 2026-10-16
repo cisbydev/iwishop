@@ -1,15 +1,29 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { Package } from 'lucide-react';
 
+function suivreConnexion(rappel) {
+  window.addEventListener('online', rappel);
+  window.addEventListener('offline', rappel);
+  return () => {
+    window.removeEventListener('online', rappel);
+    window.removeEventListener('offline', rappel);
+  };
+}
+
+const estEnLigne = () => navigator.onLine !== false;
+
 // Photo d'un produit, ou une image par défaut quand il n'y en a pas (champ
-// absent : backend pas encore déployé) ou qu'elle ne se charge pas (URL
-// signée expirée, réseau). `src` est l'URL renvoyée par l'API, ou l'aperçu
-// local d'une photo choisie.
+// absent : backend pas encore déployé), qu'elle ne se charge pas (URL
+// signée expirée, réseau) ou que l'appareil est hors ligne (D7 : aucune
+// photo mise en cache en phase 1). `src` est l'URL renvoyée par l'API, ou
+// l'aperçu local (blob:) d'une photo choisie, affiché même hors ligne.
 export default function PhotoProduit({ src, nom, className = '' }) {
   // URL en échec, et non un simple booléen : une nouvelle URL est retentée.
   const [urlEnEchec, setUrlEnEchec] = useState(null);
+  const enLigne = useSyncExternalStore(suivreConnexion, estEnLigne, () => true);
+  const horsLigne = !enLigne && !src?.startsWith('blob:');
 
-  if (!src || src === urlEnEchec) {
+  if (!src || src === urlEnEchec || horsLigne) {
     return (
       <span
         role="img"
@@ -25,6 +39,7 @@ export default function PhotoProduit({ src, nom, className = '' }) {
     <img
       src={src}
       alt={`Photo de ${nom}`}
+      loading="lazy"
       onError={() => setUrlEnEchec(src)}
       className={`shrink-0 object-cover ring-1 ring-slate-200 ${className}`}
     />

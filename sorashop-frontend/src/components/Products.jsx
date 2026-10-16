@@ -416,9 +416,7 @@ export default function Products() {
                 <tr key={p.id}>
                   <td className="px-6 py-4">
                     <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-700 ring-1 ring-blue-100" aria-hidden="true">
-                        {p.nom.charAt(0).toUpperCase()}
-                      </span>
+                      <PhotoProduit src={p.photo} nom={p.nom} className="h-10 w-10 rounded-lg" />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-slate-900">{p.nom}</p>
                         <p className="mt-0.5 truncate text-xs text-slate-500">{p.categorie_nom || '—'}</p>
