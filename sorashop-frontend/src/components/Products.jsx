@@ -4,7 +4,8 @@ import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
 import { alerterErreur, getErrorMessage } from '../services/errorUtils';
 import { formatCurrency } from '../utils/formatters';
-import { Plus, Pencil, Trash2, Search, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, Camera } from 'lucide-react';
+import PhotoProduit from './PhotoProduit';
 
 const FORM_VIDE = {
   nom: '',
@@ -42,11 +43,34 @@ export default function Products() {
 
   const [recherche, setRecherche] = useState('');
 
+  // Photo (D5) : envoyée ou retirée à l'enregistrement, après le produit,
+  // par sa propre route (POST/DELETE produits/{id}/photo/).
+  const [photoActuelle, setPhotoActuelle] = useState(null); // URL renvoyée par l'API
+  const [photoChoisie, setPhotoChoisie] = useState(null); // File
+  const [apercuPhoto, setApercuPhoto] = useState(null); // URL locale (blob:)
+  const [retirerPhoto, setRetirerPhoto] = useState(false);
+  const [envoiPhoto, setEnvoiPhoto] = useState(false);
+  // Échec de la photo une fois le produit enregistré : affiché dans la page
+  // (la fenêtre est fermée, le produit existe déjà).
+  const [erreurPhoto, setErreurPhoto] = useState('');
+
   const produitsFiltres = produits.filter((p) =>
     p.nom.toLowerCase().includes(recherche.toLowerCase())
   );
 
   const updateForm = (champ, valeur) => setForm(prev => ({ ...prev, [champ]: valeur }));
+
+  const choisirPhoto = (fichier) => {
+    if (apercuPhoto) URL.revokeObjectURL(apercuPhoto);
+    setPhotoChoisie(fichier);
+    setApercuPhoto(fichier ? URL.createObjectURL(fichier) : null);
+    setRetirerPhoto(false);
+  };
+
+  const reinitialiserPhoto = (urlActuelle) => {
+    choisirPhoto(null);
+    setPhotoActuelle(urlActuelle || null);
+  };
 
   const fetchProduits = async () => {
     try {
@@ -117,6 +141,7 @@ export default function Products() {
   const ouvrirAjout = () => {
     setEditingId(null);
     setForm(FORM_VIDE);
+    reinitialiserPhoto(null);
     setLignesPrix([]);
     setLignesPrixOriginales([]);
     setShowModal(true);
@@ -133,6 +158,8 @@ export default function Products() {
       quantiteStock: p.quantite_en_stock,
       stockMinimum: p.stock_minimum,
     });
+    // Champ absent (backend pas encore déployé) : pas de photo.
+    reinitialiserPhoto(p.photo);
     const lignesExistantes = prixExistants
       .filter((pp) => pp.produit === p.id && unitesPersonnalisees.some((u) => u.id === pp.unite))
       .map((pp) => ({
@@ -151,6 +178,7 @@ export default function Products() {
     setShowModal(false);
     setEditingId(null);
     setForm(FORM_VIDE);
+    reinitialiserPhoto(null);
     setLignesPrix([]);
     setLignesPrixOriginales([]);
   };
@@ -196,6 +224,7 @@ export default function Products() {
     };
 
     setIsSaving(true);
+    setErreurPhoto('');
     try {
       let produitId = editingId;
       if (editingId) {
@@ -236,6 +265,31 @@ export default function Products() {
           "Le produit a été enregistré, mais certains prix par unité personnalisée n'ont pas pu être synchronisés :\n"
           + erreursPrix.join('\n')
         );
+      }
+
+      if (photoChoisie || (editingId && retirerPhoto)) {
+        setEnvoiPhoto(true);
+        try {
+          if (photoChoisie) {
+            const formData = new FormData();
+            formData.append('photo', photoChoisie);
+            // Le navigateur définit lui-même le Content-Type multipart (boundary).
+            await api.post(`produits/${produitId}/photo/`, formData, {
+              headers: { 'Content-Type': undefined },
+            });
+          } else {
+            await api.delete(`produits/${produitId}/photo/`);
+          }
+        } catch (err) {
+          const raison = getErrorMessage(err, "Erreur lors de l'envoi de la photo.");
+          setErreurPhoto(
+            !editingId ? `Produit créé, photo non envoyée : ${raison}`
+              : photoChoisie ? `Produit enregistré, photo non envoyée : ${raison}`
+                : `Produit enregistré, photo non retirée : ${raison}`
+          );
+        } finally {
+          setEnvoiPhoto(false);
+        }
       }
 
       fermerModal();
@@ -308,6 +362,20 @@ export default function Products() {
           />
         </div>
       </section>
+
+      {erreurPhoto && (
+        <div role="alert" className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <p>{erreurPhoto}</p>
+          <button
+            type="button"
+            onClick={() => setErreurPhoto('')}
+            aria-label="Fermer le message"
+            className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Tableau des produits */}
       {produits.length === 0 ? (
@@ -418,6 +486,72 @@ export default function Products() {
             </h3>
             <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
               <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+              <div>
+                <span className="block text-sm font-medium text-slate-700">Photo du produit</span>
+                <div className="mt-2 flex items-center gap-4">
+                  <PhotoProduit
+                    src={apercuPhoto || (retirerPhoto ? null : photoActuelle)}
+                    nom={form.nom || 'ce produit'}
+                    className="h-20 w-20 rounded-lg"
+                  />
+                  <div className="flex flex-col items-start gap-2">
+                    <label
+                      className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition focus-within:ring-2 focus-within:ring-blue-600 focus-within:ring-offset-2 ${
+                        isSaving || modeSupport ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-slate-50'
+                      }`}
+                    >
+                      <Camera className="h-4 w-4" aria-hidden="true" />
+                      {photoChoisie || (photoActuelle && !retirerPhoto) ? 'Changer la photo' : 'Choisir une photo'}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="sr-only"
+                        disabled={isSaving || modeSupport}
+                        onChange={(e) => {
+                          const fichier = e.target.files?.[0];
+                          // Permet de rechoisir le même fichier.
+                          e.target.value = '';
+                          if (fichier) choisirPhoto(fichier);
+                        }}
+                      />
+                    </label>
+                    {photoChoisie && (
+                      <button
+                        type="button"
+                        onClick={() => choisirPhoto(null)}
+                        disabled={isSaving}
+                        className="text-sm font-medium text-slate-600 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Annuler le choix
+                      </button>
+                    )}
+                    {!photoChoisie && photoActuelle && !retirerPhoto && (
+                      <button
+                        type="button"
+                        onClick={() => setRetirerPhoto(true)}
+                        disabled={isSaving || modeSupport}
+                        className="text-sm font-medium text-red-700 hover:text-red-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Retirer la photo
+                      </button>
+                    )}
+                    {retirerPhoto && (
+                      <p className="text-xs text-slate-600">
+                        Photo retirée à l'enregistrement.{' '}
+                        <button
+                          type="button"
+                          onClick={() => setRetirerPhoto(false)}
+                          disabled={isSaving}
+                          className="font-medium text-blue-700 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Garder la photo
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">JPG, PNG ou WebP. Envoyée à l'enregistrement du produit.</p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700">Nom du produit</label>
                 <input
@@ -586,7 +720,7 @@ export default function Products() {
                   aria-busy={isSaving}
                   className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isSaving ? 'Enregistrement...' : editingId ? 'Enregistrer les modifications' : 'Enregistrer'}
+                  {envoiPhoto ? 'Envoi de la photo...' : isSaving ? 'Enregistrement...' : editingId ? 'Enregistrer les modifications' : 'Enregistrer'}
                 </button>
               </div>
             </form>
