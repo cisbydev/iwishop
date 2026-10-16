@@ -884,6 +884,143 @@ class VenteSynchronisationDiffereeTests(APITestCase):
         self.assertEqual(vente.horodatage_client, horodatage)
 
 
+class VenteMarqueCompteTests(APITestCase):
+    """Isolation hors ligne (plan validé le 2026-10-16) : une vente porte
+    l'utilisateur et la boutique pour lesquels elle a été préparée
+    (utilisateur_attendu, boutique_attendue). S'ils ne correspondent pas à
+    la requête, 409 VENTE_AUTRE_COMPTE et aucune écriture, au lieu
+    d'attribuer la vente au compte qui l'envoie. Absents (ancienne version
+    de l'app) : comportement inchangé."""
+
+    def setUp(self):
+        self.boutique_a = Boutique.objects.create(nom="Boutique A", slug="boutique-marque-a")
+        self.boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-marque-b")
+        # X : propriétaire de A et de B ; Y : employé de A.
+        self.x = User.objects.create_user(username="vendeur_x", password="pass1234")
+        Profil.objects.create(user=self.x, boutique=self.boutique_a, est_proprietaire=True)
+        Profil.objects.create(user=self.x, boutique=self.boutique_b, est_proprietaire=True)
+        self.y = User.objects.create_user(username="vendeur_y", password="pass1234")
+        Profil.objects.create(user=self.y, boutique=self.boutique_a, est_proprietaire=False)
+
+        unite = UniteVente.objects.create(
+            boutique=self.boutique_a, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique_a, nom="Produit",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=unite, prix=Decimal("100"))
+        self.url_list = reverse('ventes-list')
+        self.entete_a = {'HTTP_X_BOUTIQUE_ACTIVE': str(self.boutique_a.id)}
+
+    def _payload(self, **champs):
+        payload = {
+            "montant_paye": "300.00",
+            "lignes": [{
+                "produit": self.produit.id, "quantite": 3,
+                "type_vente": "UNITE", "prix_applique": "100.00",
+            }],
+        }
+        payload.update(champs)
+        return payload
+
+    def _envoyer(self, user, payload):
+        self.client.force_authenticate(user=user)
+        return self.client.post(self.url_list, payload, format='json', **self.entete_a)
+
+    def _comptes(self):
+        self.produit.refresh_from_db()
+        return (
+            Vente.objects.count(), LigneVente.objects.count(),
+            MouvementStock.objects.count(), self.produit.quantite_en_stock,
+        )
+
+    def _assert_refus_409(self, response):
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT, response.data)
+        self.assertEqual(response.data['code'], 'VENTE_AUTRE_COMPTE')
+        self.assertEqual(response.data['detail'], "Cette vente a été faite avec un autre compte ou une autre boutique.")
+
+    def test_autre_utilisateur_409_sans_aucune_ecriture(self):
+        avant = self._comptes()
+
+        # Vente hors ligne de Y, envoyée par X (même boutique).
+        response = self._envoyer(self.x, self._payload(
+            utilisateur_attendu=self.y.id, boutique_attendue=self.boutique_a.id,
+            cle_idempotence=str(uuid.uuid4()), synchronisation_differee=True,
+        ))
+
+        self._assert_refus_409(response)
+        self.assertEqual(self._comptes(), avant)
+
+    def test_autre_boutique_409_sans_aucune_ecriture(self):
+        avant = self._comptes()
+
+        # Vente préparée pour la boutique B, envoyée avec la boutique A active.
+        response = self._envoyer(self.x, self._payload(
+            utilisateur_attendu=self.x.id, boutique_attendue=self.boutique_b.id,
+        ))
+
+        self._assert_refus_409(response)
+        self.assertEqual(self._comptes(), avant)
+
+    def test_marque_correcte_201_puis_rejeu_idempotent(self):
+        payload = self._payload(
+            utilisateur_attendu=self.x.id, boutique_attendue=self.boutique_a.id,
+            cle_idempotence=str(uuid.uuid4()), synchronisation_differee=True,
+        )
+
+        premiere = self._envoyer(self.x, payload)
+        seconde = self._envoyer(self.x, payload)
+
+        self.assertEqual(premiere.status_code, status.HTTP_201_CREATED, premiere.data)
+        self.assertEqual(seconde.status_code, status.HTTP_201_CREATED, seconde.data)
+        self.assertEqual(seconde.data['id'], premiere.data['id'])
+        self.assertEqual(Vente.objects.count(), 1)
+        self.assertEqual(Vente.objects.get().utilisateur, self.x)
+        self.assertNotIn('utilisateur_attendu', premiere.data)
+        self.assertNotIn('boutique_attendue', premiere.data)
+
+    def test_champs_absents_ou_nuls_comportement_inchange(self):
+        """Compatibilité : une ancienne version de l'app n'envoie pas ces
+        champs ; la vente est attribuée à l'utilisateur de la requête,
+        comme avant."""
+        absents = self._envoyer(self.y, self._payload())
+        nuls = self._envoyer(self.y, self._payload(utilisateur_attendu=None, boutique_attendue=None))
+
+        self.assertEqual(absents.status_code, status.HTTP_201_CREATED, absents.data)
+        self.assertEqual(nuls.status_code, status.HTTP_201_CREATED, nuls.data)
+        self.assertEqual(Vente.objects.filter(utilisateur=self.y).count(), 2)
+
+    def test_409_avant_la_cle_d_idempotence_meme_si_la_vente_existe(self):
+        cle = str(uuid.uuid4())
+        enregistree = self._envoyer(self.x, self._payload(
+            utilisateur_attendu=self.x.id, boutique_attendue=self.boutique_a.id, cle_idempotence=cle,
+        ))
+        self.assertEqual(enregistree.status_code, status.HTTP_201_CREATED, enregistree.data)
+
+        # Même clé (même boutique), marquée pour X, envoyée par Y : sans le
+        # contrôle placé avant, le rejeu renverrait la vente de X.
+        response = self._envoyer(self.y, self._payload(
+            utilisateur_attendu=self.x.id, boutique_attendue=self.boutique_a.id, cle_idempotence=cle,
+        ))
+
+        self._assert_refus_409(response)
+        self.assertEqual(Vente.objects.count(), 1)
+
+    def test_vue_support_toujours_refusee(self):
+        admin = User.objects.create_superuser(username="admin_marque", email="a@example.com", password="x")
+        self.client.force_authenticate(user=admin)
+        response = self.client.post(
+            self.url_list,
+            self._payload(utilisateur_attendu=admin.id, boutique_attendue=self.boutique_a.id),
+            format='json', HTTP_X_SUPPORT_BOUTIQUE=str(self.boutique_a.id),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Vente.objects.count(), 0)
+
+
 class VenteAnnulationAvecRemboursementTests(APITestCase):
     """Option B (comme les achats) : l'annulation n'est refusée que si le
     total net des remboursements (corrections comprises) est différent de

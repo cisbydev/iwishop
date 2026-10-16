@@ -4,11 +4,24 @@ from .models import Vente, LigneVente, Client, Facture, Remboursement, StatutPai
 from .services.factures import emettre_facture
 from inventory.models import MouvementStock
 from products.models import Produit, UniteVente, ProduitPrix
-from rest_framework.exceptions import ValidationError
+from rest_framework import status
+from rest_framework.exceptions import APIException, ValidationError
 from tenants.profil import boutique_de
 from notifications.services import verifier_stock_bas
 
 NOM_UNITE_PAR_TYPE = {'UNITE': 'Unité', 'DOUZAINE': 'Douzaine'}
+
+# Code à côté du message : le frontend reconnaît ce refus sans lire le
+# texte français (même principe que CODE_ABONNEMENT_EXPIRE).
+CODE_VENTE_AUTRE_COMPTE = 'VENTE_AUTRE_COMPTE'
+
+
+class VenteAutreCompte(APIException):
+    """Vente préparée (souvent hors ligne) pour un autre utilisateur ou une
+    autre boutique que ceux de la requête : refusée, jamais attribuée au
+    compte qui l'envoie."""
+    status_code = status.HTTP_409_CONFLICT
+    default_code = CODE_VENTE_AUTRE_COMPTE
 
 class ClientSerializer(serializers.ModelSerializer):
     class Meta:
@@ -147,6 +160,12 @@ class VenteSerializer(serializers.ModelSerializer):
     # chemin inchangé.
     facture = serializers.SerializerMethodField()
     demander_facture = serializers.BooleanField(required=False, default=False, write_only=True)
+    # Isolation hors ligne : l'utilisateur et la boutique pour lesquels la
+    # vente a été préparée (identifiants). Absents (ancienne version de
+    # l'app) => chemin inchangé. Présents et différents de la requête =>
+    # 409 VENTE_AUTRE_COMPTE (voir create()).
+    utilisateur_attendu = serializers.IntegerField(required=False, allow_null=True, write_only=True)
+    boutique_attendue = serializers.IntegerField(required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = Vente
@@ -157,6 +176,7 @@ class VenteSerializer(serializers.ModelSerializer):
             'cle_idempotence', 'horodatage_client', 'creee_hors_ligne',
             'stock_ajuste_manuellement', 'synchronisation_differee',
             'statut_paiement', 'montant_du', 'facture', 'demander_facture',
+            'utilisateur_attendu', 'boutique_attendue',
         ]
         read_only_fields = [
             'numero', 'date_vente', 'montant_total', 'montant_net', 'monnaie_rendue',
@@ -181,6 +201,19 @@ class VenteSerializer(serializers.ModelSerializer):
         # Retiré avant tout : ce n'est pas un champ du modèle, et un rejeu
         # (ci-dessous) reste un pur no-op, facture comprise.
         demander_facture = validated_data.pop('demander_facture', False)
+
+        # Avant la recherche de la clé d'idempotence : une vente marquée
+        # pour un autre compte est toujours refusée, même déjà enregistrée.
+        utilisateur_attendu = validated_data.pop('utilisateur_attendu', None)
+        boutique_attendue = validated_data.pop('boutique_attendue', None)
+        if (
+            (utilisateur_attendu is not None and utilisateur_attendu != self.context['request'].user.id)
+            or (boutique_attendue is not None and boutique_attendue != boutique.id)
+        ):
+            raise VenteAutreCompte({
+                "detail": "Cette vente a été faite avec un autre compte ou une autre boutique.",
+                "code": CODE_VENTE_AUTRE_COMPTE,
+            })
 
         # Idempotence (PWA Niveau 2) : une même clé déjà enregistrée pour
         # cette boutique renvoie la vente existante telle quelle - aucune
