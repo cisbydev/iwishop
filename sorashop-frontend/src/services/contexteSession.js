@@ -14,3 +14,28 @@ export function contexteSessionDepuisMe(me) {
     boutique_nom: me.boutique_nom,
   };
 }
+
+let contexteCourant = null;
+
+// Copie du contexte de la session en cours, recopiée par SettingsContext à
+// chaque chargement de accounts/me/, lue hors de React par syncEngine. En
+// mémoire seulement (décision du 2026-10-16 : sans réseau, une app
+// rechargée affiche de toute façon l'écran de connexion).
+export function definirContexteSession(contexte) {
+  contexteCourant = contexte;
+}
+
+export function lireContexteSession() {
+  return contexteCourant;
+}
+
+// Vente créée avant le marquage (2026-10-16), ou par un ancien frontend.
+export function estVenteSansMarque(vente) {
+  return vente.utilisateur_id == null || vente.boutique_id == null;
+}
+
+export function estVenteDuContexte(vente, contexte) {
+  return Boolean(contexte)
+    && vente.utilisateur_id === contexte.utilisateur_id
+    && vente.boutique_id === contexte.boutique_id;
+}

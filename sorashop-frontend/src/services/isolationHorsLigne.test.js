@@ -5,18 +5,39 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Isolation hors ligne (plan validé le 2026-10-16) : non-régression du
 // constat du même jour, inversé. Vraie IndexedDB en mémoire
-// (fake-indexeddb), modules rechargés à chaque test (connexion mémorisée).
+// (fake-indexeddb), modules rechargés à chaque test (connexion mémorisée),
+// vrai module api.js ; seul le réseau d'axios est remplacé, pour lire les
+// requêtes réellement envoyées.
 
+const reseau = vi.hoisted(() => ({ requetes: [] }));
+
+vi.mock('axios', async (importOriginal) => {
+  const module = await importOriginal();
+  module.default.defaults.adapter = async (config) => {
+    reseau.requetes.push(config);
+    return { data: { id: 1 }, status: 201, statusText: 'Created', headers: {}, config };
+  };
+  return module;
+});
+
+let api;
 let catalogueCache;
 let offlineQueue;
 let contexteSession;
+let syncEngine;
+let boutiqueActive;
 
 beforeEach(async () => {
   vi.stubGlobal('indexedDB', new IDBFactory());
   vi.resetModules();
+  localStorage.clear();
+  reseau.requetes.length = 0;
+  api = await import('./api');
   catalogueCache = await import('./catalogueCache');
   offlineQueue = await import('./offlineQueue');
   contexteSession = await import('./contexteSession');
+  syncEngine = await import('./syncEngine');
+  boutiqueActive = await import('./boutiqueActiveState');
 });
 
 const X_BOUTIQUE_1 = { utilisateur_id: 7, utilisateur_nom: 'x', boutique_id: 1, boutique_nom: 'Boutique 1' };
@@ -76,6 +97,97 @@ describe('File des ventes hors ligne : chaque vente porte sa marque', () => {
       .rejects.toThrow('Contexte de session inconnu');
 
     expect(await offlineQueue.listerVentesEnAttente()).toHaveLength(0);
+  });
+});
+
+describe('Synchronisation : seules les ventes du compte en cours partent', () => {
+  // Payload tel que Sales.jsx le construit (marque attendue comprise).
+  const venteDe = (marque) => ({
+    montant_paye: 150,
+    lignes: [{ produit: 10, quantite: 1 }],
+    utilisateur_attendu: marque.utilisateur_id,
+    boutique_attendue: marque.boutique_id,
+  });
+  const envoisDeVentes = () => reseau.requetes.filter((r) => r.url === 'ventes/');
+
+  it('la vente de (X, boutique 1) ne part pas avec le compte (Y, boutique 2) ; elle part au retour de (X, boutique 1)', async () => {
+    const Y_BOUTIQUE_2 = { utilisateur_id: 8, utilisateur_nom: 'y', boutique_id: 2, boutique_nom: 'Boutique 2' };
+    await offlineQueue.ajouterVenteEnAttente(venteDe(X_BOUTIQUE_1), X_BOUTIQUE_1);
+
+    // Y connecté, boutique 2.
+    boutiqueActive.setBoutiqueActiveId(2);
+    api.setAccessToken('jeton-de-Y');
+    contexteSession.definirContexteSession(Y_BOUTIQUE_2);
+    await syncEngine.synchroniserVentesEnAttente();
+
+    expect(envoisDeVentes()).toHaveLength(0);
+    expect(await offlineQueue.listerVentesEnAttente()).toMatchObject([{ statut: 'EN_ATTENTE', utilisateur_id: 7 }]);
+
+    // X revient, boutique 1.
+    boutiqueActive.setBoutiqueActiveId(1);
+    api.setAccessToken('jeton-de-X');
+    contexteSession.definirContexteSession(X_BOUTIQUE_1);
+    await syncEngine.synchroniserVentesEnAttente();
+
+    const [envoi] = envoisDeVentes();
+    expect(envoi.headers['X-Boutique-Active']).toBe('1');
+    expect(envoi.headers.Authorization).toBe('Bearer jeton-de-X');
+    expect(JSON.parse(envoi.data)).toMatchObject({ utilisateur_attendu: 7, boutique_attendue: 1 });
+    expect(await offlineQueue.listerVentesEnAttente()).toHaveLength(0);
+  });
+
+  it('une vente sans marque ne part jamais automatiquement', async () => {
+    const db = await openDB('sorashop-offline', 1, {
+      upgrade(base) { base.createObjectStore('ventes_en_attente', { keyPath: 'cle_idempotence' }); },
+    });
+    await db.add('ventes_en_attente', {
+      cle_idempotence: 'ancienne', payload: { montant_paye: 150, lignes: [] },
+      horodatage_client: '2026-10-10T09:00:00.000Z', statut: 'EN_ATTENTE', tentatives: 0,
+    });
+    db.close();
+    contexteSession.definirContexteSession(X_BOUTIQUE_1);
+
+    await syncEngine.synchroniserVentesEnAttente();
+
+    expect(envoisDeVentes()).toHaveLength(0);
+    expect(await offlineQueue.listerVentesEnAttente()).toHaveLength(1);
+  });
+});
+
+describe('Envoi confirmé d’une vente sans marque', () => {
+  async function ajouterVenteSansMarque() {
+    const db = await openDB('sorashop-offline', 1, {
+      upgrade(base) { base.createObjectStore('ventes_en_attente', { keyPath: 'cle_idempotence' }); },
+    });
+    await db.add('ventes_en_attente', {
+      cle_idempotence: 'ancienne', payload: { montant_paye: 150, lignes: [] },
+      horodatage_client: '2026-10-10T09:00:00.000Z', statut: 'ECHEC_AUTRE', tentatives: 2,
+    });
+    db.close();
+  }
+
+  it('marquée avec le compte qui l’envoie (entrée et payload), remise EN_ATTENTE, puis partie', async () => {
+    await ajouterVenteSansMarque();
+    contexteSession.definirContexteSession(X_BOUTIQUE_1);
+
+    await offlineQueue.marquerVente('ancienne', X_BOUTIQUE_1);
+    const [marquee] = await offlineQueue.listerVentesEnAttente();
+    expect(marquee).toMatchObject({
+      utilisateur_id: 7, utilisateur_nom: 'x', boutique_id: 1, boutique_nom: 'Boutique 1', statut: 'EN_ATTENTE',
+      payload: { utilisateur_attendu: 7, boutique_attendue: 1 },
+    });
+    await syncEngine.synchroniserVentesEnAttente();
+
+    expect(reseau.requetes.filter((r) => r.url === 'ventes/')).toHaveLength(1);
+  });
+
+  it('une vente déjà marquée n’est jamais réattribuée', async () => {
+    const Y_BOUTIQUE_1 = { ...X_BOUTIQUE_1, utilisateur_id: 8, utilisateur_nom: 'y' };
+    const entree = await offlineQueue.ajouterVenteEnAttente({ montant_paye: 150, lignes: [] }, X_BOUTIQUE_1);
+
+    await expect(offlineQueue.marquerVente(entree.cle_idempotence, Y_BOUTIQUE_1)).rejects.toThrow('jamais réattribuée');
+
+    expect((await offlineQueue.listerVentesEnAttente())[0]).toMatchObject({ utilisateur_id: 7, utilisateur_nom: 'x' });
   });
 });
 

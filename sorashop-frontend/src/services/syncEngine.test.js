@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   listerVentesEnAttente: vi.fn(),
   supprimerVenteEnAttente: vi.fn(),
   marquerStatut: vi.fn(),
+  lireContexteSession: vi.fn(),
 }));
 
 vi.mock('./api', () => ({
@@ -20,7 +21,14 @@ vi.mock('./offlineQueue', () => ({
   STATUT_ECHEC_AUTRE: 'ECHEC_AUTRE',
 }));
 
+vi.mock('./contexteSession', async (importOriginal) => ({
+  ...(await importOriginal()),
+  lireContexteSession: mocks.lireContexteSession,
+}));
+
 import { synchroniserVentesEnAttente } from './syncEngine';
+
+const CONTEXTE_AWA = { utilisateur_id: 7, utilisateur_nom: 'awa', boutique_id: 3, boutique_nom: 'Boutique test' };
 
 function venteEnAttente(overrides = {}) {
   return {
@@ -29,6 +37,7 @@ function venteEnAttente(overrides = {}) {
     horodatage_client: '2026-09-11T10:00:00.000Z',
     statut: 'EN_ATTENTE',
     tentatives: 0,
+    ...CONTEXTE_AWA,
     ...overrides,
   };
 }
@@ -39,6 +48,7 @@ describe('syncEngine', () => {
     mocks.listerVentesEnAttente.mockReset();
     mocks.supprimerVenteEnAttente.mockReset();
     mocks.marquerStatut.mockReset();
+    mocks.lireContexteSession.mockReset().mockReturnValue(CONTEXTE_AWA);
   });
 
   it('supprime une vente de la file une fois synchronisée avec succès', async () => {
@@ -124,6 +134,44 @@ describe('syncEngine', () => {
 
     expect(mocks.post).toHaveBeenCalledTimes(1);
     expect(mocks.supprimerVenteEnAttente).toHaveBeenCalledWith('cle-1');
+  });
+
+  it('ne rejoue que les ventes du compte en cours : autre utilisateur, autre boutique et vente sans marque restent en file', async () => {
+    const duCompte = venteEnAttente({ cle_idempotence: 'cle-awa' });
+    const autreUtilisateur = venteEnAttente({ cle_idempotence: 'cle-cisse', utilisateur_id: 8, utilisateur_nom: 'Cisse' });
+    const autreBoutique = venteEnAttente({ cle_idempotence: 'cle-b4', boutique_id: 4, boutique_nom: 'Boutique 4' });
+    const sansMarque = venteEnAttente({
+      cle_idempotence: 'cle-ancienne', utilisateur_id: undefined, utilisateur_nom: undefined,
+      boutique_id: undefined, boutique_nom: undefined,
+    });
+    mocks.listerVentesEnAttente.mockResolvedValue([autreUtilisateur, autreBoutique, sansMarque, duCompte]);
+    mocks.post.mockResolvedValue({ data: { id: 1 } });
+
+    await synchroniserVentesEnAttente();
+
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(mocks.post.mock.calls[0][1].cle_idempotence).toBe('cle-awa');
+    expect(mocks.supprimerVenteEnAttente.mock.calls).toEqual([['cle-awa']]);
+    expect(mocks.marquerStatut).not.toHaveBeenCalled();
+  });
+
+  it('contexte inconnu (accounts/me/ pas encore chargé) : rien n’est envoyé', async () => {
+    mocks.lireContexteSession.mockReturnValue(null);
+    mocks.listerVentesEnAttente.mockResolvedValue([venteEnAttente()]);
+
+    await synchroniserVentesEnAttente();
+
+    expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it('409 VENTE_AUTRE_COMPTE : vente gardée en ECHEC_AUTRE, jamais supprimée', async () => {
+    mocks.listerVentesEnAttente.mockResolvedValue([venteEnAttente()]);
+    mocks.post.mockRejectedValue({ response: { status: 409, data: { code: 'VENTE_AUTRE_COMPTE' } } });
+
+    await synchroniserVentesEnAttente();
+
+    expect(mocks.marquerStatut).toHaveBeenCalledWith('cle-1', 'ECHEC_AUTRE');
+    expect(mocks.supprimerVenteEnAttente).not.toHaveBeenCalled();
   });
 
   it('ne retente pas une vente déjà en ECHEC_AUTH tant qu’elle n’a pas été retirée de la file', async () => {

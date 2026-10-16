@@ -7,6 +7,7 @@ import {
   STATUT_ECHEC_AUTH,
   STATUT_ECHEC_AUTRE,
 } from './offlineQueue';
+import { estVenteDuContexte, lireContexteSession } from './contexteSession';
 
 // Empêche deux synchronisations concurrentes (ex: l'évènement 'online' et un
 // clic manuel sur "réessayer maintenant" au même moment) de rejouer deux
@@ -20,8 +21,14 @@ export async function synchroniserVentesEnAttente() {
 
   try {
     const ventes = await listerVentesEnAttente();
+    // Isolation hors ligne : seules les ventes de l'utilisateur et de la
+    // boutique en cours sont rejouées. Les autres (autre compte, ou sans
+    // marque) restent en file, statut inchangé, visibles dans le bandeau.
+    // Contexte inconnu (accounts/me/ pas encore chargé) : rien n'est envoyé.
+    const contexte = lireContexteSession();
     const aRejouer = ventes.filter(
-      (vente) => vente.statut === STATUT_EN_ATTENTE || vente.statut === STATUT_ECHEC_AUTRE
+      (vente) => (vente.statut === STATUT_EN_ATTENTE || vente.statut === STATUT_ECHEC_AUTRE)
+        && estVenteDuContexte(vente, contexte)
     );
 
     for (const vente of aRejouer) {
@@ -61,6 +68,8 @@ export async function synchroniserVentesEnAttente() {
         // échec - elle doit rester visible (statut ECHEC_AUTRE) pour
         // vérification manuelle éventuelle. Les ventes suivantes de la
         // file ne sont pas concernées par cet échec précis : on continue.
+        // Même traitement pour un 409 VENTE_AUTRE_COMPTE (marque locale
+        // différente de celle que le serveur voit) : vente gardée.
         await marquerStatut(vente.cle_idempotence, STATUT_ECHEC_AUTRE);
       }
     }

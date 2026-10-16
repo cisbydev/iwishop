@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import api from '../services/api';
+import { contexteSessionDepuisMe, definirContexteSession } from '../services/contexteSession';
+import { synchroniserVentesEnAttente } from '../services/syncEngine';
 import { SettingsContext } from './settingsContextValue';
 
 export function SettingsProvider({ children }) {
@@ -23,6 +25,11 @@ export function SettingsProvider({ children }) {
     try {
       const response = await api.get('accounts/me/');
       setUtilisateur(response.data);
+      // Isolation hors ligne : la synchronisation (hors de React) ne rejoue
+      // que les ventes de ce contexte ; relancée ici, car au démarrage de
+      // l'app (main.jsx) le contexte n'est pas encore connu.
+      definirContexteSession(contexteSessionDepuisMe(response.data));
+      void synchroniserVentesEnAttente();
     } catch (err) {
       console.error("Erreur chargement de l'utilisateur connecté", err);
     }

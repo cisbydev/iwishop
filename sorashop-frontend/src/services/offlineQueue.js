@@ -79,6 +79,35 @@ export async function supprimerVenteEnAttente(cle_idempotence) {
   notifierChangement();
 }
 
+// Envoi confirmé d'une vente sans marque (créée avant le 2026-10-16) :
+// elle reçoit la marque du compte qui l'envoie, dans l'entrée et dans le
+// payload (le serveur répond 409 si elle ne correspond pas). Refusé pour
+// une vente déjà marquée : la vente d'un autre compte n'est jamais
+// réattribuée.
+export async function marquerVente(cle_idempotence, marque) {
+  if (!marque) {
+    throw new Error('Contexte de session inconnu : vente non marquée.');
+  }
+  const db = await getDb();
+  const entree = await db.get(NOM_STORE, cle_idempotence);
+  if (!entree) return;
+  if (entree.utilisateur_id != null || entree.boutique_id != null) {
+    throw new Error('Vente déjà marquée : jamais réattribuée.');
+  }
+  entree.utilisateur_id = marque.utilisateur_id;
+  entree.utilisateur_nom = marque.utilisateur_nom;
+  entree.boutique_id = marque.boutique_id;
+  entree.boutique_nom = marque.boutique_nom;
+  entree.payload = {
+    ...entree.payload,
+    utilisateur_attendu: marque.utilisateur_id,
+    boutique_attendue: marque.boutique_id,
+  };
+  entree.statut = STATUT_EN_ATTENTE;
+  await db.put(NOM_STORE, entree);
+  notifierChangement();
+}
+
 // incrementerTentatives est un détail interne utilisé par syncEngine lors
 // d'un échec réseau (la vente reste EN_ATTENTE mais on trace le nombre
 // d'essais) - la signature de base marquerStatut(cle_idempotence, statut)
