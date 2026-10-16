@@ -23,6 +23,7 @@ import { SupportViewProvider } from './context/SupportViewContext';
 import { useSupportView } from './context/supportViewContextValue';
 import { BoutiqueActiveProvider } from './context/BoutiqueActiveContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { confirmerDeconnexion } from './services/deconnexion';
 import BoutiqueSelecteur from './components/BoutiqueSelecteur';
 import SupportViewBanner from './components/SupportViewBanner';
 import AbonnementBanner from './components/AbonnementBanner';
@@ -88,6 +89,8 @@ function AppContent() {
   const { logout } = useAuth();
 
   const handleLogout = async () => {
+    // Prévient s'il reste des ventes non envoyées (jamais effacées).
+    if (!(await confirmerDeconnexion())) return;
     quitterVueSupport();
     await logout();
   };

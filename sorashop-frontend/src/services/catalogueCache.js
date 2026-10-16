@@ -66,6 +66,12 @@ export async function sauvegarderCatalogue({ produits, prix, unites }, contexte)
   ]);
 }
 
+// Déconnexion volontaire : tous les catalogues (tous comptes) effacés.
+export async function effacerCatalogues() {
+  const db = await getDb();
+  await db.clear(NOM_STORE);
+}
+
 // Retourne null sans contexte, ou si aucun catalogue n'a été sauvegardé
 // pour cet utilisateur et cette boutique.
 export async function chargerCatalogueCache(contexte) {

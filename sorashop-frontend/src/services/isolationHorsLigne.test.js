@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { openDB } from 'idb';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Isolation hors ligne (plan validé le 2026-10-16) : non-régression du
@@ -9,13 +10,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // vrai module api.js ; seul le réseau d'axios est remplacé, pour lire les
 // requêtes réellement envoyées.
 
-const reseau = vi.hoisted(() => ({ requetes: [] }));
+const reseau = vi.hoisted(() => ({ requetes: [], refuser: null }));
 
 vi.mock('axios', async (importOriginal) => {
   const module = await importOriginal();
   module.default.defaults.adapter = async (config) => {
     reseau.requetes.push(config);
-    return { data: { id: 1 }, status: 201, statusText: 'Created', headers: {}, config };
+    if (reseau.refuser?.(config)) {
+      throw Object.assign(new Error('Request failed with status code 401'), {
+        config, response: { status: 401, data: {}, headers: {}, config },
+      });
+    }
+    const data = config.url === 'csrf/' ? { csrfToken: 'jeton-csrf' } : { id: 1 };
+    return { data, status: 201, statusText: 'Created', headers: {}, config };
   };
   return module;
 });
@@ -32,6 +39,7 @@ beforeEach(async () => {
   vi.resetModules();
   localStorage.clear();
   reseau.requetes.length = 0;
+  reseau.refuser = null;
   api = await import('./api');
   catalogueCache = await import('./catalogueCache');
   offlineQueue = await import('./offlineQueue');
@@ -188,6 +196,47 @@ describe('Envoi confirmé d’une vente sans marque', () => {
     await expect(offlineQueue.marquerVente(entree.cle_idempotence, Y_BOUTIQUE_1)).rejects.toThrow('jamais réattribuée');
 
     expect((await offlineQueue.listerVentesEnAttente())[0]).toMatchObject({ utilisateur_id: 7, utilisateur_nom: 'x' });
+  });
+});
+
+describe('Déconnexion volontaire (AuthContext.logout)', () => {
+  it('efface les catalogues, la boutique active et le contexte ; garde la file des ventes', async () => {
+    const { AuthProvider, useAuth } = await import('../context/AuthContext');
+    await catalogueCache.sauvegarderCatalogue(CATALOGUE_1, X_BOUTIQUE_1);
+    await catalogueCache.sauvegarderCatalogue(CATALOGUE_1, X_BOUTIQUE_2);
+    await offlineQueue.ajouterVenteEnAttente({ montant_paye: 150, lignes: [] }, X_BOUTIQUE_1);
+    boutiqueActive.setBoutiqueActiveId(1);
+    contexteSession.definirContexteSession(X_BOUTIQUE_1);
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await act(() => result.current.logout());
+
+    expect(reseau.requetes.some((r) => r.url === 'token/logout/')).toBe(true);
+    expect(await catalogueCache.chargerCatalogueCache(X_BOUTIQUE_1)).toBeNull();
+    expect(await catalogueCache.chargerCatalogueCache(X_BOUTIQUE_2)).toBeNull();
+    expect(boutiqueActive.getBoutiqueActiveId()).toBeNull();
+    expect(contexteSession.lireContexteSession()).toBeNull();
+    expect(await offlineQueue.listerVentesEnAttente()).toHaveLength(1);
+  });
+
+  it('session expirée (refus du rafraîchissement) : rien n’est effacé', async () => {
+    const { AuthProvider, useAuth } = await import('../context/AuthContext');
+    await catalogueCache.sauvegarderCatalogue(CATALOGUE_1, X_BOUTIQUE_1);
+    boutiqueActive.setBoutiqueActiveId(1);
+    contexteSession.definirContexteSession(X_BOUTIQUE_1);
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+    reseau.refuser = (config) => config.url === 'token/refresh/' || config.url === 'ventes/';
+
+    await act(async () => {
+      await expect(api.default.get('ventes/')).rejects.toBeTruthy();
+    });
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(await catalogueCache.chargerCatalogueCache(X_BOUTIQUE_1)).not.toBeNull();
+    expect(boutiqueActive.getBoutiqueActiveId()).toBe('1');
+    expect(contexteSession.lireContexteSession()).toEqual(X_BOUTIQUE_1);
   });
 });
 

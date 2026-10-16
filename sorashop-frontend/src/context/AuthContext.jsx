@@ -6,6 +6,7 @@ import api, {
   setAccessToken,
   setAuthFailureHandler,
 } from '../services/api';
+import { effacerDonneesDeSession } from '../services/deconnexion';
 
 const AuthContext = createContext(null);
 
@@ -43,6 +44,9 @@ export function AuthProvider({ children }) {
       await logoutRequest();
     } finally {
       clearAccessToken();
+      // Isolation hors ligne : déconnexion volontaire seulement (une
+      // session expirée passe par authFailureHandler, qui n'efface rien).
+      await effacerDonneesDeSession();
       setIsAuthenticated(false);
     }
   }, []);
