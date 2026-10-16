@@ -6,7 +6,7 @@ import { contexteSessionDepuisMe } from '../services/contexteSession';
 import { listerClients, creerClient } from '../services/clients';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
-import { alerterErreur } from '../services/errorUtils';
+import { alerterErreur, estVenteAutreCompte } from '../services/errorUtils';
 import { formatCurrency, formatDateTime } from '../utils/formatters';
 import FactureActions from './FactureActions';
 import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff, CloudOff, X } from 'lucide-react';
@@ -57,6 +57,8 @@ export default function Sales() {
   const [demanderFacture, setDemanderFacture] = useState(false);
   const [factureEmise, setFactureEmise] = useState(null); // { venteId, facture }
   const [avertissementFacture, setAvertissementFacture] = useState('');
+  // Refus 409 VENTE_AUTRE_COMPTE d'une vente faite en ligne : dans la page.
+  const [erreurVente, setErreurVente] = useState('');
   // Date de la dernière sauvegarde du catalogue utilisé (cf. catalogueCache) -
   // non nul tant que l'écran affiche des données issues du cache plutôt que
   // du dernier chargement réseau réussi. Reste affiché en permanence, pas
@@ -333,6 +335,7 @@ export default function Sales() {
     setIsSubmitting(true);
     setFactureEmise(null);
     setAvertissementFacture('');
+    setErreurVente('');
 
     if (venteACredit && clientCreditMode === 'nouveau') {
       try {
@@ -421,6 +424,11 @@ export default function Sales() {
           console.error("Erreur mise en file d'attente hors ligne :", erreurFileAttente);
           alert("Impossible d'enregistrer la vente, même hors ligne. Réessayez.");
         }
+      } else if (estVenteAutreCompte(err)) {
+        // Le serveur a répondu : jamais de mise en file hors ligne. L'écran
+        // est resté sur une autre boutique ou un autre compte (ex: changement
+        // dans un autre onglet) ; panier gardé.
+        setErreurVente("Cette vente correspond à une autre boutique ou un autre compte. Rechargez la page.");
       } else {
         // Le panier reste intact ici aussi : rien de saisi n'est perdu.
         console.error("Erreur vente :", err.response?.data || err);
@@ -485,6 +493,12 @@ export default function Sales() {
       {avertissementFacture && (
         <div role="alert" className="p-4 bg-amber-100 text-amber-800 rounded-lg text-sm">
           {avertissementFacture}
+        </div>
+      )}
+
+      {erreurVente && (
+        <div role="alert" className="p-4 bg-red-100 text-red-800 rounded-lg text-sm">
+          {erreurVente}
         </div>
       )}
 

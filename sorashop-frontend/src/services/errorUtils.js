@@ -50,6 +50,14 @@ export function estAbonnementExpire(err) {
   return err?.response?.status === 403 && getErrorCode(err) === CODE_ABONNEMENT_EXPIRE;
 }
 
+// Vente refusée (409) : sa marque (utilisateur, boutique) ne correspond pas
+// à la requête, par exemple un écran resté ouvert sur une autre boutique.
+export const CODE_VENTE_AUTRE_COMPTE = 'VENTE_AUTRE_COMPTE';
+
+export function estVenteAutreCompte(err) {
+  return err?.response?.status === 409 && getErrorCode(err) === CODE_VENTE_AUTRE_COMPTE;
+}
+
 // Remplace alert(getErrorMessage(...)) dans les écrans : le refus après
 // l'expiration est signalé à RefusAbonnementExpire (monté une seule fois
 // dans App.jsx, message dans la page avec « Renouveler »), toute autre

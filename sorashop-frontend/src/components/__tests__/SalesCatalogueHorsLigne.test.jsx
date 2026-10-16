@@ -257,4 +257,39 @@ describe('Sales - marque utilisateur et boutique (isolation hors ligne)', () => 
     expect(payload).toMatchObject({ utilisateur_attendu: 7, boutique_attendue: 3 });
     expect(window.alert).not.toHaveBeenCalled();
   });
+
+  it('vente en ligne refusée en 409 VENTE_AUTRE_COMPTE : message dans la page, panier gardé, jamais mise en file', async () => {
+    configurerReponsesReseau();
+    mocks.post.mockRejectedValueOnce(Object.assign(new Error('Request failed with status code 409'), {
+      response: { status: 409, data: {
+        detail: 'Cette vente a été faite avec un autre compte ou une autre boutique.', code: 'VENTE_AUTRE_COMPTE',
+      } },
+    }));
+    const user = userEvent.setup({ delay: null });
+
+    await preparerVente(user);
+    await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Cette vente correspond à une autre boutique ou un autre compte. Rechargez la page.'
+    );
+    expect(window.alert).not.toHaveBeenCalled();
+    expect(mocks.ajouterVenteEnAttente).not.toHaveBeenCalled();
+    // Panier gardé : la vente peut être revalidée après rechargement.
+    expect(screen.getByRole('button', { name: 'Valider la Vente' })).toBeEnabled();
+  });
+
+  it('un autre 409 (sans ce code) garde l’alert() d’avant', async () => {
+    configurerReponsesReseau();
+    mocks.post.mockRejectedValueOnce(Object.assign(new Error('Request failed with status code 409'), {
+      response: { status: 409, data: { detail: 'Conflit.' } },
+    }));
+    const user = userEvent.setup({ delay: null });
+
+    await preparerVente(user);
+    await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith('Conflit.'));
+    expect(screen.queryByText(/Rechargez la page/)).not.toBeInTheDocument();
+  });
 });
