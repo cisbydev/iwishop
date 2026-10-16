@@ -44,7 +44,13 @@ function getDb() {
 // payload : exactement les données de vente telles qu'envoyées à l'API en
 // temps normal (remise, montant_paye, mode_paiement, lignes...) - jamais
 // enrichi ici avec des informations d'authentification.
-export async function ajouterVenteEnAttente(payload) {
+// marque : contexte de session au moment de la vente (utilisateur et
+// boutique, cf. contexteSession.js). Obligatoire : aucune nouvelle vente
+// n'entre en file sans marque (isolation hors ligne, 2026-10-16).
+export async function ajouterVenteEnAttente(payload, marque) {
+  if (!marque) {
+    throw new Error('Contexte de session inconnu : vente non mise en file.');
+  }
   const db = await getDb();
   const entree = {
     cle_idempotence: crypto.randomUUID(),
@@ -52,6 +58,10 @@ export async function ajouterVenteEnAttente(payload) {
     horodatage_client: new Date().toISOString(),
     statut: STATUT_EN_ATTENTE,
     tentatives: 0,
+    utilisateur_id: marque.utilisateur_id,
+    utilisateur_nom: marque.utilisateur_nom,
+    boutique_id: marque.boutique_id,
+    boutique_nom: marque.boutique_nom,
   };
   await db.add(NOM_STORE, entree);
   notifierChangement();

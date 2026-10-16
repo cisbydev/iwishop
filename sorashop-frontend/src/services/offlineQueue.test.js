@@ -26,9 +26,11 @@ const payloadExemple = {
   lignes: [{ produit: 1, unite: 1, quantite: 5, prix_applique: 100 }],
 };
 
+const MARQUE = { utilisateur_id: 7, utilisateur_nom: 'awa', boutique_id: 3, boutique_nom: 'Boutique test' };
+
 describe('offlineQueue', () => {
   it('ajoute une vente en attente avec les champs attendus', async () => {
-    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple);
+    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple, MARQUE);
 
     expect(entree.cle_idempotence).toBeTruthy();
     expect(entree.payload).toEqual(payloadExemple);
@@ -38,8 +40,8 @@ describe('offlineQueue', () => {
   });
 
   it('liste les ventes ajoutées', async () => {
-    await offlineQueue.ajouterVenteEnAttente(payloadExemple);
-    await offlineQueue.ajouterVenteEnAttente({ ...payloadExemple, montant_paye: 200 });
+    await offlineQueue.ajouterVenteEnAttente(payloadExemple, MARQUE);
+    await offlineQueue.ajouterVenteEnAttente({ ...payloadExemple, montant_paye: 200 }, MARQUE);
 
     const liste = await offlineQueue.listerVentesEnAttente();
 
@@ -47,7 +49,7 @@ describe('offlineQueue', () => {
   });
 
   it('supprime une vente par sa clé d’idempotence', async () => {
-    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple);
+    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple, MARQUE);
 
     await offlineQueue.supprimerVenteEnAttente(entree.cle_idempotence);
 
@@ -55,7 +57,7 @@ describe('offlineQueue', () => {
   });
 
   it('change le statut d’une vente existante', async () => {
-    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple);
+    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple, MARQUE);
 
     await offlineQueue.marquerStatut(entree.cle_idempotence, offlineQueue.STATUT_ECHEC_AUTH);
 
@@ -64,7 +66,7 @@ describe('offlineQueue', () => {
   });
 
   it('incrémente le compteur de tentatives sans perdre le statut', async () => {
-    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple);
+    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple, MARQUE);
 
     await offlineQueue.marquerStatut(entree.cle_idempotence, offlineQueue.STATUT_EN_ATTENTE, { incrementerTentatives: true });
     await offlineQueue.marquerStatut(entree.cle_idempotence, offlineQueue.STATUT_EN_ATTENTE, { incrementerTentatives: true });
@@ -75,7 +77,7 @@ describe('offlineQueue', () => {
   });
 
   it('ne contient jamais de champ lié à l’authentification (mot de passe, token)', async () => {
-    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple);
+    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple, MARQUE);
 
     const texteSerialise = JSON.stringify(entree).toLowerCase();
     expect(texteSerialise).not.toContain('password');
@@ -88,7 +90,7 @@ describe('offlineQueue', () => {
     const ecouteur = () => evenements.push(true);
     window.addEventListener(offlineQueue.EVENEMENT_FILE_ATTENTE_MODIFIEE, ecouteur);
 
-    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple);
+    const entree = await offlineQueue.ajouterVenteEnAttente(payloadExemple, MARQUE);
     await offlineQueue.marquerStatut(entree.cle_idempotence, offlineQueue.STATUT_ECHEC_AUTH);
     await offlineQueue.supprimerVenteEnAttente(entree.cle_idempotence);
 

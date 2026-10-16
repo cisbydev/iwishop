@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   ajouterVenteEnAttente: vi.fn(),
   sauvegarderCatalogue: vi.fn(),
   chargerCatalogueCache: vi.fn(),
+  utilisateur: null,
 }));
 
 vi.mock('../../services/api', () => ({
@@ -27,7 +28,7 @@ vi.mock('../../services/catalogueCache', () => ({
 vi.mock('../../context/settingsContextValue', () => ({
   useSettings: () => ({
     parametres: { devise: 'FCFA' },
-    utilisateur: { est_proprietaire: true },
+    utilisateur: mocks.utilisateur,
   }),
 }));
 
@@ -36,6 +37,9 @@ vi.mock('../../context/supportViewContextValue', () => ({
 }));
 
 import Sales from '../Sales';
+
+const AWA = { id: 7, username: 'awa', boutique_id: 3, boutique_nom: 'Boutique test', est_proprietaire: true };
+const CONTEXTE_AWA = { utilisateur_id: 7, utilisateur_nom: 'awa', boutique_id: 3, boutique_nom: 'Boutique test' };
 
 const PRODUITS = [{ id: 1, nom: 'Savon', quantite_en_stock: 10 }];
 const PRIX = [{ produit: 1, unite: 1, unite_nom: 'Unité', prix: '100' }];
@@ -58,6 +62,7 @@ describe('Sales - cache du catalogue hors ligne (PWA Niveau 2, étape 4)', () =>
     mocks.ajouterVenteEnAttente.mockReset();
     mocks.sauvegarderCatalogue.mockReset().mockResolvedValue(undefined);
     mocks.chargerCatalogueCache.mockReset().mockResolvedValue(null);
+    mocks.utilisateur = AWA;
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -65,13 +70,16 @@ describe('Sales - cache du catalogue hors ligne (PWA Niveau 2, étape 4)', () =>
     vi.restoreAllMocks();
   });
 
-  it('sauvegarde silencieusement le catalogue après un chargement réseau réussi', async () => {
+  it('sauvegarde silencieusement le catalogue après un chargement réseau réussi, marqué avec l’utilisateur et la boutique', async () => {
     configurerReponsesReseau();
 
     render(<Sales />);
 
     await screen.findByText('Savon (Stock : 10)');
-    expect(mocks.sauvegarderCatalogue).toHaveBeenCalledWith({ produits: PRODUITS, prix: PRIX, unites: UNITES });
+    // Sauvegarde faite par un effet, après l'affichage du catalogue.
+    await waitFor(() => expect(mocks.sauvegarderCatalogue).toHaveBeenCalledWith(
+      { produits: PRODUITS, prix: PRIX, unites: UNITES }, CONTEXTE_AWA
+    ));
     expect(screen.queryByText(/Catalogue hors ligne/)).not.toBeInTheDocument();
   });
 
@@ -88,6 +96,7 @@ describe('Sales - cache du catalogue hors ligne (PWA Niveau 2, étape 4)', () =>
 
     // Le catalogue en cache reste utilisable normalement (pas d'écran bloquant).
     await screen.findByText('Savon (Stock : 10)');
+    expect(mocks.chargerCatalogueCache).toHaveBeenCalledWith(CONTEXTE_AWA);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     const bandeau = await screen.findByRole('status');
@@ -145,5 +154,107 @@ describe('Sales - cache du catalogue hors ligne (PWA Niveau 2, étape 4)', () =>
     await user.click(screen.getByRole('button', { name: /Ajouter au panier/ }));
 
     expect(screen.getByRole('status')).toHaveTextContent('Catalogue hors ligne');
+  });
+});
+
+describe('Sales - marque utilisateur et boutique (isolation hors ligne)', () => {
+  beforeEach(() => {
+    mocks.getAll.mockReset();
+    mocks.post.mockReset();
+    mocks.ajouterVenteEnAttente.mockReset().mockResolvedValue({ cle_idempotence: 'uuid-1' });
+    mocks.sauvegarderCatalogue.mockReset().mockResolvedValue(undefined);
+    mocks.chargerCatalogueCache.mockReset().mockResolvedValue(null);
+    mocks.utilisateur = AWA;
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function preparerVente(user) {
+    render(<Sales />);
+    await screen.findByText('Savon (Stock : 10)');
+    await user.click(screen.getByRole('button', { name: /Ajouter au panier/ }));
+    await user.type(screen.getByPlaceholderText('0'), '100');
+  }
+
+  it('contexte connu après le catalogue (chargements en parallèle) : catalogue sauvegardé dès l’arrivée du contexte', async () => {
+    configurerReponsesReseau();
+    mocks.utilisateur = null;
+
+    const { rerender } = render(<Sales />);
+    await screen.findByText('Savon (Stock : 10)');
+    expect(mocks.sauvegarderCatalogue).not.toHaveBeenCalled();
+
+    mocks.utilisateur = AWA;
+    rerender(<Sales />);
+
+    await waitFor(() => expect(mocks.sauvegarderCatalogue).toHaveBeenCalledWith(
+      { produits: PRODUITS, prix: PRIX, unites: UNITES }, CONTEXTE_AWA
+    ));
+  });
+
+  it('hors ligne, contexte arrivé après le premier échec : « Réessayer » relit le cache de ce contexte', async () => {
+    configurerReponsesReseau({ echec: new Error('Network Error') });
+    mocks.utilisateur = null;
+    mocks.chargerCatalogueCache.mockImplementation((contexte) => Promise.resolve(
+      contexte ? { produits: PRODUITS, prix: PRIX, unites: UNITES, derniere_maj: '2026-09-10T08:30:00.000Z' } : null
+    ));
+    const user = userEvent.setup({ delay: null });
+
+    const { rerender } = render(<Sales />);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Impossible de charger les données de vente');
+    mocks.utilisateur = AWA;
+    rerender(<Sales />);
+    await user.click(screen.getByRole('button', { name: 'Réessayer' }));
+
+    expect(await screen.findByText('Savon (Stock : 10)')).toBeInTheDocument();
+    expect(mocks.chargerCatalogueCache).toHaveBeenLastCalledWith(CONTEXTE_AWA);
+  });
+
+  it('backend sans boutique_id : ni sauvegarde ni lecture du catalogue hors ligne', async () => {
+    mocks.utilisateur = { id: 7, username: 'awa', boutique_nom: 'Boutique test', est_proprietaire: true };
+    configurerReponsesReseau({ echec: new Error('Network Error') });
+    mocks.chargerCatalogueCache.mockImplementation((contexte) => Promise.resolve(contexte ? { produits: PRODUITS } : null));
+
+    render(<Sales />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Impossible de charger les données de vente');
+    expect(mocks.chargerCatalogueCache).toHaveBeenCalledWith(null);
+    expect(mocks.sauvegarderCatalogue).not.toHaveBeenCalled();
+  });
+
+  it('vente hors ligne sans contexte : refusée, rien en file, panier intact', async () => {
+    configurerReponsesReseau();
+    mocks.utilisateur = { id: 7, username: 'awa', est_proprietaire: true }; // pas de boutique_id
+    mocks.post.mockRejectedValueOnce(new Error('Network Error'));
+    const user = userEvent.setup({ delay: null });
+
+    await preparerVente(user);
+    await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
+
+    await waitFor(() => expect(window.alert).toHaveBeenCalledWith(
+      'Vente non enregistrée. Reconnectez-vous en ligne avant de vendre hors ligne.'
+    ));
+    expect(mocks.ajouterVenteEnAttente).not.toHaveBeenCalled();
+    expect(mocks.post.mock.calls[0][1]).not.toHaveProperty('utilisateur_attendu');
+    expect(screen.getByRole('button', { name: 'Valider la Vente' })).toBeEnabled();
+  });
+
+  it('vente hors ligne avec contexte : mise en file avec la marque, attendus dans le payload', async () => {
+    configurerReponsesReseau();
+    mocks.post.mockRejectedValueOnce(new Error('Network Error'));
+    const user = userEvent.setup({ delay: null });
+
+    await preparerVente(user);
+    await user.click(screen.getByRole('button', { name: 'Valider la Vente' }));
+
+    await waitFor(() => expect(mocks.ajouterVenteEnAttente).toHaveBeenCalledTimes(1));
+    const [payload, marque] = mocks.ajouterVenteEnAttente.mock.calls[0];
+    expect(marque).toEqual(CONTEXTE_AWA);
+    expect(payload).toMatchObject({ utilisateur_attendu: 7, boutique_attendue: 3 });
+    expect(window.alert).not.toHaveBeenCalled();
   });
 });

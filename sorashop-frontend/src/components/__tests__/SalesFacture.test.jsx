@@ -28,7 +28,7 @@ vi.mock('../../services/catalogueCache', () => ({
 vi.mock('../../context/settingsContextValue', () => ({
   useSettings: () => ({
     parametres: { devise: 'FCFA' },
-    utilisateur: { est_proprietaire: true },
+    utilisateur: { id: 7, username: 'awa', boutique_id: 3, boutique_nom: 'Boutique test', est_proprietaire: true },
   }),
 }));
 
@@ -99,6 +99,7 @@ describe('Sales : case « Facture »', () => {
     expect(await screen.findByText('Facture émise pour cette vente.')).toBeInTheDocument();
     expect(mocks.post).toHaveBeenCalledWith('ventes/', {
       remise: 0, montant_paye: 100, mode_paiement: 'ESPECES', lignes: LIGNES, demander_facture: true,
+      utilisateur_attendu: 7, boutique_attendue: 3,
     });
     expect(screen.getByText('F-2026-0005')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Télécharger la facture F-2026-0005' })).toBeEnabled();
@@ -133,7 +134,8 @@ describe('Sales : case « Facture »', () => {
     ).toBeInTheDocument();
     expect(mocks.ajouterVenteEnAttente).toHaveBeenCalledWith({
       remise: 0, montant_paye: 100, mode_paiement: 'ESPECES', lignes: LIGNES, demander_facture: true,
-    });
+      utilisateur_attendu: 7, boutique_attendue: 3,
+    }, { utilisateur_id: 7, utilisateur_nom: 'awa', boutique_id: 3, boutique_nom: 'Boutique test' });
     expect(screen.getByRole('checkbox', { name: 'Facture' })).not.toBeChecked();
   });
 

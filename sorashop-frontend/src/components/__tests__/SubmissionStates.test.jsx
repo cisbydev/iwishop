@@ -28,7 +28,7 @@ vi.mock('../../services/catalogueCache', () => ({
 vi.mock('../../context/settingsContextValue', () => ({
   useSettings: () => ({
     parametres: { devise: 'FCFA' },
-    utilisateur: { est_proprietaire: true },
+    utilisateur: { id: 7, username: 'awa', boutique_id: 3, boutique_nom: 'Boutique test', est_proprietaire: true },
   }),
 }));
 
@@ -148,7 +148,9 @@ describe('états de soumission', () => {
       montant_paye: 100,
       mode_paiement: 'ESPECES',
       lignes: [{ produit: 1, unite: 1, quantite: 1, prix_applique: 100 }],
-    });
+      utilisateur_attendu: 7,
+      boutique_attendue: 3,
+    }, { utilisateur_id: 7, utilisateur_nom: 'awa', boutique_id: 3, boutique_nom: 'Boutique test' });
     expect(
       await screen.findByText(/Vente enregistrée - sera envoyée dès que la connexion revient/)
     ).toBeInTheDocument();

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { ajouterVenteEnAttente } from '../services/offlineQueue';
 import { sauvegarderCatalogue, chargerCatalogueCache } from '../services/catalogueCache';
+import { contexteSessionDepuisMe } from '../services/contexteSession';
 import { listerClients, creerClient } from '../services/clients';
 import { useSettings } from '../context/settingsContextValue';
 import { useSupportView } from '../context/supportViewContextValue';
@@ -11,7 +12,15 @@ import FactureActions from './FactureActions';
 import { ShoppingCart, Plus, Trash2, CheckCircle, WifiOff, CloudOff, X } from 'lucide-react';
 
 export default function Sales() {
-  const { parametres } = useSettings();
+  const { parametres, utilisateur } = useSettings();
+  // Isolation hors ligne : marque (utilisateur, boutique) des ventes mises
+  // en file et du catalogue sauvegardé ; null tant que accounts/me/ n'est
+  // pas chargé (ou backend sans boutique_id).
+  const contexte = useMemo(() => contexteSessionDepuisMe(utilisateur), [utilisateur]);
+  const contexteRef = useRef(contexte);
+  // Dernier catalogue chargé du réseau : sauvegardé dès que le contexte est
+  // connu (les deux chargements partent en parallèle, sans ordre garanti).
+  const [catalogueFrais, setCatalogueFrais] = useState(null);
   const devise = parametres?.devise || 'FCFA';
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
@@ -121,13 +130,8 @@ export default function Sales() {
       // n'a plus lieu d'être) - le cache lui-même est mis à jour juste après.
       setCatalogueHorsLigne(null);
 
-      // Sauvegarde silencieuse pour un futur démarrage hors ligne. Ne doit
-      // jamais faire échouer l'affichage du catalogue si elle échoue
-      // elle-même (ex: IndexedDB indisponible ou quota dépassé) : erreur
-      // avalée, uniquement tracée.
-      sauvegarderCatalogue({ produits, prix, unites }).catch((erreurCache) => {
-        console.error("Erreur sauvegarde du catalogue hors ligne :", erreurCache);
-      });
+      // Sauvegardé par l'effet plus bas, dès que le contexte est connu.
+      setCatalogueFrais({ produits, prix, unites });
     } catch (err) {
       if (!err.response) {
         // Panne réseau réelle (pas une erreur serveur/validation) : on
@@ -135,7 +139,7 @@ export default function Sales() {
         // tout l'écran, quitte à l'afficher avec des données possiblement
         // périmées (bandeau permanent, cf. rendu ci-dessous).
         try {
-          const cache = await chargerCatalogueCache();
+          const cache = await chargerCatalogueCache(contexteRef.current);
           if (cache) {
             appliquerCatalogue(cache.produits, cache.prix, cache.unites);
             setCatalogueHorsLigne(cache.derniere_maj);
@@ -153,6 +157,21 @@ export default function Sales() {
       setErreurChargement("Impossible de charger les données de vente. Vérifiez votre connexion puis réessayez.");
     }
   }, [appliquerCatalogue]);
+
+  useEffect(() => {
+    contexteRef.current = contexte;
+  }, [contexte]);
+
+  // Sauvegarde silencieuse pour un futur passage hors ligne, marquée avec
+  // l'utilisateur et la boutique. Ne doit jamais faire échouer l'affichage
+  // du catalogue si elle échoue elle-même (ex: IndexedDB indisponible ou
+  // quota dépassé) : erreur avalée, uniquement tracée.
+  useEffect(() => {
+    if (!catalogueFrais || !contexte) return;
+    sauvegarderCatalogue(catalogueFrais, contexte).catch((erreurCache) => {
+      console.error("Erreur sauvegarde du catalogue hors ligne :", erreurCache);
+    });
+  }, [catalogueFrais, contexte]);
 
   const loadCatalogue = async () => {
     setLoading(true);
@@ -343,6 +362,9 @@ export default function Sales() {
       })),
       ...(venteACredit ? { client_credit: Number(clientCreditIdEffectif) } : {}),
       ...(demanderFacture ? { demander_facture: true } : {}),
+      // Le serveur refuse (409) une vente dont la marque ne correspond pas
+      // à la requête, au lieu de l'attribuer à un autre compte.
+      ...(contexte ? { utilisateur_attendu: contexte.utilisateur_id, boutique_attendue: contexte.boutique_id } : {}),
     };
 
     try {
@@ -377,8 +399,14 @@ export default function Sales() {
         // a bien eu lieu physiquement en boutique, elle est mise en file
         // d'attente locale (IndexedDB) plutôt que perdue - elle sera
         // rejouée automatiquement dès le retour du réseau (cf. syncEngine).
+        if (!contexte) {
+          // Sans marque, la vente pourrait partir plus tard avec un autre
+          // compte : refusée, panier intact.
+          alert("Vente non enregistrée. Reconnectez-vous en ligne avant de vendre hors ligne.");
+          return;
+        }
         try {
-          await ajouterVenteEnAttente(payload);
+          await ajouterVenteEnAttente(payload, contexte);
           setVenteEnAttenteMessage(
             demanderFacture
               ? "Vente enregistrée - sera envoyée dès que la connexion revient. Numéro de facture attribué à la synchronisation."
