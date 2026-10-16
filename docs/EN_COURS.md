@@ -21,7 +21,7 @@ Mis à jour le 2026-10-16.
 
 Plan proposé et validé par Mahamadou le 2026-10-15 : D1 à D8 acceptées, avec deux ajouts (test HEIC sur un vrai iPhone et message de refus, à D2 ; URL signées et cache des miniatures, en livraison 2).
 
-État : commit 1 (`a561005`, `traiter_photo`) fait le 2026-10-15 ; vérifications en prod faites le 2026-10-16 (voir plus bas) ; commits 2 (`b047434`) et 2 bis (`bba2b20`) faits le 2026-10-16. Rien n'est poussé : push à la fin de la livraison 1 (décidé par Mahamadou le 2026-10-16). Prochaine étape : le commit 3 (la photo dans la fiche produit). Les exigences viennent de Mahamadou (une photo par produit, compression à environ 800 px, vérification du vrai type de fichier, stockage R2 par boutique, suppression avec le produit, image par défaut hors ligne, médias non sauvegardés) : elles n'étaient pas encore écrites dans ce fichier.
+État : commit 1 (`a561005`, `traiter_photo`) fait le 2026-10-15 ; vérifications en prod faites le 2026-10-16 (voir plus bas) ; commits 2 (`b047434`), 2 bis (`bba2b20`), 3 (`43c3ab0`) et 4 (`ec6e689`) faits le 2026-10-16. Rien n'est poussé : push à la fin de la livraison 1 (décidé par Mahamadou le 2026-10-16). `.env` local passé au stockage local et vérification à l'œil en local faites le 2026-10-16 (voir plus bas). Prochaine étape : le commit 5 (`docs`), puis le push de la livraison 1 sur accord de Mahamadou, puis le test en prod. Les exigences viennent de Mahamadou (une photo par produit, compression à environ 800 px, vérification du vrai type de fichier, stockage R2 par boutique, suppression avec le produit, image par défaut hors ligne, médias non sauvegardés) : elles n'étaient pas encore écrites dans ce fichier.
 
 ### Constats dans le code (2026-10-15)
 
@@ -78,7 +78,9 @@ Livraison 1 (fonction complète en ligne, image par défaut hors ligne) :
    - Fait : `b047434` (2026-10-16, non poussé). `POST` et `DELETE` répondent 200 avec le produit ; une photo envoyée avec le produit (`POST`/`PUT`/`PATCH produits/`) est ignorée sans erreur (deux choix validés par Mahamadou le 2026-10-16). Fichier écrit avant la transaction, produit verrouillé (`select_for_update`), ancien fichier supprimé par `on_commit`, nouveau fichier supprimé si la base échoue. Migration `products/0015` : `sqlmigrate` affiche `-- (no-op)`. 19 tests (dont un de concurrence sur PostgreSQL), qui remplacent les 5 tests d'envoi par le produit ; 9 contre-épreuves, toutes vues échouer. Suite backend : 658 OK, `check` et `makemigrations --check` OK.
    - 2 bis. `bba2b20` (2026-10-16, non poussé) : « plan validé le 2026-10-16 » corrigé en « 2026-10-15 » dans deux commentaires du commit 1.
 3. `feat(frontend)` : la photo dans la fiche produit.
+   - Fait : `43c3ab0` (2026-10-16, non poussé). Photo choisie, changée ou retirée dans la fiche, envoyée à l'enregistrement seulement, après le produit et ses prix (aussi en modification : « Annuler » n'envoie rien). Échec de la photo : fenêtre fermée, message dans la page (« Produit créé, photo non envoyée : … »). Composant `PhotoProduit` (image par défaut). 9 tests, 7 contre-épreuves vues échouer. Premier test au bord du délai de 5 s : mesuré étape par étape (environ 4 s dans six saisies user-event), remplacées par `fireEvent.change`, délai inchangé ; 3 034 ms sur 5 000 dans la suite complète (1,8 Go de RAM libre, 16 processus Chrome).
 4. `feat(frontend)` : la miniature dans la liste, et l'image par défaut.
+   - Fait : `ec6e689` (2026-10-16, non poussé). Miniature de 40 px (`loading="lazy"`) à la place de l'initiale ; hors ligne, aucune photo demandée au réseau, retour de la miniature avec la connexion ; aperçu local gardé hors ligne. 4 tests, 4 contre-épreuves vues échouer. Frontend : lint, 290 tests et build OK.
 5. `docs` : `EN_COURS.md`.
 
 Livraison 2 (à décider ensuite) :
@@ -86,6 +88,46 @@ Livraison 2 (à décider ensuite) :
 - Photo dans l'écran de vente.
 - Cache des miniatures (relevé par Mahamadou le 2026-10-15) : les URL signées changent à chaque chargement de la liste, donc le navigateur ne garde pas les miniatures en cache et les retélécharge à chaque visite (données mobiles). Options : URL signées plus longues, ou cache (par exemple par le chemin du fichier, sans la signature).
 - Conversion vers sRGB pour les photos d'iPhone (relevé le 2026-10-15) : D3 retire le profil couleur ICC, et les photos d'iPhone (Display P3) peuvent alors paraître un peu plus ternes. Convertir vers sRGB avant l'enregistrement, si c'est visible sur un vrai téléphone.
+
+### Stockage des fichiers en développement (relevé le 2026-10-16)
+
+- Constat : le `.env` local a `CLOUDFLARE_R2_BUCKET_NAME=iwishop-media`, le bucket de la prod (nom lu seul, aucune autre valeur affichée). Dès que les identifiants locaux marchent (le 403 du 2026-10-15 venait peut-être de l'horloge décalée : R2 refuse une requête mal datée), le développement écrit et supprime dans le bucket de la prod.
+- Proposé : désactiver cette seule ligne du `.env` local (la commenter avec `#`). `settings.py` passe alors à `FileSystemStorage` : fichiers dans `media/` (ignoré par git), servis par Django sous `/media/` avec `DEBUG=True`. Aucun changement de code ; la prod garde ses variables sur Render. Vérification : `venv\Scripts\python manage.py shell -c "from django.core.files.storage import storages; s = storages['default']; print(type(s).__name__, getattr(s, 'location', ''))"` doit afficher `FileSystemStorage` et le dossier `media` (au 2026-10-16, après les commits : `S3Storage`, le `.env` n'était pas encore modifié ; puis, le même jour, `.env` modifié par Mahamadou : 0 ligne active pour le bucket et pour les trois autres clés R2, `FileSystemStorage` sur `C:\Users\User\Desktop\sorashop-project\media`, `DEBUG` vrai, `MEDIA_URL` `/media/`). Erreur corrigée le 2026-10-16 : avec `default_storage`, la commande affiche `DefaultStorage` (l'enveloppe de Django), jamais la vraie classe.
+- Pas de surcharge par variable d'environnement : sous PowerShell, `$env:CLOUDFLARE_R2_BUCKET_NAME = ''` supprime la variable, et `python-decouple` relit alors la valeur du `.env`.
+- Les trois autres clés R2 du `.env` local (accès, secret, adresse) ne servent plus une fois la ligne désactivée. Si elles sont valides, ce sont des droits d'écriture sur le bucket de la prod gardés sur le PC : à retirer du `.env` (ou, si un jour il faut tester R2 en local, un bucket et un jeton dédiés au développement).
+- Fait le 2026-10-16 : `.env` local modifié par Mahamadou (bucket et trois clés R2 désactivés).
+
+### Vérification à l'œil en local : faite le 2026-10-16 (Mahamadou)
+
+Seulement avec le stockage local : la vérification ci-dessus doit afficher `FileSystemStorage`, sinon rien n'est lancé. Base de dev `sorashop_db`, jamais la prod.
+
+Préparation (Claude, 2026-10-16) : aucun ancien serveur ouvert ; `FileSystemStorage` confirmé ; migration `products.0015` appliquée sur la base de dev (hôte `localhost`, port 5432, base `sorashop_db`, vérifiés juste après la migration ; aucun SQL). Backend sur `127.0.0.1:8001`, frontend sur `127.0.0.1:5173` (`npx vite --host 127.0.0.1 --port 5173`, `vite.config.js` inchangé, qui fixe 5174). CORS vérifié pour l'origine `http://127.0.0.1:5173` (avec cookies et prévol). Compte `admin`, propriétaire de « Ma Boutique » (boutique 1).
+
+Constats de Mahamadou, tous OK :
+- Photo affichée dans la liste et dans la fiche ; image par défaut pour les produits sans photo ; vue téléphone lisible.
+- Changer puis retirer la photo met à jour `media/produits/`.
+- Texte renommé `test.jpg` : refusé avec « Choisissez une photo JPG ou PNG ».
+
+Fichier relu avec Pillow par Claude après la vérification : `media/produits/1/9cbe42e585bd425fb5f71df58965ba3a.webp`, 8,9 Ko, WEBP 800 x 800, RGB, 0 balise EXIF, ni XMP ni profil ICC ; c'est la photo du produit 39 (« Ampule », boutique 1), seul produit de la base de dev avec une photo. Taille de la photo d'origine non relevée : la réduction (côté le plus long ramené à 800 px) n'est donc pas prouvée sur ce fichier, seulement par les tests.
+
+Pas dans ce compte rendu, donc non vérifiés à l'œil : création d'un produit avec photo (étape 7), hors ligne (étape 9), droits d'un employé (compte `Cisse`). Couverts par les tests.
+
+Relevé en préparant (2026-10-16) :
+- `CSRF_TRUSTED_ORIGINS` absent du `.env` local : le rafraîchissement de session (`POST /api/token/refresh/`) est refusé en local (403 « Origin checking failed »), depuis 5173 comme depuis 5174 ; la connexion marche, mais recharger la page renvoie à l'écran de connexion. Ligne proposée (sans secret) : `CSRF_TRUSTED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:5174,http://localhost:5174`. Pas encore ajoutée.
+- Vite écoute par défaut sur `localhost` en IPv6 seulement ; l'API est sur `127.0.0.1` : pour le navigateur, deux sites différents, et le cookie de session (`SameSite=Lax`) ne suit pas. En local, ouvrir le frontend sur `127.0.0.1`, pas `localhost`.
+- 14 petits PNG (`photo*.png`, 0,1 Ko, datés du 2026-09-02 au 2026-09-06) à la racine de `media/produits/`, référencés par aucun produit : restes des anciens tests d'envoi, d'avant le stockage en mémoire des tests (`6ba8f22`). À supprimer à la main, si Mahamadou le décide.
+
+Étapes prévues :
+
+1. Migration : `venv\Scripts\python manage.py migrate products`, puis `showmigrations products` : `[X] 0015_photo_par_boutique`.
+2. Backend : `venv\Scripts\python manage.py runserver 8001` (port de `VITE_API_URL`). Frontend : `npm run dev` dans `sorashop-frontend/`.
+3. Liste des produits : image par défaut pour les produits sans photo.
+4. Modifier un produit, choisir une grande photo de téléphone, aperçu, « Enregistrer » : miniature dans la liste. Sur le disque : `Get-ChildItem media\produits -Recurse -File | Select-Object FullName, Length` : un seul `.webp` dans `media\produits\<id de la boutique>\`, d'environ 30 à 80 Ko, sans le nom d'origine.
+5. Changer la photo : toujours un seul fichier (l'ancien supprimé). Retirer la photo : image par défaut, plus aucun fichier.
+6. Fichier refusé : un `.txt` renommé en `.jpg` (choisir « Tous les fichiers » dans la fenêtre de sélection) : message rouge dans la page, « Produit enregistré, photo non envoyée : Format d'image non accepté. Choisissez une photo JPG ou PNG. »
+7. Créer un produit avec une photo : miniature dans la liste.
+8. Largeur téléphone (375 px, outils de développement) : fiche lisible, boutons utilisables.
+9. Hors ligne (outils de développement, Réseau, « Hors connexion ») : images par défaut sans recharger ; de retour en ligne, les miniatures reviennent.
 
 ### Test en prod de la livraison 1 (Mahamadou, boutique de test)
 
