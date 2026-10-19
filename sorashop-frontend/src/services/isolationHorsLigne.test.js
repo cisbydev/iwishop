@@ -16,9 +16,15 @@ vi.mock('axios', async (importOriginal) => {
   const module = await importOriginal();
   module.default.defaults.adapter = async (config) => {
     reseau.requetes.push(config);
-    if (reseau.refuser?.(config)) {
-      throw Object.assign(new Error('Request failed with status code 401'), {
-        config, response: { status: 401, data: {}, headers: {}, config },
+    const refus = reseau.refuser?.(config);
+    if (refus === 'reseau') {
+      // Hors ligne ou erreur réseau : axios rejette sans réponse.
+      throw Object.assign(new Error('Network Error'), { config, code: 'ERR_NETWORK' });
+    }
+    if (refus) {
+      const status = refus === true ? 401 : refus;
+      throw Object.assign(new Error(`Request failed with status code ${status}`), {
+        config, response: { status, data: {}, headers: {}, config },
       });
     }
     const data = config.url === 'csrf/' ? { csrfToken: 'jeton-csrf' } : { id: 1 };
@@ -218,6 +224,54 @@ describe('Déconnexion volontaire (AuthContext.logout)', () => {
     expect(boutiqueActive.getBoutiqueActiveId()).toBeNull();
     expect(contexteSession.lireContexteSession()).toBeNull();
     expect(await offlineQueue.listerVentesEnAttente()).toHaveLength(1);
+  });
+
+  it.each([
+    ['hors ligne (csrf/ sans réponse)', (config) => (config.url === 'csrf/' ? 'reseau' : false)],
+    ['erreur réseau sur token/logout/', (config) => (config.url === 'token/logout/' ? 'reseau' : false)],
+    ['erreur du serveur sur token/logout/', (config) => (config.url === 'token/logout/' ? 500 : false)],
+  ])('serveur non joint (%s) : déconnexion refusée, rien n’est effacé, session ouverte', async (_cas, refuser) => {
+    const { AuthProvider, useAuth } = await import('../context/AuthContext');
+    await catalogueCache.sauvegarderCatalogue(CATALOGUE_1, X_BOUTIQUE_1);
+    boutiqueActive.setBoutiqueActiveId(1);
+    contexteSession.definirContexteSession(X_BOUTIQUE_1);
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+    api.setAccessToken('jeton-de-X');
+    reseau.refuser = refuser;
+
+    await act(async () => {
+      await expect(result.current.logout()).rejects.toBeTruthy();
+    });
+
+    expect(result.current.isAuthenticated).toBe(true);
+    expect(await catalogueCache.chargerCatalogueCache(X_BOUTIQUE_1)).not.toBeNull();
+    expect(boutiqueActive.getBoutiqueActiveId()).toBe('1');
+    expect(contexteSession.lireContexteSession()).toEqual(X_BOUTIQUE_1);
+    reseau.refuser = null;
+    await api.default.get('ventes/');
+    expect(reseau.requetes.at(-1).headers.Authorization).toBe('Bearer jeton-de-X');
+  });
+
+  it('après un changement de mot de passe (cookie déjà révoqué) : effacement même sans réponse', async () => {
+    const { AuthProvider, useAuth } = await import('../context/AuthContext');
+    await catalogueCache.sauvegarderCatalogue(CATALOGUE_1, X_BOUTIQUE_1);
+    boutiqueActive.setBoutiqueActiveId(1);
+    contexteSession.definirContexteSession(X_BOUTIQUE_1);
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+    api.setAccessToken('jeton-de-X');
+    reseau.refuser = (config) => (config.url === 'token/logout/' ? 'reseau' : false);
+
+    await act(() => result.current.logout({ cookieDejaRevoque: true }));
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(await catalogueCache.chargerCatalogueCache(X_BOUTIQUE_1)).toBeNull();
+    expect(boutiqueActive.getBoutiqueActiveId()).toBeNull();
+    expect(contexteSession.lireContexteSession()).toBeNull();
+    reseau.refuser = null;
+    await api.default.get('ventes/');
+    expect(reseau.requetes.at(-1).headers.Authorization).toBeUndefined();
   });
 
   it('session expirée (refus du rafraîchissement) : rien n’est effacé', async () => {

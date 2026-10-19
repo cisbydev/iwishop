@@ -39,16 +39,21 @@ export function AuthProvider({ children }) {
     return response.data;
   }, []);
 
-  const logout = useCallback(async () => {
+  // Si token/logout/ échoue (hors ligne, erreur réseau ou du serveur), le
+  // cookie de rafraîchissement reste valable : rien n'est effacé et l'erreur
+  // remonte. Seule exception : après un changement de mot de passe, le
+  // serveur a déjà révoqué ce cookie.
+  const logout = useCallback(async ({ cookieDejaRevoque = false } = {}) => {
     try {
       await logoutRequest();
-    } finally {
-      clearAccessToken();
-      // Isolation hors ligne : déconnexion volontaire seulement (une
-      // session expirée passe par authFailureHandler, qui n'efface rien).
-      await effacerDonneesDeSession();
-      setIsAuthenticated(false);
+    } catch (err) {
+      if (!cookieDejaRevoque) throw err;
     }
+    clearAccessToken();
+    // Isolation hors ligne : déconnexion volontaire seulement (une
+    // session expirée passe par authFailureHandler, qui n'efface rien).
+    await effacerDonneesDeSession();
+    setIsAuthenticated(false);
   }, []);
 
   const value = useMemo(

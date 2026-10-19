@@ -79,13 +79,12 @@ export async function bootstrapAuthentication() {
   }
 }
 
+// Le jeton d'accès n'est effacé qu'après la réponse du serveur : sans elle,
+// le cookie de rafraîchissement reste valable et la session reste ouverte.
 export async function logout() {
-  try {
-    await ensureCsrfToken();
-    await authClient.post('token/logout/', {});
-  } finally {
-    clearAccessToken();
-  }
+  await ensureCsrfToken();
+  await authClient.post('token/logout/', {});
+  clearAccessToken();
 }
 
 function isAuthEndpoint(url = '') {

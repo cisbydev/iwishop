@@ -23,7 +23,7 @@ import { SupportViewProvider } from './context/SupportViewContext';
 import { useSupportView } from './context/supportViewContextValue';
 import { BoutiqueActiveProvider } from './context/BoutiqueActiveContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { confirmerDeconnexion } from './services/deconnexion';
+import { deconnexionVolontaire } from './services/deconnexion';
 import BoutiqueSelecteur from './components/BoutiqueSelecteur';
 import SupportViewBanner from './components/SupportViewBanner';
 import AbonnementBanner from './components/AbonnementBanner';
@@ -88,12 +88,9 @@ function AppContent() {
   const { quitter: quitterVueSupport } = useSupportView();
   const { logout } = useAuth();
 
-  const handleLogout = async () => {
-    // Prévient s'il reste des ventes non envoyées (jamais effacées).
-    if (!(await confirmerDeconnexion())) return;
-    quitterVueSupport();
-    await logout();
-  };
+  // Prévient s'il reste des ventes non envoyées (jamais effacées) ; refusée
+  // sans réseau.
+  const handleLogout = () => deconnexionVolontaire({ logout, quitterVueSupport });
 
   const nomBoutique = parametres?.nom_boutique || 'iwiShop';
   const logoUrl = resoudreUrlLogo(parametres?.logo) || logoParDefaut;

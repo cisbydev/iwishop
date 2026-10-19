@@ -4,17 +4,41 @@ import { effacerCatalogues } from './catalogueCache';
 import { definirContexteSession } from './contexteSession';
 import { setBoutiqueActiveId } from './boutiqueActiveState';
 
+export const MESSAGE_DECONNEXION_SANS_RESEAU =
+  'Pas de connexion : impossible de vous déconnecter en sécurité. Réessayez quand le réseau revient.';
+
+// Déconnexion volontaire (bouton de l'en-tête et du panneau de navigation).
+// Sans réponse de token/logout/, le cookie de rafraîchissement reste
+// valable : la déconnexion est refusée et la session reste ouverte, rien
+// n'est effacé (décidé par Mahamadou le 2026-10-16).
+export async function deconnexionVolontaire({ logout, quitterVueSupport }) {
+  if (!(await confirmerDeconnexion())) return false;
+  try {
+    await logout();
+  } catch (err) {
+    console.error('Déconnexion refusée, serveur non joint :', err);
+    window.alert(MESSAGE_DECONNEXION_SANS_RESEAU);
+    return false;
+  }
+  quitterVueSupport();
+  return true;
+}
+
 // Déconnexion volontaire (isolation hors ligne, plan validé le 2026-10-16).
-// Les ventes non envoyées ne sont jamais effacées : en ligne, on tente
-// d'abord de les envoyer ; s'il en reste (hors ligne, autre compte, vente
-// sans marque, refus du serveur), la personne est prévenue avant de partir.
+// Hors ligne : refus immédiat, sans l'avertissement des ventes (l'échec de
+// token/logout/ reste contrôlé ensuite, navigator.onLine peut être vrai à
+// tort). Les ventes non envoyées ne sont jamais effacées : on tente d'abord
+// de les envoyer ; s'il en reste (autre compte, vente sans marque, refus du
+// serveur), la personne est prévenue avant de partir.
 export async function confirmerDeconnexion() {
-  if (typeof navigator === 'undefined' || navigator.onLine !== false) {
-    try {
-      await synchroniserVentesEnAttente();
-    } catch (err) {
-      console.error('Erreur synchronisation avant déconnexion :', err);
-    }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    window.alert(MESSAGE_DECONNEXION_SANS_RESEAU);
+    return false;
+  }
+  try {
+    await synchroniserVentesEnAttente();
+  } catch (err) {
+    console.error('Erreur synchronisation avant déconnexion :', err);
   }
 
   let restantes;

@@ -30,8 +30,9 @@ export default function Account() {
       });
       // Le changement révoque toutes les sessions ; déconnecter aussi cette
       // session immédiatement évite de laisser un access token devenu invalide
-      // en mémoire jusqu'à la prochaine requête.
-      await logout();
+      // en mémoire jusqu'à la prochaine requête. Le cookie de rafraîchissement
+      // est déjà révoqué : déconnexion même si token/logout/ échoue.
+      await logout({ cookieDejaRevoque: true });
     } catch (err) {
       alert(getErrorMessage(err, "Erreur lors du changement de mot de passe."));
     } finally {
