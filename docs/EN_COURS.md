@@ -13,11 +13,103 @@ Mis à jour le 2026-10-19.
 
 ## Prochaines étapes (ordre décidé par Mahamadou le 2026-10-15)
 
-Prochaine étape, prioritaire depuis le 2026-10-19 (Mahamadou) : chantier « nom de domaine », pour servir l'app et l'API sur le même domaine (voir « Diagnostic : déconnexion refusée sur iPhone Safari »). Le service web Render (backend) est encore en plan gratuit (mise en veille).
+Prochaine étape, prioritaire depuis le 2026-10-19 (Mahamadou) : chantier « nom de domaine », pour servir l'app et l'API sur le même domaine (voir « Diagnostic : déconnexion refusée sur iPhone Safari »). Plan validé et simplifié le 2026-10-19 (voir « Nom de domaine : plan validé le 2026-10-19 ») ; domaine choisi, `iwishop.app`, pas encore acheté ; rien n'est commencé avant l'achat. Le service web Render (backend) est encore en plan gratuit (mise en veille).
 
 1. Photo de produit (voir « Photo de produit : plan validé le 2026-10-15 »).
 2. Site public séparé (domaine).
-3. Reprise de la sauvegarde automatique : 2FA Cloudflare, puis le commit 4 (voir « Chantier : sauvegarde de la base »).
+3. Reprise de la sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base ») ; son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19.
+
+## Nom de domaine : plan validé le 2026-10-19
+
+Plan proposé le 2026-10-19 et validé par Mahamadou le même jour : option A, avec trois ajouts (2FA et renouvellement automatique chez le registraire, vérification de la Content-Security-Policy, décision sur les plans payants reportée). Simplifié le même jour : bandeau et redirection automatique retirés, car il n'y a qu'un seul client, qui n'a fait aucune vente et sera formé après le changement d'adresse.
+
+Domaine (Mahamadou, 2026-10-19) : `iwishop.app`, chez Cloudflare Registrar (8,20 $ la première année, puis 14,20 $ par an ; `iwishop.com` déjà pris, `.africa` non vendu par Cloudflare). Pas encore acheté (en attente de fonds sur la carte) ; rien n'est commencé avant l'achat. API : `api.iwishop.app`. App : `<app>.iwishop.app`, nom du sous-domaine à choisir (`app`, ou un autre, par exemple `gestion`). `iwishop.app` sans préfixe reste réservé à la landing page. `.app` est une extension qui impose HTTPS dans les navigateurs (liste de préchargement HSTS) : aucune adresse en `http://` ne marchera, ce qui ne change rien ici (Vercel et Render servent en HTTPS).
+
+But : que Safari sur iPhone garde les cookies de l'API (`csrftoken`, cookie de rafraîchissement). Aujourd'hui, `iwishop.vercel.app` et `onrender.com` sont deux sites distincts, donc ces cookies sont des cookies tiers, bloqués par Safari.
+
+### Option retenue : sous-domaines
+
+- A (retenue) : `<app>.iwishop.app` sur Vercel, `api.iwishop.app` sur Render. Même site, donc cookies acceptés par Safari. Envoi des photos direct vers Render (5 Mo, comme aujourd'hui), aucun délai ajouté, veille de Render inchangée (environ 1 minute au premier appel après 15 minutes sans requête). Safari limite à 7 jours les cookies posés par un sous-domaine qui pointe (CNAME) vers un autre hébergeur : c'est déjà la durée du cookie de rafraîchissement (`REFRESH_TOKEN_LIFETIME`), donc sans effet. CORS reste. Inconvénient : l'adresse de l'app change (voir « Changement d'adresse »).
+- B (écartée) : réécriture `/api/*` sur Vercel vers Render. Raisons : `_ip_client` (`accounts/throttling.py`) lit l'IP du client en 3ᵉ position depuis la fin de `X-Forwarded-For`, mesurée pour client → Cloudflare → Render ; derrière Vercel, tous les clients partageraient la même IP, donc la même limite de 10 connexions par minute (même problème avec `CF-Connecting-IP` dans `tenants/throttling.py`). Taille d'envoi maximale non documentée pour une réécriture externe (la limite de 4,5 Mo citée ailleurs concerne les fonctions Vercel). Délai maximal de 120 s. Cache de Vercel à neutraliser (`x-vercel-enable-rewrite-caching: 0`). Trafic de l'API compté dans le quota Hobby.
+
+Lu dans la documentation le 2026-10-19 : Render accepte les domaines personnalisés en plan gratuit (« Supported features » de la page Free) ; l'espace Hobby en inclut 2, puis 0,25 $ par mois par domaine ; certificat créé et renouvelé automatiquement ; l'adresse `onrender.com` reste active.
+
+### Ce que fait Mahamadou
+
+Avant l'achat :
+1. Double authentification sur le compte du registraire (Cloudflare) : fait le 2026-10-19 (nouveau mot de passe fort, 2FA par application activé et testé, code demandé même avec la connexion Google, codes de secours sur papier ; Gmail aussi en 2FA par application).
+2. Renouvellement automatique du domaine activé à l'achat (un domaine expiré met toute l'app hors ligne).
+
+Puis :
+3. Acheter `iwishop.app` et choisir le nom de `<app>`.
+4. Render : Settings → Custom Domains → `api.iwishop.app`. Ne jamais désactiver l'adresse `onrender.com` : l'ancienne adresse de l'app et le webhook PayDunya l'utilisent.
+5. Vercel : Domains → `<app>.iwishop.app` (certificat automatique ; le même déploiement sert les deux adresses).
+6. DNS (chez Cloudflare) : `<app>` en CNAME vers la valeur donnée par Vercel ; `api` en CNAME vers `<service>.onrender.com` ; aucun enregistrement AAAA (demandé par Render). Nuage gris (« DNS only »), surtout pour `api` : un nuage orange ajoute un intermédiaire et décale la position de l'IP lue par `_ip_client`.
+7. Variables sur Render, en ajout seulement : `ALLOWED_HOSTS` += `api.iwishop.app` ; `CORS_ALLOWED_ORIGINS` += `https://<app>.iwishop.app` ; `CSRF_TRUSTED_ORIGINS` += `https://<app>.iwishop.app`. Avant la formation du client : `FRONTEND_URL` = `https://<app>.iwishop.app`.
+8. Donner les valeurs actuelles (sans secret) de `JWT_REFRESH_COOKIE_SAMESITE`, `JWT_REFRESH_COOKIE_DOMAIN` et `CSRF_COOKIE_SAMESITE` (Render), et de `VITE_API_URL` (Vercel) : illisibles depuis le dépôt.
+9. Avant le changement d'adresse : sur les appareils de test (iPhone et PC), sur l'ancienne adresse, vérifier qu'aucune vente n'est en attente (pas de bandeau orange).
+
+### Changements dans le code et la config
+
+- `ALLOWED_HOSTS`, CORS, `CSRF_TRUSTED_ORIGINS` : variables seulement, aucun code.
+- Cookies (`settings.py`) : aucun changement. `Domain` reste vide (cookies attachés à `api.iwishop.app` seul ; `api.js` lit le jeton CSRF dans la réponse de `csrf/`, pas dans `document.cookie`). `Secure` gardé. `SameSite=None` gardé tant que l'ancienne adresse appelle `onrender.com` depuis un autre site.
+- URL de l'API côté frontend : aujourd'hui en trois copies (`api.js`, `App.jsx`, `Settings.jsx`), à réunir dans un seul module. Choisie selon l'adresse de la page : sur `<app>.iwishop.app`, `https://api.iwishop.app/api/` ; ailleurs, `VITE_API_URL`, inchangée ; variable absente : comportement actuel. L'ancienne adresse ne change pas, ses utilisateurs ne sont pas déconnectés.
+- Liens des emails (`tenants/emails.py`) et retour de paiement (`return_url`, `cancel_url`, `tenants/paydunya.py`) : viennent de `FRONTEND_URL`, variable seulement. `callback_url` (`BACKEND_URL`) reste sur `onrender.com`. Une facture créée avant le changement renvoie vers l'ancienne adresse, qui reste en ligne.
+- Adresses écrites en dur : aucune dans le code (recherche du 2026-10-19), seulement un exemple en commentaire (`settings.py`, CORS).
+- PWA : manifeste en chemins relatifs, rien à changer. La nouvelle adresse est une nouvelle app (service worker et installation séparés).
+- HSTS : inchangé.
+- Content-Security-Policy : aucune (vérifié le 2026-10-19 : pas d'en-tête dans `vercel.json`, pas de balise `<meta http-equiv>` dans `index.html`, ni `SECURE_CSP` ni middleware CSP dans `settings.py`, pas de `django-csp` dans `requirements.txt`). Rien à changer. Si une CSP est ajoutée un jour, `connect-src` devra lister `api.iwishop.app` et l'adresse `onrender.com` (ancienne adresse), et `img-src` l'adresse des URL signées de R2.
+
+### Changement d'adresse
+
+Pourquoi c'est simple : un seul client, aucune vente chez lui, formé après le changement d'adresse.
+
+IndexedDB et `localStorage` sont liés à l'adresse exacte : les ventes en attente sur `iwishop.vercel.app` ne sont pas visibles depuis `<app>.iwishop.app`. D'où l'étape 9 de « Ce que fait Mahamadou » sur les appareils de test.
+
+- L'ancienne adresse reste en marche (même projet Vercel, coût nul, comportement inchangé), sans bandeau ni redirection.
+- Le client est formé directement sur la nouvelle adresse et l'installe sur son écran d'accueil.
+
+### Retour en arrière
+
+- Backend : seulement des valeurs ajoutées aux variables ; les retirer suffit. Pas de migration.
+- Frontend : « Instant Rollback » de Vercel, ou variable de la nouvelle adresse vidée puis redéploiement. L'ancienne adresse n'est jamais touchée.
+- DNS : retirer les enregistrements.
+- Limite : des ventes en file sur la nouvelle adresse y restent tant qu'elle est en panne. Donc la formation du client n'a lieu qu'après les tests en prod sur la boutique de test.
+
+### Tests
+
+Automatiques (frontend), chacun vu échouer avant le correctif :
+- URL de l'API : `<app>.iwishop.app` → `https://api.iwishop.app/api/` ; `iwishop.vercel.app` → `VITE_API_URL` ; variables absentes → valeur locale par défaut ; URL des logos déduite de la même façon.
+- Backend : aucun changement de code prévu. Si la mesure de l'IP l'impose, `_ip_client` change dans un commit à part, avec ses tests.
+
+En prod, avant de changer le frontend (bloquant) :
+1. `curl https://api.iwishop.app/api/csrf/` : 200, certificat valide, attributs de `Set-Cookie`.
+2. Requête de vérification CORS : acceptée depuis `https://<app>.iwishop.app`, refusée depuis une origine non listée.
+3. Nouvelle mesure de `X-Forwarded-For` sur `api.iwishop.app`, avec et sans en-tête falsifié, dans les journaux de Render (méthode du commentaire de `_ip_client`). Si la vraie IP n'est plus en 3ᵉ position depuis la fin, on s'arrête.
+
+En prod, boutique de test :
+- iPhone Safari sur `<app>.iwishop.app` : connexion ; rechargement sans retour à l'écran de connexion ; après plus de 15 minutes (par exemple 20), une action passe sans reconnexion ; déconnexion avec `POST /api/token/logout/` en 204 dans les journaux de Render ; rechargement après la déconnexion : écran de connexion.
+- PC Chrome : mêmes étapes.
+- Photo de près de 5 Mo envoyée depuis la nouvelle adresse.
+- Premier appel après une veille de Render : il passe (environ 1 minute).
+- Ancienne adresse : comportement inchangé (connexion et une vente).
+- Après le changement de `FRONTEND_URL` : facture PayDunya créée puis annulée, retour sur la nouvelle adresse (sans payer) ; demande d'accès, lien de l'email vers la nouvelle adresse.
+- Sentry : aucune nouvelle erreur.
+
+### Découpage
+
+Sans commit (Mahamadou) : registraire, domaine, DNS, Render, Vercel, variables, appareils de test vérifiés ; puis les vérifications bloquantes.
+
+Une seule livraison :
+1. `refactor(frontend)` : une seule source pour l'URL de l'API (`api.js`, `App.jsx`, `Settings.jsx`), sans changement de comportement.
+2. `feat(frontend)` : URL de l'API choisie selon l'adresse de la page, avec ses tests.
+3. Seulement si la mesure l'impose : `fix(accounts)` : IP du client derrière `api.iwishop.app`.
+4. `docs` : `EN_COURS.md`.
+
+### Décisions pour plus tard
+
+- Plans payants (Mahamadou, 2026-10-19) : plan Hobby de Vercel, réservé à un usage « non commercial, personnel » (documentation Vercel, lue le 2026-10-19 ; Pro à 20 $ par mois), et plan payant du service web Render (aujourd'hui gratuit, avec mise en veille). À décider ensemble, plus tard.
+- Quand l'ancienne adresse n'appellera plus l'API : retirer `iwishop.vercel.app` de CORS et de `CSRF_TRUSTED_ORIGINS`, et décider du passage des cookies en `SameSite=Lax`.
 
 ## Photo de produit : plan validé le 2026-10-15
 
@@ -195,7 +287,7 @@ Pas dans ce plan, couverts par les tests : ventes « à vérifier » (il faudrai
 
 ### Stockage des fichiers en développement (relevé le 2026-10-16)
 
-- Constat : le `.env` local a `CLOUDFLARE_R2_BUCKET_NAME=iwishop-media`, le bucket de la prod (nom lu seul, aucune autre valeur affichée). Dès que les identifiants locaux marchent (le 403 du 2026-10-15 venait peut-être de l'horloge décalée : R2 refuse une requête mal datée), le développement écrit et supprime dans le bucket de la prod.
+- Constat : le `.env` local a `CLOUDFLARE_R2_BUCKET_NAME=iwishop-media`, le bucket de la prod (nom lu seul, aucune autre valeur affichée). Dès que les identifiants locaux marchent (le 403 du 2026-10-15 venait de l'horloge décalée, `RequestTimeTooSkewed`, constat de Mahamadou du 2026-10-19 : R2 refuse une requête mal datée), le développement écrit et supprime dans le bucket de la prod.
 - Proposé : désactiver cette seule ligne du `.env` local (la commenter avec `#`). `settings.py` passe alors à `FileSystemStorage` : fichiers dans `media/` (ignoré par git), servis par Django sous `/media/` avec `DEBUG=True`. Aucun changement de code ; la prod garde ses variables sur Render. Vérification : `venv\Scripts\python manage.py shell -c "from django.core.files.storage import storages; s = storages['default']; print(type(s).__name__, getattr(s, 'location', ''))"` doit afficher `FileSystemStorage` et le dossier `media` (au 2026-10-16, après les commits : `S3Storage`, le `.env` n'était pas encore modifié ; puis, le même jour, `.env` modifié par Mahamadou : 0 ligne active pour le bucket et pour les trois autres clés R2, `FileSystemStorage` sur `C:\Users\User\Desktop\sorashop-project\media`, `DEBUG` vrai, `MEDIA_URL` `/media/`). Erreur corrigée le 2026-10-16 : avec `default_storage`, la commande affiche `DefaultStorage` (l'enveloppe de Django), jamais la vraie classe.
 - Pas de surcharge par variable d'environnement : sous PowerShell, `$env:CLOUDFLARE_R2_BUCKET_NAME = ''` supprime la variable, et `python-decouple` relit alors la valeur du `.env`.
 - Les trois autres clés R2 du `.env` local (accès, secret, adresse) ne servent plus une fois la ligne désactivée. Si elles sont valides, ce sont des droits d'écriture sur le bucket de la prod gardés sur le PC : à retirer du `.env` (ou, si un jour il faut tester R2 en local, un bucket et un jeton dédiés au développement).
@@ -248,7 +340,7 @@ Pas dans ce compte rendu, donc non vérifiés en prod :
 
 1. Base de prod, dans sa fenêtre PowerShell habituelle, requête en lecture seule (`BEGIN READ ONLY` puis `ROLLBACK`) : 5 produits, 0 avec photo. Rien à reprendre : « reprise des photos déjà en prod » retirée de la livraison 2.
 2. Bucket médias : `CLOUDFLARE_R2_BUCKET_NAME` vaut `iwishop-media` sur Render ; dans Cloudflare, `iwishop-media` n'a aucun domaine personnalisé, son adresse publique de développement (`r2.dev`) est désactivée, et il est distinct d'`iwishop-backups`. D4 confirmée.
-3. En plus : un logo envoyé en prod le 2026-10-15 à 21:39 est présent dans `iwishop-media/logos/`. Les identifiants R2 de la prod marchent donc ; le refus 403 ne concerne que le `.env` local (voir « En attente, côté Mahamadou »).
+3. En plus : un logo envoyé en prod le 2026-10-15 à 21:39 est présent dans `iwishop-media/logos/`. Les identifiants R2 de la prod marchent donc ; le refus 403 ne concernait que le `.env` local, et il est expliqué : horloge du PC décalée (`RequestTimeTooSkewed`, constat de Mahamadou du 2026-10-19). Le développement utilise maintenant le stockage local.
 
 ## Terminé le 2026-10-15 : facture (phase 1)
 
@@ -326,7 +418,7 @@ Pas dans ce compte rendu, donc non vérifiés en prod : vente en ligne avec la c
 
 Décidé le 2026-10-13, après l'incident. Le commit 5+6 est passé d'abord (terminé le 2026-10-13).
 
-Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Plan de l'étape C validé le 2026-10-15, voir « Étape C : plan validé ». Commits 1 à 3 de l'étape C (scripts) faits le 2026-10-15, avec un 3 bis (`.gitignore`), poussés le 2026-10-15 (`866bbc7`). Préalables P1 à P4 faits le 2026-10-15. Commit 4 mis en pause le 2026-10-15 au profit de la facture (phase 1). Reprise après la photo de produit et le site public (voir « Prochaines étapes ») : 2FA Cloudflare, puis le commit 4.
+Plan validé par Mahamadou le 2026-10-13. Étape B (vrai test de restauration en local) réussie le 2026-10-14, voir « Résultat de l'étape B ». Plan de l'étape C validé le 2026-10-15, voir « Étape C : plan validé ». Commits 1 à 3 de l'étape C (scripts) faits le 2026-10-15, avec un 3 bis (`.gitignore`), poussés le 2026-10-15 (`866bbc7`). Préalables P1 à P4 faits le 2026-10-15. Commit 4 mis en pause le 2026-10-15 au profit de la facture (phase 1). Reprise après la photo de produit et le site public (voir « Prochaines étapes ») : le commit 4 (2FA Cloudflare fait le 2026-10-19).
 
 ### Constat (2026-10-13)
 
@@ -403,7 +495,8 @@ Préalables (Mahamadou, dans les tableaux de bord, sans code ; valeurs secrètes
   - Fait par Mahamadou le 2026-10-15 : contrôle « iwishop-sauvegarde » créé, période 1 jour, marge 2 h (vérifié sur capture), alerte par e-mail ; contrôle d'exemple supprimé. L'URL de ping n'est notée nulle part : elle ira seulement dans les variables de la tâche Render.
 - P4. Render : notifications d'échec par e-mail activées.
   - Fait par Mahamadou le 2026-10-15 : le réglage par défaut de l'espace de travail Render est « Only failure notifications » (vérifié sur la page Notifications du service iwishop, qui utilise ce défaut). La future tâche planifiée devrait en hériter : à vérifier sur sa page Notifications une fois créée.
-- Double authentification (2FA) Cloudflare : pas encore activée (2026-10-15). Obligatoire avant la création du jeton R2 (décidé par Mahamadou le 2026-10-15), donc avant la création de la tâche planifiée et sa mise en service.
+- Double authentification (2FA) Cloudflare : obligatoire avant la création du jeton R2 (décidé par Mahamadou le 2026-10-15), donc avant la création de la tâche planifiée et sa mise en service.
+  - Fait par Mahamadou le 2026-10-19 : nouveau mot de passe fort, 2FA par application activé et testé (code demandé, même avec la connexion Google), codes de secours sur papier. Gmail aussi en 2FA par application.
 
 Commits prévus (chacun vérifiable) :
 1. `fix(scripts)` : accents des deux scripts PowerShell (UTF-8 avec BOM). Preuves : `EF BB BF` en tête (`Format-Hex`), `git show` ne montre que ce changement, message lisible sous PowerShell 5.1 en lançant chaque script sans sa variable (vu abîmé avant).
@@ -768,4 +861,5 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
 - Vérifier que la ligne `postgresql://` est supprimée de l'historique PowerShell.
-- Identifiants R2 du `.env` local refusés par R2 (403, relevé le 2026-10-15) : à vérifier, sans afficher de secret. Seul le `.env` local est en cause : ceux de la prod marchent (logo envoyé en prod le 2026-10-15 à 21:39, présent dans `iwishop-media/logos/`, constat de Mahamadou du 2026-10-16). En attendant, en local, un logo ne s'affiche pas (PDF sans logo, erreur dans les journaux) ; les tests n'appellent plus R2 (`6ba8f22`).
+- Plus tard : plan Hobby de Vercel et plan payant du service web Render, à décider ensemble (voir « Nom de domaine : plan validé le 2026-10-19 », « Décisions pour plus tard »).
+- Render → Billing : relever la date du prochain paiement de la base `iwishop-db`, et vérifier que la carte aura assez d'argent à cette date (une base suspendue met toute l'app hors ligne, comme du 2026-10-10 au 2026-10-13).
