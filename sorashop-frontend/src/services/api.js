@@ -1,8 +1,7 @@
 import axios from 'axios';
 import { getSupportBoutiqueId } from './supportViewState';
 import { getBoutiqueActiveId } from './boutiqueActiveState';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
+import { API_URL } from './urlApi';
 
 const csrfOptions = {
   withCredentials: true,

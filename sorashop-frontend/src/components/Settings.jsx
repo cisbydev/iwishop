@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../services/api';
+import { resoudreUrlLogo } from '../services/urlApi';
 import { alerterErreur } from '../services/errorUtils';
 import { useSettings } from '../context/settingsContextValue';
 import Account from './Account';
@@ -8,16 +9,6 @@ import AccesSupportHistorique from './AccesSupportHistorique';
 import UnitesVente from './UnitesVente';
 import MonAbonnement from './MonAbonnement';
 import { Store, Save, Upload, KeyRound, Users, ShieldCheck, Ruler, CreditCard } from 'lucide-react';
-
-// Déduit l'URL de base du serveur (sans le "/api/") pour construire l'URL complète du logo
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
-const SERVER_BASE_URL = API_URL.replace(/api\/?$/, '');
-
-function resoudreUrlLogo(logo) {
-  if (!logo) return null;
-  if (logo.startsWith('http')) return logo;
-  return `${SERVER_BASE_URL}${logo.startsWith('/') ? logo.slice(1) : logo}`;
-}
 
 function BoutiqueSettings() {
   const { refetchParametres } = useSettings();

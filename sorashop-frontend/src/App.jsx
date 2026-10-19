@@ -37,17 +37,9 @@ import NotificationBell from './components/NotificationBell';
 import { NavigationPanneauProvider } from './context/NavigationPanneauContext';
 import { NAVIGATION_ITEMS } from './navigation';
 import { deriverIdentiteUtilisateur } from './utils/identiteUtilisateur';
+import { resoudreUrlLogo } from './services/urlApi';
 import { LogOut } from 'lucide-react';
 import logoParDefaut from './assets/iwishop-logo-removebg-preview.png';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
-const SERVER_BASE_URL = API_URL.replace(/api\/?$/, '');
-
-function resoudreUrlLogo(logo) {
-  if (!logo) return null;
-  if (logo.startsWith('http')) return logo;
-  return `${SERVER_BASE_URL}${logo.startsWith('/') ? logo.slice(1) : logo}`;
-}
 
 function DesktopNavigation({ activeTab, onSelect }) {
   return (
