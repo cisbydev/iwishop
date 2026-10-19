@@ -79,8 +79,9 @@ export async function bootstrapAuthentication() {
   }
 }
 
-// Le jeton d'accès n'est effacé qu'après la réponse du serveur : sans elle,
-// le cookie de rafraîchissement reste valable et la session reste ouverte.
+// Le jeton d'accès n'est effacé ici qu'après un succès ; en cas d'échec,
+// AuthContext.logout décide (refus sans réponse ou sur un 5xx, déconnexion
+// de l'appareil sur un 4xx).
 export async function logout() {
   await ensureCsrfToken();
   await authClient.post('token/logout/', {});

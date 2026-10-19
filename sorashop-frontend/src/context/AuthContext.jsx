@@ -39,15 +39,22 @@ export function AuthProvider({ children }) {
     return response.data;
   }, []);
 
-  // Si token/logout/ échoue (hors ligne, erreur réseau ou du serveur), le
-  // cookie de rafraîchissement reste valable : rien n'est effacé et l'erreur
-  // remonte. Seule exception : après un changement de mot de passe, le
-  // serveur a déjà révoqué ce cookie.
+  // Échec de token/logout/ :
+  // - aucune réponse (hors ligne, erreur réseau) ou réponse 5xx (souvent
+  //   Render qui sort de veille) : le cookie de rafraîchissement existe
+  //   peut-être encore ; rien n'est effacé et l'erreur remonte ;
+  // - réponse 4xx : on déconnecte l'appareil. Sur Safari (iPhone), qui
+  //   bloque les cookies tiers, csrf/ ne peut pas poser son cookie,
+  //   token/logout/ répond 403, et il n'y a aucun cookie à révoquer.
+  // Après un changement de mot de passe, le serveur a déjà révoqué ce
+  // cookie : déconnexion dans tous les cas.
   const logout = useCallback(async ({ cookieDejaRevoque = false } = {}) => {
     try {
       await logoutRequest();
     } catch (err) {
-      if (!cookieDejaRevoque) throw err;
+      const status = err?.response?.status;
+      const refusClient = status >= 400 && status < 500;
+      if (!cookieDejaRevoque && !refusClient) throw err;
     }
     clearAccessToken();
     // Isolation hors ligne : déconnexion volontaire seulement (une

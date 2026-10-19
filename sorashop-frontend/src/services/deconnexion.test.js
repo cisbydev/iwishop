@@ -13,7 +13,12 @@ vi.mock('./syncEngine', () => ({
   synchroniserVentesEnAttente: mocks.synchroniserVentesEnAttente,
 }));
 
-import { confirmerDeconnexion, deconnexionVolontaire, MESSAGE_DECONNEXION_SANS_RESEAU } from './deconnexion';
+import {
+  confirmerDeconnexion,
+  deconnexionVolontaire,
+  MESSAGE_DECONNEXION_SANS_RESEAU,
+  MESSAGE_DECONNEXION_SERVEUR_EN_ERREUR,
+} from './deconnexion';
 
 describe('confirmerDeconnexion (isolation hors ligne)', () => {
   beforeEach(() => {
@@ -100,6 +105,19 @@ describe('deconnexionVolontaire (déconnexion refusée sans réseau)', () => {
 
     expect(logout).toHaveBeenCalledOnce();
     expect(window.alert).toHaveBeenCalledWith(MESSAGE_DECONNEXION_SANS_RESEAU);
+    expect(quitterVueSupport).not.toHaveBeenCalled();
+  });
+
+  it('5xx sur token/logout/ : refus avec le message du serveur, vue support gardée', async () => {
+    const erreur = Object.assign(new Error('Request failed with status code 503'), { response: { status: 503 } });
+    const logout = vi.fn().mockRejectedValue(erreur);
+    const quitterVueSupport = vi.fn();
+
+    expect(await deconnexionVolontaire({ logout, quitterVueSupport })).toBe(false);
+
+    expect(window.alert).toHaveBeenCalledWith(MESSAGE_DECONNEXION_SERVEUR_EN_ERREUR);
+    expect(window.alert).toHaveBeenCalledTimes(1);
+    expect(MESSAGE_DECONNEXION_SERVEUR_EN_ERREUR).toBe('Le serveur ne répond pas correctement. Réessayez dans un instant.');
     expect(quitterVueSupport).not.toHaveBeenCalled();
   });
 

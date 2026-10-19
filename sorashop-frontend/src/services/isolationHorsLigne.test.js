@@ -229,8 +229,9 @@ describe('Déconnexion volontaire (AuthContext.logout)', () => {
   it.each([
     ['hors ligne (csrf/ sans réponse)', (config) => (config.url === 'csrf/' ? 'reseau' : false)],
     ['erreur réseau sur token/logout/', (config) => (config.url === 'token/logout/' ? 'reseau' : false)],
-    ['erreur du serveur sur token/logout/', (config) => (config.url === 'token/logout/' ? 500 : false)],
-  ])('serveur non joint (%s) : déconnexion refusée, rien n’est effacé, session ouverte', async (_cas, refuser) => {
+    // 5xx : souvent Render qui sort de veille ; le cookie existe peut-être encore.
+    ['erreur 500 sur token/logout/', (config) => (config.url === 'token/logout/' ? 500 : false)],
+  ])('aucune réponse ou 5xx (%s) : déconnexion refusée, rien n’est effacé, session ouverte', async (_cas, refuser) => {
     const { AuthProvider, useAuth } = await import('../context/AuthContext');
     await catalogueCache.sauvegarderCatalogue(CATALOGUE_1, X_BOUTIQUE_1);
     boutiqueActive.setBoutiqueActiveId(1);
@@ -251,6 +252,35 @@ describe('Déconnexion volontaire (AuthContext.logout)', () => {
     reseau.refuser = null;
     await api.default.get('ventes/');
     expect(reseau.requetes.at(-1).headers.Authorization).toBe('Bearer jeton-de-X');
+  });
+
+  it.each([
+    // Safari (iPhone) bloque les cookies tiers : csrf/ répond 200 sans
+    // pouvoir poser son cookie, puis token/logout/ répond 403 (prod, 2026-10-19).
+    ['403 sur token/logout/ (cookies tiers bloqués)', 403],
+    ['401 sur token/logout/', 401],
+  ])('réponse 4xx (%s) : déconnexion sur l’appareil, tout est effacé', async (_cas, status) => {
+    const { AuthProvider, useAuth } = await import('../context/AuthContext');
+    await catalogueCache.sauvegarderCatalogue(CATALOGUE_1, X_BOUTIQUE_1);
+    await offlineQueue.ajouterVenteEnAttente({ montant_paye: 150, lignes: [] }, X_BOUTIQUE_1);
+    boutiqueActive.setBoutiqueActiveId(1);
+    contexteSession.definirContexteSession(X_BOUTIQUE_1);
+    const { result } = renderHook(() => useAuth(), { wrapper: AuthProvider });
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true));
+    api.setAccessToken('jeton-de-X');
+    reseau.refuser = (config) => (config.url === 'token/logout/' ? status : false);
+
+    await act(() => result.current.logout());
+
+    expect(reseau.requetes.filter((r) => r.url === 'token/logout/')).toHaveLength(1);
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(await catalogueCache.chargerCatalogueCache(X_BOUTIQUE_1)).toBeNull();
+    expect(boutiqueActive.getBoutiqueActiveId()).toBeNull();
+    expect(contexteSession.lireContexteSession()).toBeNull();
+    expect(await offlineQueue.listerVentesEnAttente()).toHaveLength(1);
+    reseau.refuser = null;
+    await api.default.get('ventes/');
+    expect(reseau.requetes.at(-1).headers.Authorization).toBeUndefined();
   });
 
   it('après un changement de mot de passe (cookie déjà révoqué) : effacement même sans réponse', async () => {
