@@ -719,6 +719,33 @@ class CreerPaiementDedoublonnageTests(TestCase):
         self.assertEqual(PaiementAbonnement.objects.filter(formule=self.formule, statut='EN_ATTENTE').count(), 2)
 
 
+class CreerPaiementRoleTests(TestCase):
+    """Chantier sécurité (2026-10-20) : creer-paiement/ ne vérifie que
+    IsAuthenticated, jamais le rôle. Constat : un employé crée aujourd'hui
+    un paiement d'abonnement pour sa boutique. Payer et choisir la formule
+    doit être réservé au propriétaire : le correctif inversera ce test."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom='Boutique Role', slug='boutique-role')
+        self.employe = User.objects.create_user(username='employe_role', password='x')
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Mensuel', duree_jours=30, prix=5000, actif=True
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.employe)
+
+    @patch('tenants.views.paydunya.creer_facture')
+    def test_constat_un_employe_cree_un_paiement_pour_sa_boutique(self, mock_creer):
+        mock_creer.return_value = (True, {'token': 'tok-employe', 'url': 'https://paydunya.test/checkout/employe'})
+
+        response = self.client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(PaiementAbonnement.objects.filter(boutique=self.boutique).count(), 1)
+        mock_creer.assert_called_once()
+
+
 @skipUnless(connection.vendor == 'postgresql', 'Le verrou de ligne est testé sur PostgreSQL uniquement.')
 class CreerPaiementConcurrentTests(TransactionTestCase):
     """Reproduit deux requêtes réellement concurrentes avec deux connexions
