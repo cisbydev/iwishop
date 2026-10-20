@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { CreditCard, CheckCircle2, AlertTriangle } from 'lucide-react';
 import api, { getAll } from '../services/api';
 import { useSettings } from '../context/settingsContextValue';
+import { estPaiementEnLigneInactif, getErrorMessage } from '../services/errorUtils';
 
 const PAIEMENT_ABONNEMENT_STORAGE_KEY = 'iwishop_paiement_abonnement_id';
+const TEXTE_PAIEMENT_FERME = 'Paiement en ligne bientôt disponible : contactez-nous pour renouveler.';
 
 function StatutAbonnement({ info }) {
   if (!info) return null;
@@ -52,6 +54,13 @@ export default function MonAbonnement() {
   const [formuleEnCours, setFormuleEnCours] = useState(null);
   const [erreur, setErreur] = useState('');
   const [erreurChargement, setErreurChargement] = useState('');
+  // Texte du serveur quand un clic reçoit le refus PAIEMENT_EN_LIGNE_INACTIF
+  // (page ouverte avant que le paiement en ligne soit fermé).
+  const [refusPaiementFerme, setRefusPaiementFerme] = useState('');
+  // Paiement en ligne fermé côté serveur. Champ absent (ancienne API) :
+  // boutons affichés, le serveur tranche.
+  const paiementFerme = info?.paiement_en_ligne_actif === false || refusPaiementFerme !== '';
+  const peutPayer = !estEmploye && !paiementFerme;
 
   const chargerAbonnement = useCallback(async () => {
     setLoading(true);
@@ -87,9 +96,13 @@ export default function MonAbonnement() {
         sessionStorage.setItem(PAIEMENT_ABONNEMENT_STORAGE_KEY, String(res.data.paiement_id));
         window.location.href = res.data.url_paiement;
       })
-      .catch(() => {
-        setErreur("Impossible de démarrer le paiement pour le moment. Réessaie dans un instant.");
+      .catch((err) => {
         setFormuleEnCours(null);
+        if (estPaiementEnLigneInactif(err)) {
+          setRefusPaiementFerme(getErrorMessage(err, TEXTE_PAIEMENT_FERME));
+          return;
+        }
+        setErreur("Impossible de démarrer le paiement pour le moment. Réessaie dans un instant.");
       });
   };
 
@@ -125,7 +138,11 @@ export default function MonAbonnement() {
       <div className="border-t border-slate-100 pt-5">
         <h4 className="text-base font-semibold text-slate-900">Formules disponibles</h4>
         <p className="mt-1 text-sm text-slate-500">
-          {estEmploye ? 'Seul le propriétaire peut renouveler.' : 'Choisissez la formule adaptée aux besoins de votre boutique.'}
+          {estEmploye
+            ? 'Seul le propriétaire peut renouveler.'
+            : paiementFerme
+              ? refusPaiementFerme || TEXTE_PAIEMENT_FERME
+              : 'Choisissez la formule adaptée aux besoins de votre boutique.'}
         </p>
         {formules.length === 0 ? (
           <div className="mt-4 flex min-h-36 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-8 text-center">
@@ -145,7 +162,7 @@ export default function MonAbonnement() {
                     {formule.duree_jours} jours &middot; {formule.prix} FCFA
                   </p>
                 </div>
-                {!estEmploye && (
+                {peutPayer && (
                 <button
                   onClick={() => choisirFormule(formule)}
                   disabled={formuleEnCours !== null}

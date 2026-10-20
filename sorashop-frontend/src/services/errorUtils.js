@@ -58,6 +58,15 @@ export function estVenteAutreCompte(err) {
   return err?.response?.status === 409 && getErrorCode(err) === CODE_VENTE_AUTRE_COMPTE;
 }
 
+// Paiement de l'abonnement refusé (503) tant que le paiement en ligne est
+// fermé côté serveur. Un 503 sans ce code (panne, page d'erreur de Render)
+// n'est pas ce refus.
+export const CODE_PAIEMENT_EN_LIGNE_INACTIF = 'PAIEMENT_EN_LIGNE_INACTIF';
+
+export function estPaiementEnLigneInactif(err) {
+  return err?.response?.status === 503 && getErrorCode(err) === CODE_PAIEMENT_EN_LIGNE_INACTIF;
+}
+
 // Remplace alert(getErrorMessage(...)) dans les écrans : le refus après
 // l'expiration est signalé à RefusAbonnementExpire (monté une seule fois
 // dans App.jsx, message dans la page avec « Renouveler »), toute autre

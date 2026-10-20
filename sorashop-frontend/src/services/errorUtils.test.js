@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   alerterErreur,
   estAbonnementExpire,
+  estPaiementEnLigneInactif,
   EVENEMENT_ABONNEMENT_EXPIRE,
   messageErreur,
 } from './errorUtils';
@@ -23,6 +24,21 @@ describe('estAbonnementExpire', () => {
     expect(estAbonnementExpire(erreurHttp(403, { detail: DETAIL, code: 'AUTRE' }))).toBe(false);
     expect(estAbonnementExpire(erreurHttp(400, { detail: DETAIL, code: 'ABONNEMENT_EXPIRE' }))).toBe(false);
     expect(estAbonnementExpire(new Error('Network Error'))).toBe(false);
+  });
+});
+
+describe('estPaiementEnLigneInactif', () => {
+  const FERME = 'Paiement en ligne bientôt disponible : contactez-nous pour renouveler.';
+
+  it('reconnaît le refus 503 avec le code PAIEMENT_EN_LIGNE_INACTIF', () => {
+    expect(estPaiementEnLigneInactif(erreurHttp(503, { detail: FERME, code: 'PAIEMENT_EN_LIGNE_INACTIF' }))).toBe(true);
+  });
+
+  it('ne reconnaît ni un 503 sans ce code (panne, page de Render), ni un autre statut', () => {
+    expect(estPaiementEnLigneInactif(erreurHttp(503, '<html>Service Unavailable</html>'))).toBe(false);
+    expect(estPaiementEnLigneInactif(erreurHttp(503, { detail: FERME }))).toBe(false);
+    expect(estPaiementEnLigneInactif(erreurHttp(403, { detail: FERME, code: 'PAIEMENT_EN_LIGNE_INACTIF' }))).toBe(false);
+    expect(estPaiementEnLigneInactif(new Error('Network Error'))).toBe(false);
   });
 });
 
