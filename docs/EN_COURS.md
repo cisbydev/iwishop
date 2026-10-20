@@ -19,6 +19,64 @@ Prochaine étape, prioritaire depuis le 2026-10-19 (Mahamadou) : chantier « nom
 2. Site public séparé (domaine).
 3. Reprise de la sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base ») ; son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19.
 
+Fait le 2026-10-20, poussé en une fois avec ce commit docs : chantier sécurité du paiement de l'abonnement (voir « Chantier sécurité : paiement de l'abonnement (2026-10-20) »), à pousser en une fois.
+
+## Chantier sécurité : paiement de l'abonnement (2026-10-20)
+
+### Constats
+
+- `creer-paiement/` sans contrôle de rôle (relevé le 2026-10-05) : `CreerPaiementView` n'appliquait que `IsAuthenticated`, un employé pouvait lancer le paiement de l'abonnement de sa boutique. Analyse du 2026-10-20 : risque faible côté argent (l'employé paie lui-même, l'argent va à la plateforme), mais une décision du propriétaire prise par un employé. Un compte d'une autre boutique était déjà bloqué par `boutique_de` (403, même message qu'un id inexistant).
+- Prod en `PAYDUNYA_MODE=test` (lu par Mahamadou sur Render le 2026-10-20) : création de la facture et confirmation de serveur à serveur passaient toutes deux par la sandbox. Une facture payée en sandbox, sans argent réel, prolongeait donc un vrai abonnement ; rien ne l'empêchait dans le code.
+- Vérification des données (Mahamadou, 2026-10-20, admin, lecture seule) : 7 `PaiementAbonnement`, tous avec un `invoice_token` qui commence par `test_` (sandbox), aucun en `Échec`.
+  - 2 `Confirmé` : SoraShop (3 mois, 45 000 FCFA, 24 septembre) et Boutique 2 (1 mois, 15 000 FCFA, 23 septembre). SoraShop est la boutique du seul vrai client : son abonnement a été prolongé de 3 mois par un paiement de sandbox, sans argent réel. Boutique 2, OUATT-Service et Ma Boutique sont des boutiques de test.
+  - 5 `En attente` : rien de crédité.
+  - Rien n'est modifié dans les données.
+- `PAYDUNYA_MODE` n'a jamais valu `live` en prod, à la connaissance de Mahamadou (compte marchand jamais validé, NIF manquant).
+
+### Décisions (Mahamadou, 2026-10-20)
+
+- Payer l'abonnement et choisir la formule : réservé au propriétaire de la boutique visée (principe du moindre privilège ; le propriétaire peut payer depuis son téléphone).
+- `paiements-abonnement/<id>/` reste tel quel (lecture du statut par la boutique).
+- L'onglet « Mon Abonnement » reste visible aux employés, en lecture seule, avec « Seul le propriétaire peut renouveler. ».
+- Interrupteur côté serveur, sûr par défaut : `PAIEMENT_EN_LIGNE_ACTIF`, faux si absent. Garde-fou en plus : paiement en ligne ouvert seulement si l'interrupteur est allumé **et** `PAYDUNYA_MODE == 'live'`, ou en `DEBUG`. `DEBUG=False` sur Render (lu par Mahamadou le 2026-10-20) : le garde-fou protège la prod.
+- Texte quand le paiement en ligne est fermé, sans coordonnées : « Paiement en ligne bientôt disponible : contactez-nous pour renouveler. ».
+- On reste sur PayDunya. Chariow étudié puis écarté : pas de champ metadata dans le checkout, moyens de paiement au Mali, frais et versements non documentés, conçu pour les produits numériques. À régler avant le premier paiement en ligne d'un client : NIF et papiers demandés par PayDunya pour le compte marchand. En attendant : paiement hors ligne et prolongation à la main.
+- SoraShop (3 mois crédités par la sandbox) : décision commerciale gérée par Mahamadou directement avec son client (2026-10-20). Rien n'est modifié dans les données.
+
+### Commits (2026-10-20)
+
+1. `fe0db66` `test(tenants)` : constat, un employé crée un paiement d'abonnement.
+2. `31944df` `fix(tenants)` : `creer-paiement/` réservé au propriétaire (`IsOwner`) ; employé 403, aucune ligne, PayDunya pas appelé. Suite backend : 673 sur 673.
+3. `2b7c52b` `fix(frontend)` : Mon Abonnement, boutons de paiement masqués pour l'employé (`est_proprietaire === false`). `npm test` : 361 sur 361.
+4. `a7b6482` `test(accounts)` : `me/` renvoie `est_proprietaire` pour la boutique active (même règle qu'`IsOwner`).
+5. `e381f92` `feat(tenants)` : interrupteur `PAIEMENT_EN_LIGNE_ACTIF` et garde-fou ; `creer-paiement/` en 503 avec le code `PAIEMENT_EN_LIGNE_INACTIF` ; `mon-abonnement/` expose `paiement_en_ligne_actif` ; `PAYDUNYA_MODE` passe dans `settings.py`. Suite backend : 681 sur 681.
+6. `c6e06b8` `fix(tenants)` : webhook, rien n'est prolongé tant que le paiement en ligne est fermé (aucun appel PayDunya, paiement laissé `EN_ATTENTE`, `logger.error` avec `paiement_id` et `token`, réponse 200). Suite backend : 683 sur 683.
+7. `08bf386` `feat(frontend)` : Mon Abonnement, boutons masqués quand le paiement en ligne est fermé ; un 503 `PAIEMENT_EN_LIGNE_INACTIF` sur un clic affiche le `detail` du serveur. `npm test` : 368 sur 368.
+
+Pas de migration. Rien à configurer sur Render : `PAIEMENT_EN_LIGNE_ACTIF` absent vaut « fermé ». Tout se pousse ensemble (les 5 paiements sandbox `En attente` en prod ne doivent pas pouvoir être crédités entre le 5 et le 6) ; l'ordre de déploiement entre Render et Vercel n'a pas d'importance.
+
+### Vérifications en prod après le push
+
+- CI verte sur le dernier commit poussé.
+- Boutique de test, compte propriétaire : Mon Abonnement affiche les formules sans bouton, avec « Paiement en ligne bientôt disponible : contactez-nous pour renouveler. ».
+- Boutique de test, compte employé : Mon Abonnement affiche « Seul le propriétaire peut renouveler. », sans bouton.
+- Admin : les 5 `PaiementAbonnement` `En attente` le restent, aucun nouveau `Confirmé`.
+
+### Prolongation à la main, en attendant le paiement en ligne
+
+Admin Django → Abonnements → fiche de la boutique : repousser `date_fin`. Repousser `date_fin` remet `alerte_envoyee` à faux (`Abonnement.save()`), donc l'alerte J-3 repartira. Garder une trace du paiement hors ligne dans `reference_paiement` (par exemple `HORS_LIGNE-2026-10-20-espèces`) ; aucun mouvement n'est enregistré.
+
+### Ouvrir un jour le paiement en ligne (dans l'ordre)
+
+1. Compte marchand PayDunya validé (NIF, papiers).
+2. `PAYDUNYA_MODE=live` sur Render.
+3. Puis `PAIEMENT_EN_LIGNE_ACTIF=True` sur Render.
+4. Puis test en prod sur la boutique de test, avec un vrai petit paiement.
+
+Rappel : avec `PAYDUNYA_MODE=test` et `DEBUG=False`, l'interrupteur allumé ne suffit pas (garde-fou) : `creer-paiement/` reste en 503 et le webhook ne crédite rien.
+
+Tests en sandbox en local : `.env` avec `PAYDUNYA_MODE=test`, `PAIEMENT_EN_LIGNE_ACTIF=True` et `DEBUG=True`. Les tests automatiques ne lisent pas cette variable : ils ouvrent le paiement avec `override_settings` (`paiement_en_ligne_ouvert` dans `tenants/tests.py`), et la CI ne la définit pas, donc le cas par défaut (fermé) reste celui qu'on teste.
+
 ## Nom de domaine : plan validé le 2026-10-19
 
 Plan proposé le 2026-10-19 et validé par Mahamadou le même jour : option A, avec trois ajouts (2FA et renouvellement automatique chez le registraire, vérification de la Content-Security-Policy, décision sur les plans payants reportée). Simplifié le même jour : bandeau et redirection automatique retirés, car il n'y a qu'un seul client, qui n'a fait aucune vente et sera formé après le changement d'adresse.
@@ -818,7 +876,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté code (pour plus tard)
 
-- CI (relevé le 2026-10-05, annotation GitHub) : le libellé `ubuntu-latest` passera à Ubuntu 26 à partir du 19 octobre 2026. Surveiller la CI après cette date (versions de Python, de Node et de PostgreSQL de l'image). Constaté le 2026-10-19 : Runner Image `ubuntu-24.04` (20261012.334.1) ; le passage à Ubuntu 26 n'a pas encore eu lieu. À proposer : fixer `runs-on: ubuntu-24.04` dans `ci.yml` (les deux jobs, `backend` et `frontend`, sont en `ubuntu-latest`), dans un commit séparé ; le passage à Ubuntu 26 devient une tâche à part.
+- CI (relevé le 2026-10-05, annotation GitHub) : le libellé `ubuntu-latest` passera à Ubuntu 26 à partir du 19 octobre 2026. Surveiller la CI après cette date (versions de Python, de Node et de PostgreSQL de l'image). Constaté le 2026-10-19 : Runner Image `ubuntu-24.04` (20261012.334.1) ; le passage à Ubuntu 26 n'a pas encore eu lieu. Fait le 2026-10-20 : `runs-on: ubuntu-24.04` fixé pour les deux jobs (`160c66e`), CI verte (run 39412654406, les deux jobs sous l'étiquette `ubuntu-24.04`). Reste une tâche à part : le passage à Ubuntu 26.
 
 - Petit défaut (relevé en prod le 2026-10-04) : couleurs des dettes à harmoniser, fournisseurs et clients. Le total de l'écran Fournisseurs est en rouge, alors que le badge « Doit X » peut être vert : `couleurBadgeDette` colore le badge selon l'ancienneté de la plus vieille dette (vert à moins de 7 jours, orange jusqu'à 30, rouge au-delà), c'est voulu, mais la juxtaposition avec le total rouge prête à confusion. « Reste dû 0 » (fiche fournisseur) et « Dû 0 » (fiche client) s'affichent en rouge. Décider d'une règle commune avant de corriger.
 - Même défaut que la fiche client avant le commit 3 (relevé le 2026-10-05, par lecture du code, sans y toucher) : dans la fiche fournisseur (`FicheFournisseur.jsx`), un achat annulé a bien son badge « Annulé », mais « Reste dû » affiche toujours `montant_du` en rouge, comme si la dette restait due. À traiter avec le point précédent (couleurs des dettes), sur le modèle de la fiche client.
@@ -832,8 +890,14 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
   - L'assistant répond après l'expiration (aucun contrôle d'abonnement dans `AssistantView`) : coût en tokens Anthropic, seul le quota quotidien limite. Pris dans le chantier en cours (commit 2, décision 4).
   - `NotificationViewSet.marquer_lue` est une écriture non contrôlée par `_verifier_acces`.
   - Réglé le 2026-10-05 (dans l'admin, pas dans le code) : « Essai gratuit » était en `actif=True` en prod avec un prix de 3 000 (créée à 0 et `actif=False` par la migration 0006), donc en vente sur « Mon abonnement » : un client pouvait racheter 14 jours à répétition. Mahamadou l'avait activée en pensant que « Actif » voulait dire « l'essai fonctionne ». Repassée à `actif=False` par Mahamadou : l'essai reste donné à l'inscription (`ApprouverDemandeView` ne filtre pas sur `actif`, prouvé par `EssaiGratuitApprouverDemandeTests`, qui tourne avec la formule de la migration en `actif=False`) et elle n'est plus en vente (`FormuleAbonnementListView` et `CreerPaiementView` exigent `actif=True`). Le prix de 3 000 n'a plus d'effet. Ne pas la renommer.
-- Chantier séparé (relevé le 2026-10-05, trou d'autorisation) : `CreerPaiementView` (`tenants/creer-paiement/`) ne vérifie pas le rôle : un employé peut lancer le paiement de l'abonnement, et l'onglet « Mon Abonnement » lui est visible. Décider qui peut payer.
-- Chantier séparé : « Essai gratuit » est trouvée par son nom exact (`FormuleAbonnement.objects.get(nom='Essai gratuit')`, `ApprouverDemandeView`), ce qui est fragile : la renommer dans l'admin bloque toute nouvelle inscription. La remplacer par un identifiant stable.
+- Réglé le 2026-10-20 : `creer-paiement/` sans contrôle de rôle (relevé le 2026-10-05). Voir « Chantier sécurité : paiement de l'abonnement (2026-10-20) ».
+- Chantier séparé (relevé le 2026-10-20, point C) : `CreerPaiementView` ne vérifie pas `boutique.actif`. Une boutique désactivée ne doit pas pouvoir payer (son abonnement serait prolongé alors qu'elle reste désactivée). Sans effet tant que le paiement en ligne est fermé.
+- Chantier séparé (relevé le 2026-10-20, point D) : aucune limite de débit sur `creer-paiement/` (pas de `DEFAULT_THROTTLE_CLASSES`). Risque : des factures PayDunya en masse sur notre compte marchand (la réutilisation sur 15 minutes ne vaut que par boutique et par formule). À régler avant d'ouvrir le paiement en ligne.
+- Plus tard (décidé par Mahamadou le 2026-10-20) : une adresse de contact pro (par exemple `contact@iwishop.app`, après l'achat du domaine) dans le texte « contactez-nous », lue depuis une variable d'environnement, jamais écrite dans le code.
+- Cas limites relevés le 2026-10-20, déjà présents (ils touchent tous les écrans qui lisent `est_proprietaire`, pas seulement Mon Abonnement) :
+  - Boutique active enregistrée devenue inaccessible au compte : `me/` part avec l'ancien `X-Boutique-Active`, `boutique_de` refuse, `est_proprietaire` vaut faux. `BoutiqueActiveProvider` corrige l'id sans recharger : un propriétaire est vu comme employé jusqu'au rechargement suivant (le serveur, lui, l'accepte). Piste : recharger `me/`, ou la page, après cette correction.
+  - Premier chargement sans boutique enregistrée : le serveur prend la première boutique **active** (`profil_par_defaut`), le frontend la première de `mes-boutiques/`. Ils ne diffèrent que si la première boutique du compte est désactivée.
+- Chantier séparé : « Essai gratuit » est trouvée par son nom exact (`FormuleAbonnement.objects.get(nom='Essai gratuit')`, `ApprouverDemandeView`), ce qui est fragile : la renommer dans l'admin bloque toute nouvelle inscription. La remplacer par un identifiant stable. À rapprocher : la formule « Essai gratuit » à 3 000 FCFA existe toujours en prod (vue par Mahamadou le 2026-10-20 ; son état `actif` n'a pas été relevé ce jour-là, voir le point « Réglé le 2026-10-05 » plus haut).
 - Chantier séparé : `Clients.jsx` : le corps de la carte de vente (~200 lignes dans le map) est à extraire en composant `CarteVente`, avec ses tests inchangés.
 - Chantier séparé : `Clients.jsx:55` (`grouperRemboursements`) calcule le montant effectif d'un remboursement côté frontend, en flottants avec arrondi, contrairement à `CLAUDE.md` (aucun calcul de montant dans le frontend). Le faire calculer par le backend, comme `montant_effectif` dans l'historique fournisseur.
 - Chantier séparé : autres calculs de montants existants dans le frontend. `Purchases.jsx` (sous-totaux et « Montant Total » du panier) et `Sales.jsx` (« Restera dû » calculé pendant la saisie d'une vente à crédit). Nuance : un total provisoire pendant la saisie est acceptable si le serveur recalcule la valeur enregistrée ; le chantier vérifiera au cas par cas.
@@ -864,4 +928,5 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Changer l'ancien mot de passe PostgreSQL local.
 - Vérifier que la ligne `postgresql://` est supprimée de l'historique PowerShell.
 - Plus tard : plan Hobby de Vercel et plan payant du service web Render, à décider ensemble (voir « Nom de domaine : plan validé le 2026-10-19 », « Décisions pour plus tard »).
+- Compte marchand PayDunya : NIF et papiers, avant le premier paiement en ligne d'un client (voir « Ouvrir un jour le paiement en ligne »).
 - Render → Billing : relever la date du prochain paiement de la base `iwishop-db`, et vérifier que la carte aura assez d'argent à cette date (une base suspendue met toute l'app hors ligne, comme du 2026-10-10 au 2026-10-13).
