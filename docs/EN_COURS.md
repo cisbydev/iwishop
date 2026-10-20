@@ -19,9 +19,11 @@ Prochaine étape, prioritaire depuis le 2026-10-19 (Mahamadou) : chantier « nom
 2. Site public séparé (domaine).
 3. Reprise de la sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base ») ; son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19.
 
-Fait le 2026-10-20, poussé en une fois avec ce commit docs : chantier sécurité du paiement de l'abonnement (voir « Chantier sécurité : paiement de l'abonnement (2026-10-20) »), à pousser en une fois.
+Terminé et vérifié en prod le 2026-10-20 : chantier sécurité du paiement de l'abonnement (voir « Chantier sécurité : paiement de l'abonnement (2026-10-20) »).
 
 ## Chantier sécurité : paiement de l'abonnement (2026-10-20)
+
+Terminé le 2026-10-20 : 7 commits et le commit docs `e06e9d6`, poussés ensemble, CI verte (run 39446591007), vérifiés en prod par Mahamadou (voir « Vérifié en prod »).
 
 ### Constats
 
@@ -55,12 +57,14 @@ Fait le 2026-10-20, poussé en une fois avec ce commit docs : chantier sécurit�
 
 Pas de migration. Rien à configurer sur Render : `PAIEMENT_EN_LIGNE_ACTIF` absent vaut « fermé ». Tout se pousse ensemble (les 5 paiements sandbox `En attente` en prod ne doivent pas pouvoir être crédités entre le 5 et le 6) ; l'ordre de déploiement entre Render et Vercel n'a pas d'importance.
 
-### Vérifications en prod après le push
+### Vérifié en prod (Mahamadou, 2026-10-20, après le déploiement de `e06e9d6`)
 
-- CI verte sur le dernier commit poussé.
-- Boutique de test, compte propriétaire : Mon Abonnement affiche les formules sans bouton, avec « Paiement en ligne bientôt disponible : contactez-nous pour renouveler. ».
-- Boutique de test, compte employé : Mon Abonnement affiche « Seul le propriétaire peut renouveler. », sans bouton.
-- Admin : les 5 `PaiementAbonnement` `En attente` le restent, aucun nouveau `Confirmé`.
+- CI verte sur `e06e9d6` (run 39446591007, jobs `backend` et `frontend` sous `ubuntu-24.04`).
+- Employé de Boutique 2 : Mon Abonnement affiche « Seul le propriétaire peut renouveler. », formules visibles, aucun bouton.
+- Propriétaire (compte admin, sur Ma Boutique, sans abonnement) : « Paiement en ligne bientôt disponible : contactez-nous pour renouveler. », formules visibles, aucun bouton.
+- Admin, Paiements abonnement : 7 lignes, 5 `En attente`, 2 `Confirmé` (SoraShop, Boutique 2), inchangé.
+- Bandeau J-3 sur Boutique 2 : normal, son abonnement (1 mois crédité par la sandbox le 23 septembre) finit le 23/10/2026.
+- Boutique 2 prolongée à la main le 2026-10-20 par Mahamadou (première pratique de la procédure « Prolongation à la main », réussie) : `date_fin` = 2026-12-12, `reference_paiement` = `HORS_LIGNE-2026-10-20-test`. Vérifié : bandeau J-3 disparu, Mon Abonnement « Actif jusqu'au 12/12/2026 ».
 
 ### Prolongation à la main, en attendant le paiement en ligne
 
