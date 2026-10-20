@@ -954,3 +954,24 @@ class MeBoutiqueIdTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.data['boutique_id'])
+
+
+class MeEstProprietaireTests(APITestCase):
+    """accounts/me/ calcule est_proprietaire sur le Profil de la boutique
+    ACTIVE (boutique_de, comme IsOwner) : le frontend s'en sert pour masquer
+    les actions du propriétaire, dont le paiement de l'abonnement."""
+
+    def test_meme_compte_proprietaire_de_a_et_employe_de_b(self):
+        boutique_a = Boutique.objects.create(nom="Boutique A", slug="boutique-me-proprio-a")
+        boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-me-proprio-b")
+        user = User.objects.create_user(username="me_mixte", password="pass1234")
+        Profil.objects.create(user=user, boutique=boutique_a, est_proprietaire=True)
+        Profil.objects.create(user=user, boutique=boutique_b, est_proprietaire=False)
+        self.client.force_authenticate(user=user)
+
+        for boutique, attendu in ((boutique_a, True), (boutique_b, False)):
+            with self.subTest(boutique=boutique.nom):
+                response = self.client.get(reverse('me'), HTTP_X_BOUTIQUE_ACTIVE=str(boutique.id))
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.data['boutique_id'], boutique.id)
+                self.assertIs(response.data['est_proprietaire'], attendu)
