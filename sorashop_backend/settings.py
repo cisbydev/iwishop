@@ -32,6 +32,12 @@ if SENTRY_DSN and not TESTING:
 # cas proprement (message d'erreur clair, pas d'appel API ni de crash).
 ANTHROPIC_API_KEY = config('ANTHROPIC_API_KEY', default='')
 
+# PayDunya : 'live' pour la vraie API, toute autre valeur pour la sandbox.
+PAYDUNYA_MODE = config('PAYDUNYA_MODE', default='test')
+# Paiement en ligne de l'abonnement, coupé si absent. Ouvert seulement avec
+# PAYDUNYA_MODE='live' (ou en DEBUG) : voir tenants.paydunya.paiement_en_ligne_actif.
+PAIEMENT_EN_LIGNE_ACTIF = config('PAIEMENT_EN_LIGNE_ACTIF', default=False, cast=bool)
+
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost', cast=lambda v: [s.strip() for s in v.split(',')])
 
 # Stockage des médias (Produit.photo, ParametresBoutique.logo) : bascule sur

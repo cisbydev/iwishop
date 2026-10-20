@@ -10,7 +10,7 @@ from decouple import config
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import connection, connections
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.reverse import reverse
@@ -32,6 +32,13 @@ def hash_paydunya_valide():
     tests webhook envoient un hash accepté sans dupliquer de secret en dur."""
     master_key = config('PAYDUNYA_MASTER_KEY')
     return hashlib.sha512(master_key.encode('utf-8')).hexdigest()
+
+
+def paiement_en_ligne_ouvert(cible):
+    """Ouvre le paiement en ligne pour les tests du parcours PayDunya :
+    interrupteur allumé et mode live (le lanceur de tests force
+    DEBUG=False, comme en prod). Sans ça, creer-paiement/ répond 503."""
+    return override_settings(PAIEMENT_EN_LIGNE_ACTIF=True, PAYDUNYA_MODE='live')(cible)
 
 
 class DemandeAccesThrottlingTests(TestCase):
@@ -255,6 +262,7 @@ class MonAbonnementOffreUniqueTests(TestCase):
 
     CLES_ATTENDUES = {
         'a_abonnement', 'formule', 'date_debut', 'date_fin', 'statut', 'abonnement_valide', 'jours_restants',
+        'paiement_en_ligne_actif',
     }
 
     def setUp(self):
@@ -601,6 +609,7 @@ class WebhookEchecVerificationTests(TestCase):
         self.assertNotEqual(response.status_code, 500)
         self.assertEqual(response.status_code, 502)
 
+    @paiement_en_ligne_ouvert
     def test_creer_facture_avec_json_malformee_ne_plante_pas_en_500(self):
         boutique = Boutique.objects.create(nom='Boutique Creation', slug='boutique-creation')
         owner = User.objects.create_user(username='owner_creation', password='x')
@@ -620,6 +629,7 @@ class WebhookEchecVerificationTests(TestCase):
         self.assertEqual(response.status_code, 502)
 
 
+@paiement_en_ligne_ouvert
 class CreerPaiementDedoublonnageTests(TestCase):
     """Point 9 de l'audit : deux appels rapprochés à creer-paiement/ pour la
     même boutique/formule (double-clic, rechargement, deux onglets) ne
@@ -724,6 +734,7 @@ class CreerPaiementDedoublonnageTests(TestCase):
     'tenants.views.paydunya.creer_facture',
     return_value=(True, {'token': 'tok-role', 'url': 'https://paydunya.test/checkout/role'}),
 )
+@paiement_en_ligne_ouvert
 class CreerPaiementRoleTests(TestCase):
     """Chantier sécurité (2026-10-20) : payer l'abonnement et choisir la
     formule est réservé au propriétaire de la boutique visée (IsOwner).
@@ -808,6 +819,7 @@ class CreerPaiementRoleTests(TestCase):
 
 
 @skipUnless(connection.vendor == 'postgresql', 'Le verrou de ligne est testé sur PostgreSQL uniquement.')
+@paiement_en_ligne_ouvert
 class CreerPaiementConcurrentTests(TransactionTestCase):
     """Reproduit deux requêtes réellement concurrentes avec deux connexions
     PostgreSQL. SQLite ne représente pas les verrous de production."""
@@ -1186,6 +1198,7 @@ class WebhookMontantConfirmeTests(TestCase):
         self.assertEqual(paiement.statut, 'CONFIRME')
 
 
+@paiement_en_ligne_ouvert
 class CreerPaiementMontantAttenduTests(TestCase):
     """Audit point 7 (subsidiaire) : le montant attendu doit être figé au
     prix de la formule au moment de la création de la facture, pas relu
@@ -1223,6 +1236,122 @@ class CreerPaiementMontantAttenduTests(TestCase):
 
         paiement.refresh_from_db()
         self.assertEqual(paiement.montant_attendu, Decimal('5000.00'))
+
+
+@patch(
+    'tenants.views.paydunya.creer_facture',
+    return_value=(True, {'token': 'tok-inter', 'url': 'https://paydunya.test/checkout/inter'}),
+)
+class PaiementEnLigneInterrupteurTests(TestCase):
+    """Constat du 2026-10-20 : la prod tournait en PAYDUNYA_MODE=test, donc
+    une facture payée en sandbox (sans argent réel) prolongeait un vrai
+    abonnement. Le paiement en ligne n'est ouvert que si
+    PAIEMENT_EN_LIGNE_ACTIF (faux si absent) et si PayDunya est en mode
+    live, ou en DEBUG (développement local en sandbox)."""
+
+    MESSAGE = "Paiement en ligne bientôt disponible : contactez-nous pour renouveler."
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom='Boutique Interrupteur', slug='boutique-interrupteur')
+        self.proprietaire = User.objects.create_user(username='proprietaire_inter', password='x')
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Mensuel', duree_jours=30, prix=5000, actif=True
+        )
+
+    def _client(self, user):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client
+
+    def _post(self, user=None):
+        return self._client(user or self.proprietaire).post(
+            '/api/tenants/creer-paiement/', {'formule_id': self.formule.id}
+        )
+
+    def _verifier_refus(self, response, mock_creer):
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.data['code'], 'PAIEMENT_EN_LIGNE_INACTIF')
+        self.assertEqual(response.data['detail'], self.MESSAGE)
+        self.assertEqual(PaiementAbonnement.objects.count(), 0)
+        mock_creer.assert_not_called()
+
+    @override_settings(PAIEMENT_EN_LIGNE_ACTIF=False, PAYDUNYA_MODE='live')
+    def test_interrupteur_coupe_refuse_sans_ligne_ni_facture(self, mock_creer):
+        self._verifier_refus(self._post(), mock_creer)
+
+    @override_settings(PAIEMENT_EN_LIGNE_ACTIF=True, PAYDUNYA_MODE='test')
+    def test_sandbox_refusee_hors_debug_meme_interrupteur_allume(self, mock_creer):
+        self._verifier_refus(self._post(), mock_creer)
+
+    @override_settings(PAIEMENT_EN_LIGNE_ACTIF=True, PAYDUNYA_MODE='test', DEBUG=True)
+    def test_sandbox_acceptee_en_debug(self, mock_creer):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(PaiementAbonnement.objects.filter(boutique=self.boutique).count(), 1)
+
+    @override_settings(PAIEMENT_EN_LIGNE_ACTIF=True, PAYDUNYA_MODE='live')
+    def test_interrupteur_allume_et_mode_live_cree_le_paiement(self, mock_creer):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(PaiementAbonnement.objects.filter(boutique=self.boutique).count(), 1)
+        mock_creer.assert_called_once()
+
+    @override_settings(PAIEMENT_EN_LIGNE_ACTIF=False, PAYDUNYA_MODE='live')
+    def test_employe_reste_refuse_par_son_role(self, mock_creer):
+        employe = User.objects.create_user(username='employe_inter', password='x')
+        Profil.objects.create(user=employe, boutique=self.boutique, est_proprietaire=False)
+
+        response = self._post(employe)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data['detail'], IsOwner.message)
+
+    def test_mon_abonnement_expose_l_etat_du_paiement_en_ligne(self, mock_creer):
+        cas = (
+            ({'PAIEMENT_EN_LIGNE_ACTIF': False, 'PAYDUNYA_MODE': 'live'}, False),
+            ({'PAIEMENT_EN_LIGNE_ACTIF': True, 'PAYDUNYA_MODE': 'test'}, False),
+            ({'PAIEMENT_EN_LIGNE_ACTIF': True, 'PAYDUNYA_MODE': 'live'}, True),
+        )
+        for reglages, attendu in cas:
+            with self.subTest(**reglages), override_settings(**reglages):
+                response = self._client(self.proprietaire).get('/api/tenants/mon-abonnement/')
+                self.assertEqual(response.status_code, 200)
+                self.assertIs(response.data.get('paiement_en_ligne_actif'), attendu)
+
+
+class PaydunyaModeUrlTests(TestCase):
+    """PAYDUNYA_MODE est lu dans settings à chaque appel (plus au
+    chargement du module) : création et confirmation suivent le mode."""
+
+    def setUp(self):
+        boutique = Boutique.objects.create(nom='Boutique Mode', slug='boutique-mode')
+        formule = FormuleAbonnement.objects.create(nom='Mensuel', duree_jours=30, prix=5000, actif=True)
+        self.paiement = PaiementAbonnement.objects.create(
+            boutique=boutique, formule=formule, montant_attendu=formule.prix
+        )
+
+    def test_url_de_l_api_suit_paydunya_mode(self):
+        cas = (
+            ('live', 'https://app.paydunya.com/api/v1/'),
+            ('test', 'https://app.paydunya.com/sandbox-api/v1/'),
+        )
+        for mode, prefixe in cas:
+            with self.subTest(mode=mode), override_settings(PAYDUNYA_MODE=mode), \
+                    patch('tenants.paydunya.requests.post') as mock_post, \
+                    patch('tenants.paydunya.requests.get') as mock_get:
+                mock_post.return_value.json.return_value = {'response_code': '00', 'token': 't', 'response_text': 'u'}
+                mock_get.return_value.json.return_value = {
+                    'response_code': '00', 'status': 'completed', 'invoice': {'total_amount': 5000},
+                }
+
+                paydunya.creer_facture(self.paiement)
+                paydunya.confirmer_facture('t')
+
+                self.assertTrue(mock_post.call_args.args[0].startswith(prefixe), mock_post.call_args.args[0])
+                self.assertTrue(mock_get.call_args.args[0].startswith(prefixe), mock_get.call_args.args[0])
 
 
 class ProfilManquantTests(TestCase):

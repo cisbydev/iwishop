@@ -3,6 +3,7 @@ import logging
 
 import requests
 from decouple import config
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +15,23 @@ class PaydunyaVerificationError(Exception):
     doit alors éviter de répondre 200 à PayDunya, pour qu'il réessaie."""
 
 
-BASE_URL = (
-    'https://app.paydunya.com/api/v1'
-    if config('PAYDUNYA_MODE', default='test') == 'live'
-    else 'https://app.paydunya.com/sandbox-api/v1'
-)
+def _base_url():
+    # Lu à chaque appel, plus au chargement du module : les tests changent
+    # PAYDUNYA_MODE avec override_settings.
+    if settings.PAYDUNYA_MODE == 'live':
+        return 'https://app.paydunya.com/api/v1'
+    return 'https://app.paydunya.com/sandbox-api/v1'
+
+
+def paiement_en_ligne_actif():
+    """Paiement en ligne de l'abonnement ouvert ou non.
+
+    Constat du 2026-10-20 : la prod tournait en mode test, et une facture
+    payée en sandbox (sans argent réel) prolongeait un vrai abonnement. Il
+    faut donc l'interrupteur PAIEMENT_EN_LIGNE_ACTIF (faux si absent) et
+    PayDunya en mode live ; la sandbox n'est permise qu'en DEBUG
+    (développement local), jamais en prod."""
+    return settings.PAIEMENT_EN_LIGNE_ACTIF and (settings.PAYDUNYA_MODE == 'live' or settings.DEBUG)
 
 
 def _headers():
@@ -66,7 +79,7 @@ def creer_facture(paiement):
 
     try:
         response = requests.post(
-            f"{BASE_URL}/checkout-invoice/create",
+            f"{_base_url()}/checkout-invoice/create",
             json=payload,
             headers=_headers(),
             timeout=15,
@@ -106,7 +119,7 @@ def confirmer_facture(token):
     """
     try:
         response = requests.get(
-            f"{BASE_URL}/checkout-invoice/confirm/{token}",
+            f"{_base_url()}/checkout-invoice/confirm/{token}",
             headers=_headers(),
             timeout=15,
         )

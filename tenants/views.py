@@ -296,6 +296,8 @@ class MonAbonnementView(APIView):
     def get(self, request, *args, **kwargs):
         boutique = boutique_de(request)
         info = boutique.info_abonnement()
+        # Le frontend masque les boutons de paiement quand c'est faux.
+        paiement_en_ligne_actif = paydunya.paiement_en_ligne_actif()
 
         if not info["a_abonnement"]:
             return Response({
@@ -306,6 +308,7 @@ class MonAbonnementView(APIView):
                 "statut": None,
                 "abonnement_valide": True,
                 "jours_restants": None,
+                "paiement_en_ligne_actif": paiement_en_ligne_actif,
             })
 
         abonnement = boutique.abonnement
@@ -334,9 +337,14 @@ class MonAbonnementView(APIView):
             "statut": info["statut"],
             "abonnement_valide": boutique.abonnement_valide(),
             "jours_restants": jours_restants,
+            "paiement_en_ligne_actif": paiement_en_ligne_actif,
         })
 
 FENETRE_REUTILISATION_PAIEMENT = timezone.timedelta(minutes=15)
+
+# Code à côté du message : le frontend reconnaît ce refus sans lire le texte.
+CODE_PAIEMENT_EN_LIGNE_INACTIF = 'PAIEMENT_EN_LIGNE_INACTIF'
+MESSAGE_PAIEMENT_EN_LIGNE_INACTIF = "Paiement en ligne bientôt disponible : contactez-nous pour renouveler."
 
 
 class CreerPaiementView(APIView):
@@ -349,10 +357,19 @@ class CreerPaiementView(APIView):
 
     Réservé au propriétaire de la boutique visée (décision du 2026-10-20) :
     payer l'abonnement et choisir la formule ne sont pas des actions
-    d'employé."""
+    d'employé.
+
+    Refusé en 503, avant toute écriture, tant que le paiement en ligne est
+    fermé (paydunya.paiement_en_ligne_actif)."""
     permission_classes = [IsAuthenticated, IsOwner]
 
     def post(self, request, *args, **kwargs):
+        if not paydunya.paiement_en_ligne_actif():
+            return Response(
+                {"detail": MESSAGE_PAIEMENT_EN_LIGNE_INACTIF, "code": CODE_PAIEMENT_EN_LIGNE_INACTIF},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
         formule_id = request.data.get('formule_id')
         try:
             formule = FormuleAbonnement.objects.get(pk=formule_id, actif=True)
