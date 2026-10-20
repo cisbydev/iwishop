@@ -475,6 +475,19 @@ class PaydunyaWebhookView(APIView):
             logger.warning("Webhook PayDunya rejeté : token ou paiement_id manquant.")
             return Response(status=status.HTTP_400_BAD_REQUEST)
 
+        # Défense en profondeur : paiement en ligne fermé (interrupteur coupé,
+        # ou sandbox hors DEBUG) => rien n'est crédité, aucun appel PayDunya.
+        # Le paiement reste EN_ATTENTE ; journalisé pour qu'un vrai paiement
+        # arrivé quand même puisse être retrouvé et crédité à la main. 200 :
+        # PayDunya n'a pas à réessayer.
+        if not paydunya.paiement_en_ligne_actif():
+            logger.error(
+                "Webhook PayDunya ignoré : paiement en ligne fermé, rien n'est crédité "
+                "(paiement_id=%s, token=%s).",
+                paiement_id, token,
+            )
+            return Response(status=status.HTTP_200_OK)
+
         try:
             resultat = paydunya.confirmer_facture(token)
         except paydunya.PaydunyaVerificationError as e:

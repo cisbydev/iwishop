@@ -550,6 +550,7 @@ class ExemptionCreationAdminTests(TestCase):
         self.assertTrue(boutique.est_accessible())
 
 
+@paiement_en_ligne_ouvert
 class WebhookEchecVerificationTests(TestCase):
     """Point 9 de l'audit : un échec de la vérification serveur-à-serveur
     (réseau, JSON invalide, réponse non conforme) ne doit JAMAIS être
@@ -988,6 +989,7 @@ class PaiementAbonnementStatutViewTests(TestCase):
         self.assertEqual(actions['cancel_url'], url_attendue)
 
 
+@paiement_en_ligne_ouvert
 class WebhookNonRegressionTests(TestCase):
     """Point 9 de l'audit : garde-fous sur ce qui était déjà validé avant
     cet audit (hash, référence inconnue, idempotence, activation dans les
@@ -1091,6 +1093,7 @@ class WebhookNonRegressionTests(TestCase):
         self.assertEqual(abonnement.date_fin, timezone.localdate() + timezone.timedelta(days=30))
 
 
+@paiement_en_ligne_ouvert
 class WebhookMontantConfirmeTests(TestCase):
     """Audit point 7 : le webhook ne comparait que le statut PayDunya
     ('completed'), jamais le montant réellement confirmé au montant
@@ -1196,6 +1199,60 @@ class WebhookMontantConfirmeTests(TestCase):
         self.assertEqual(response.status_code, 200)
         paiement.refresh_from_db()
         self.assertEqual(paiement.statut, 'CONFIRME')
+
+
+class WebhookPaiementEnLigneFermeTests(TestCase):
+    """Défense en profondeur (2026-10-20) : tant que le paiement en ligne est
+    fermé (paydunya.paiement_en_ligne_actif), un IPN valide ne prolonge
+    rien, même confirmé 'completed'. Aucun appel PayDunya ; le paiement
+    reste EN_ATTENTE et l'erreur est journalisée, pour qu'un vrai paiement
+    arrivé quand même puisse être retrouvé et crédité à la main."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom='Boutique Webhook Ferme', slug='boutique-webhook-ferme')
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Mensuel', duree_jours=30, prix=5000, actif=True
+        )
+        self.date_fin = timezone.localdate() + timezone.timedelta(days=5)
+        self.abonnement = Abonnement.objects.create(
+            boutique=self.boutique, formule=self.formule, statut='ACTIF',
+            date_debut=timezone.localdate(), date_fin=self.date_fin,
+        )
+        self.paiement = PaiementAbonnement.objects.create(
+            boutique=self.boutique, formule=self.formule, invoice_token='tok-ferme',
+            montant_attendu=self.formule.prix,
+        )
+
+    def _verifier_rien_credite(self):
+        with patch(
+            'tenants.views.paydunya.confirmer_facture',
+            return_value={'status': 'completed', 'montant_confirme': 5000},
+        ) as mock_confirmer, patch('tenants.views.logger') as mock_logger:
+            response = self.client.post('/api/tenants/paydunya-webhook/', {
+                'data[hash]': hash_paydunya_valide(),
+                'data[invoice][token]': 'tok-ferme',
+                'data[custom_data][paiement_id]': str(self.paiement.id),
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.paiement.refresh_from_db()
+        self.abonnement.refresh_from_db()
+        self.assertEqual(self.abonnement.date_fin, self.date_fin)
+        self.assertEqual(self.paiement.statut, 'EN_ATTENTE')
+        self.assertEqual(PaiementAbonnement.objects.filter(statut='CONFIRME').count(), 0)
+        mock_confirmer.assert_not_called()
+        mock_logger.error.assert_called_once()
+        journal = str(mock_logger.error.call_args)
+        self.assertIn(str(self.paiement.id), journal)
+        self.assertIn('tok-ferme', journal)
+
+    @override_settings(PAIEMENT_EN_LIGNE_ACTIF=False, PAYDUNYA_MODE='live')
+    def test_interrupteur_coupe_ipn_completed_ne_prolonge_rien(self):
+        self._verifier_rien_credite()
+
+    @override_settings(PAIEMENT_EN_LIGNE_ACTIF=True, PAYDUNYA_MODE='test')
+    def test_sandbox_hors_debug_ipn_completed_ne_prolonge_rien(self):
+        self._verifier_rien_credite()
 
 
 @paiement_en_ligne_ouvert
