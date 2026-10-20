@@ -19,6 +19,7 @@ from rest_framework.test import APIClient
 from . import paydunya
 from .models import Abonnement, Boutique, DemandeAcces, FormuleAbonnement, PaiementAbonnement, Profil
 from .services import confirmer_paiement
+from accounts.permissions import IsOwner
 from categories.models import Categorie
 from expenses.models import Depense
 from products.models import Produit, UniteVente
@@ -719,31 +720,91 @@ class CreerPaiementDedoublonnageTests(TestCase):
         self.assertEqual(PaiementAbonnement.objects.filter(formule=self.formule, statut='EN_ATTENTE').count(), 2)
 
 
+@patch(
+    'tenants.views.paydunya.creer_facture',
+    return_value=(True, {'token': 'tok-role', 'url': 'https://paydunya.test/checkout/role'}),
+)
 class CreerPaiementRoleTests(TestCase):
-    """Chantier sécurité (2026-10-20) : creer-paiement/ ne vérifie que
-    IsAuthenticated, jamais le rôle. Constat : un employé crée aujourd'hui
-    un paiement d'abonnement pour sa boutique. Payer et choisir la formule
-    doit être réservé au propriétaire : le correctif inversera ce test."""
+    """Chantier sécurité (2026-10-20) : payer l'abonnement et choisir la
+    formule est réservé au propriétaire de la boutique visée (IsOwner).
+    Avant, creer-paiement/ ne vérifiait que IsAuthenticated : un employé
+    créait un paiement pour sa boutique (constat de fe0db66)."""
 
     def setUp(self):
         self.boutique = Boutique.objects.create(nom='Boutique Role', slug='boutique-role')
+        self.proprietaire = User.objects.create_user(username='proprietaire_role', password='x')
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
         self.employe = User.objects.create_user(username='employe_role', password='x')
         Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
         self.formule = FormuleAbonnement.objects.create(
             nom='Mensuel', duree_jours=30, prix=5000, actif=True
         )
-        self.client = APIClient()
-        self.client.force_authenticate(user=self.employe)
 
-    @patch('tenants.views.paydunya.creer_facture')
-    def test_constat_un_employe_cree_un_paiement_pour_sa_boutique(self, mock_creer):
-        mock_creer.return_value = (True, {'token': 'tok-employe', 'url': 'https://paydunya.test/checkout/employe'})
+    def _post(self, user=None, boutique_active=None):
+        client = APIClient()
+        if user is not None:
+            client.force_authenticate(user=user)
+        entetes = {}
+        if boutique_active is not None:
+            entetes['HTTP_X_BOUTIQUE_ACTIVE'] = str(boutique_active.id)
+        return client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id}, **entetes)
 
-        response = self.client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+    def test_un_employe_ne_peut_pas_creer_de_paiement(self, mock_creer):
+        response = self._post(self.employe)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.data['detail'], IsOwner.message)
+        self.assertEqual(PaiementAbonnement.objects.count(), 0)
+        mock_creer.assert_not_called()
+
+    def test_le_proprietaire_cree_un_paiement(self, mock_creer):
+        response = self._post(self.proprietaire)
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(PaiementAbonnement.objects.filter(boutique=self.boutique).count(), 1)
         mock_creer.assert_called_once()
+
+    def test_proprietaire_ailleurs_mais_employe_de_la_boutique_visee_refuse(self, mock_creer):
+        mixte = User.objects.create_user(username='mixte_role', password='x')
+        sienne = Boutique.objects.create(nom='Boutique Mixte', slug='boutique-mixte-role')
+        Profil.objects.create(user=mixte, boutique=sienne, est_proprietaire=True)
+        Profil.objects.create(user=mixte, boutique=self.boutique, est_proprietaire=False)
+
+        response = self._post(mixte, boutique_active=self.boutique)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(PaiementAbonnement.objects.count(), 0)
+        mock_creer.assert_not_called()
+
+    def test_proprietaire_ailleurs_mais_employe_ici_paie_pour_sa_propre_boutique(self, mock_creer):
+        mixte = User.objects.create_user(username='mixte_role', password='x')
+        sienne = Boutique.objects.create(nom='Boutique Mixte', slug='boutique-mixte-role')
+        Profil.objects.create(user=mixte, boutique=sienne, est_proprietaire=True)
+        Profil.objects.create(user=mixte, boutique=self.boutique, est_proprietaire=False)
+
+        response = self._post(mixte, boutique_active=sienne)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(PaiementAbonnement.objects.filter(boutique=sienne).count(), 1)
+        self.assertEqual(PaiementAbonnement.objects.filter(boutique=self.boutique).count(), 0)
+
+    def test_compte_sans_profil_dans_la_boutique_visee_refuse(self, mock_creer):
+        etranger = User.objects.create_user(username='etranger_role', password='x')
+        autre = Boutique.objects.create(nom='Boutique Etrangere', slug='boutique-etrangere-role')
+        Profil.objects.create(user=etranger, boutique=autre, est_proprietaire=True)
+
+        response = self._post(etranger, boutique_active=self.boutique)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(PaiementAbonnement.objects.count(), 0)
+        mock_creer.assert_not_called()
+
+    def test_non_connecte_refuse(self, mock_creer):
+        response = self._post()
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(PaiementAbonnement.objects.count(), 0)
+        mock_creer.assert_not_called()
 
 
 @skipUnless(connection.vendor == 'postgresql', 'Le verrou de ligne est testé sur PostgreSQL uniquement.')

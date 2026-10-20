@@ -9,6 +9,7 @@ from rest_framework import generics, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from accounts.permissions import IsOwner
 from products.models import UniteVente, UNITES_PAR_DEFAUT
 from .models import DemandeAcces, Boutique, Profil, AccesSupport, Abonnement, FormuleAbonnement, PaiementAbonnement
 from .serializers import DemandeAccesSerializer, BoutiqueSerializer, AccesSupportSerializer, FormuleAbonnementSerializer, MaBoutiqueSerializer
@@ -344,8 +345,12 @@ class CreerPaiementView(APIView):
 
     Réutilise un paiement EN_ATTENTE récent pour la même boutique/formule
     plutôt que d'en recréer un (double-clic, rechargement de page, deux
-    onglets) - évite de multiplier les factures PayDunya pour le même achat."""
-    permission_classes = [IsAuthenticated]
+    onglets) - évite de multiplier les factures PayDunya pour le même achat.
+
+    Réservé au propriétaire de la boutique visée (décision du 2026-10-20) :
+    payer l'abonnement et choisir la formule ne sont pas des actions
+    d'employé."""
+    permission_classes = [IsAuthenticated, IsOwner]
 
     def post(self, request, *args, **kwargs):
         formule_id = request.data.get('formule_id')
