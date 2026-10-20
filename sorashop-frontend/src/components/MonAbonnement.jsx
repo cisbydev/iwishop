@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CreditCard, CheckCircle2, AlertTriangle } from 'lucide-react';
 import api, { getAll } from '../services/api';
+import { useSettings } from '../context/settingsContextValue';
 
 const PAIEMENT_ABONNEMENT_STORAGE_KEY = 'iwishop_paiement_abonnement_id';
 
@@ -40,6 +41,11 @@ function StatutAbonnement({ info }) {
 }
 
 export default function MonAbonnement() {
+  const { utilisateur } = useSettings();
+  // Payer est réservé au propriétaire (refus 403 côté serveur). Champ absent
+  // (utilisateur pas encore chargé, ancienne API) : boutons affichés, le
+  // serveur tranche.
+  const estEmploye = utilisateur?.est_proprietaire === false;
   const [info, setInfo] = useState(null);
   const [formules, setFormules] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -118,7 +124,9 @@ export default function MonAbonnement() {
 
       <div className="border-t border-slate-100 pt-5">
         <h4 className="text-base font-semibold text-slate-900">Formules disponibles</h4>
-        <p className="mt-1 text-sm text-slate-500">Choisissez la formule adaptée aux besoins de votre boutique.</p>
+        <p className="mt-1 text-sm text-slate-500">
+          {estEmploye ? 'Seul le propriétaire peut renouveler.' : 'Choisissez la formule adaptée aux besoins de votre boutique.'}
+        </p>
         {formules.length === 0 ? (
           <div className="mt-4 flex min-h-36 flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-6 py-8 text-center">
             <CreditCard className="h-7 w-7 text-blue-400" aria-hidden="true" />
@@ -137,6 +145,7 @@ export default function MonAbonnement() {
                     {formule.duree_jours} jours &middot; {formule.prix} FCFA
                   </p>
                 </div>
+                {!estEmploye && (
                 <button
                   onClick={() => choisirFormule(formule)}
                   disabled={formuleEnCours !== null}
@@ -145,6 +154,7 @@ export default function MonAbonnement() {
                   <CreditCard className="w-4 h-4" />
                   {formuleEnCours === formule.id ? 'Redirection...' : 'Choisir cette formule'}
                 </button>
+                )}
               </div>
             ))}
           </div>
