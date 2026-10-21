@@ -24,6 +24,14 @@ Liste « prêt à vendre », dans l'ordre :
 6. Sécurité : « pas d'abonnement = accès » (voir « En attente, côté code »), `/admin-plateforme`, limite de débit.
 7. Service web Render en plan payant (aujourd'hui gratuit, avec mise en veille).
 
+Marque (Mahamadou, 2026-10-21) : le nom s'écrit « iwiShop » partout (app, landing page, emails). Le logo est celui de l'app (la goutte « iwi »), pas le sac bleu de la version ChatGPT. Constat du 2026-10-21 (recherche dans le dépôt, rien n'est corrigé) : les emails (`tenants/emails.py`), PayDunya (`tenants/paydunya.py`), l'écran de connexion et l'assistant écrivent déjà « iwiShop ». En revanche, l'app affiche « IwiShop » dans `index.html` (titre, `apple-mobile-web-app-title`, description), `manifest.webmanifest` (`name`, `short_name`), `App.jsx` (texte alternatif du logo), `InstallPwaModal.jsx` (3 textes, et ses tests) et `main.jsx` (message de nouvelle version). Le nom d'expéditeur des emails vient de `BREVO_SENDER_NAME` sur Render (« iwiShop » si absente) : valeur non relevée.
+
+Pour le 2026-10-22, avec le chantier de la landing page (décidé par Mahamadou le 2026-10-21) :
+- commit `fix(frontend)` à part : « iwiShop » dans `index.html`, `manifest.webmanifest`, `App.jsx`, `InstallPwaModal.jsx` et ses tests, `main.jsx`. Plan d'abord ;
+- commit `docs` à part : `CLAUDE.md`, « iWiShop » → « iwiShop » ;
+- Mahamadou relève `BREVO_SENDER_NAME` sur Render.
+Les commentaires internes « audit IwiShop » (`accounts/`, `tenants/`) restent tels quels.
+
 Photo de produit : la livraison 1 est terminée (voir « Photo de produit : plan validé le 2026-10-15 »).
 
 Après le premier client :
