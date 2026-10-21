@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-20.
+Mis à jour le 2026-10-21.
 
 ## Incident prod (2026-10-10 au 2026-10-13) : base Render expirée
 
@@ -11,13 +11,28 @@ Mis à jour le 2026-10-20.
 - Horloge du PC décalée une fois de plus le 2026-10-16 : elle affichait le 2026-10-15 (et a reculé de plusieurs heures après une première correction). Mise à l'heure à la main par Mahamadou, synchronisation automatique désactivée pour la journée ; vérifiée avec `Get-Date` (vendredi 2026-10-16) avant les commits `b047434` et `bba2b20`. À réactiver et revérifier ensuite.
 - Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07. Remise à l'heure par Mahamadou le même jour, vérifiée avec `date` et `Get-Date` (2026-10-13) avant le commit de cette note (`ccfcb3c`, daté du 2026-10-13). Les dates de cette note viennent de Mahamadou et de Render, pas du PC.
 
-## Prochaines étapes (ordre décidé par Mahamadou le 2026-10-15)
+## Prochaines étapes (ordre décidé par Mahamadou le 2026-10-21)
 
-Prochaine étape, prioritaire depuis le 2026-10-19 (Mahamadou) : chantier « nom de domaine », pour servir l'app et l'API sur le même domaine (voir « Diagnostic : déconnexion refusée sur iPhone Safari »). Plan validé et simplifié le 2026-10-19 (voir « Nom de domaine : plan validé le 2026-10-19 ») ; domaine choisi, `iwishop.app`, pas encore acheté ; le commit 1 (`f641618`) est fait, poussé et vérifié en prod, la suite (commit 2) attend l'achat de `iwishop.app`. Le service web Render (backend) est encore en plan gratuit (mise en veille).
+Aucun vrai client à ce jour (Mahamadou, 2026-10-21) : SoraShop n'est pas utilisée. Les notes plus anciennes parlent d'un « seul vrai client » (boutique SoraShop) : c'est dépassé. Objectif : finir la liste « prêt à vendre », puis chercher des clients.
 
-1. Photo de produit (voir « Photo de produit : plan validé le 2026-10-15 »).
-2. Site public séparé (domaine).
-3. Reprise de la sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base ») ; son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19.
+Liste « prêt à vendre », dans l'ordre :
+1. Landing page : à refaire dans le dépôt, comme un projet séparé de l'app. Une première version avait été faite avec ChatGPT Sites, mais l'abonnement ChatGPT de Mahamadou a expiré et son code ne peut pas être récupéré. Les 15 captures de cette version servent de modèle.
+2. Essai gratuit : vérifier que l'app tient la promesse de la landing page (14 jours, gratuit, sans carte bancaire), et l'aligner si besoin. À rappeler : une formule « Essai gratuit » à 3 000 FCFA existe en prod, et `ApprouverDemandeView` la cherche par son nom exact (voir « En attente, côté code »).
+3. Mise en ligne de la landing page sur `iwishop.app`.
+4. 2FA sur GitHub et sur Render.
+5. Sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base »). Son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19.
+6. Sécurité : « pas d'abonnement = accès » (voir « En attente, côté code »), `/admin-plateforme`, limite de débit.
+7. Service web Render en plan payant (aujourd'hui gratuit, avec mise en veille).
+
+Photo de produit : la livraison 1 est terminée (voir « Photo de produit : plan validé le 2026-10-15 »).
+
+Après le premier client :
+- photos des catégories ;
+- photo de produit, livraison 2 : miniature, recherche avec miniatures dans l'écran de vente, réduction dans le navigateur, liens expirés ;
+- Vercel Pro ;
+- NIF et paiement en ligne (voir « Ouvrir un jour le paiement en ligne »).
+
+Terminé et vérifié en prod le 2026-10-21 : chantier « nom de domaine » (voir « Vérifié en prod (2026-10-21) »).
 
 Terminé et vérifié en prod le 2026-10-20 : chantier sécurité du paiement de l'abonnement (voir « Chantier sécurité : paiement de l'abonnement (2026-10-20) »).
 
@@ -83,15 +98,27 @@ Tests en sandbox en local : `.env` avec `PAYDUNYA_MODE=test`, `PAIEMENT_EN_LIGNE
 
 ## Nom de domaine : plan validé le 2026-10-19
 
+Terminé et vérifié en prod le 2026-10-21 (voir « Vérifié en prod (2026-10-21) »).
+
 Plan proposé le 2026-10-19 et validé par Mahamadou le même jour : option A, avec trois ajouts (2FA et renouvellement automatique chez le registraire, vérification de la Content-Security-Policy, décision sur les plans payants reportée). Simplifié le même jour : bandeau et redirection automatique retirés, car il n'y a qu'un seul client, qui n'a fait aucune vente et sera formé après le changement d'adresse.
 
-Domaine (Mahamadou, 2026-10-19) : `iwishop.app`, chez Cloudflare Registrar (8,20 $ la première année, puis 14,20 $ par an ; `iwishop.com` déjà pris, `.africa` non vendu par Cloudflare). Pas encore acheté (en attente de fonds sur la carte) ; le commit 1 (`f641618`) est fait, poussé et vérifié en prod, la suite (commit 2) attend l'achat de `iwishop.app`. API : `api.iwishop.app`. App : `<app>.iwishop.app`, nom du sous-domaine à choisir (`app`, ou un autre, par exemple `gestion`). `iwishop.app` sans préfixe reste réservé à la landing page. `.app` est une extension qui impose HTTPS dans les navigateurs (liste de préchargement HSTS) : aucune adresse en `http://` ne marchera, ce qui ne change rien ici (Vercel et Render servent en HTTPS).
+Domaine (Mahamadou, 2026-10-19) : `iwishop.app`, chez Cloudflare Registrar (8,20 $ la première année, puis 14,20 $ par an ; `iwishop.com` déjà pris, `.africa` non vendu par Cloudflare). Acheté le 2026-10-21 (voir « Domaine acheté (2026-10-21) ») ; le commit 1 (`f641618`) est fait, poussé et vérifié en prod. API : `api.iwishop.app`. App : `gestion.iwishop.app` (sous-domaine choisi par Mahamadou le 2026-10-21). `iwishop.app` sans préfixe reste réservé à la landing page. `.app` est une extension qui impose HTTPS dans les navigateurs (liste de préchargement HSTS) : aucune adresse en `http://` ne marchera, ce qui ne change rien ici (Vercel et Render servent en HTTPS).
 
 But : que Safari sur iPhone garde les cookies de l'API (`csrftoken`, cookie de rafraîchissement). Aujourd'hui, `iwishop.vercel.app` et `onrender.com` sont deux sites distincts, donc ces cookies sont des cookies tiers, bloqués par Safari.
 
+### Domaine acheté (2026-10-21)
+
+Relevé par Mahamadou le 2026-10-21 (date donnée par Mahamadou ; l'horloge du PC affichait le 2026-10-20) :
+- `iwishop.app` chez Cloudflare Registrar, 8,20 $ la première année. Statut Active. Expiration le 2027-10-21.
+- Renouvellement automatique activé : 14,20 $ par an, prélèvement prévu le 2027-09-21. À faire début septembre 2027 : vérifier que la carte a assez d'argent (voir « En attente, côté Mahamadou »).
+- WHOIS privacy activée.
+- DNSSEC activé par Mahamadou : Pending le 2026-10-21, actif sous 24 h d'après Cloudflare.
+- Aucun enregistrement DNS créé pour l'instant.
+- Sous-domaine de l'app choisi par Mahamadou le 2026-10-21 : `gestion.iwishop.app`. API : `api.iwishop.app`.
+
 ### Option retenue : sous-domaines
 
-- A (retenue) : `<app>.iwishop.app` sur Vercel, `api.iwishop.app` sur Render. Même site, donc cookies acceptés par Safari. Envoi des photos direct vers Render (5 Mo, comme aujourd'hui), aucun délai ajouté, veille de Render inchangée (environ 1 minute au premier appel après 15 minutes sans requête). Safari limite à 7 jours les cookies posés par un sous-domaine qui pointe (CNAME) vers un autre hébergeur : c'est déjà la durée du cookie de rafraîchissement (`REFRESH_TOKEN_LIFETIME`), donc sans effet. CORS reste. Inconvénient : l'adresse de l'app change (voir « Changement d'adresse »).
+- A (retenue) : `gestion.iwishop.app` sur Vercel, `api.iwishop.app` sur Render. Même site, donc cookies acceptés par Safari. Envoi des photos direct vers Render (5 Mo, comme aujourd'hui), aucun délai ajouté, veille de Render inchangée (environ 1 minute au premier appel après 15 minutes sans requête). Safari limite à 7 jours les cookies posés par un sous-domaine qui pointe (CNAME) vers un autre hébergeur : c'est déjà la durée du cookie de rafraîchissement (`REFRESH_TOKEN_LIFETIME`), donc sans effet. CORS reste. Inconvénient : l'adresse de l'app change (voir « Changement d'adresse »).
 - B (écartée) : réécriture `/api/*` sur Vercel vers Render. Raisons : `_ip_client` (`accounts/throttling.py`) lit l'IP du client en 3ᵉ position depuis la fin de `X-Forwarded-For`, mesurée pour client → Cloudflare → Render ; derrière Vercel, tous les clients partageraient la même IP, donc la même limite de 10 connexions par minute (même problème avec `CF-Connecting-IP` dans `tenants/throttling.py`). Taille d'envoi maximale non documentée pour une réécriture externe (la limite de 4,5 Mo citée ailleurs concerne les fonctions Vercel). Délai maximal de 120 s. Cache de Vercel à neutraliser (`x-vercel-enable-rewrite-caching: 0`). Trafic de l'API compté dans le quota Hobby.
 
 Lu dans la documentation le 2026-10-19 : Render accepte les domaines personnalisés en plan gratuit (« Supported features » de la page Free) ; l'espace Hobby en inclut 2, puis 0,25 $ par mois par domaine ; certificat créé et renouvelé automatiquement ; l'adresse `onrender.com` reste active.
@@ -100,22 +127,44 @@ Lu dans la documentation le 2026-10-19 : Render accepte les domaines personnalis
 
 Avant l'achat :
 1. Double authentification sur le compte du registraire (Cloudflare) : fait le 2026-10-19 (nouveau mot de passe fort, 2FA par application activé et testé, code demandé même avec la connexion Google, codes de secours sur papier ; Gmail aussi en 2FA par application).
-2. Renouvellement automatique du domaine activé à l'achat (un domaine expiré met toute l'app hors ligne).
+2. Renouvellement automatique du domaine activé à l'achat (un domaine expiré met toute l'app hors ligne) : fait le 2026-10-21.
 
 Puis :
-3. Acheter `iwishop.app` et choisir le nom de `<app>`.
+3. Acheter `iwishop.app` (fait le 2026-10-21) et choisir le sous-domaine de l'app : `gestion` (choisi le 2026-10-21).
 4. Render : Settings → Custom Domains → `api.iwishop.app`. Ne jamais désactiver l'adresse `onrender.com` : l'ancienne adresse de l'app et le webhook PayDunya l'utilisent.
-5. Vercel : Domains → `<app>.iwishop.app` (certificat automatique ; le même déploiement sert les deux adresses).
-6. DNS (chez Cloudflare) : `<app>` en CNAME vers la valeur donnée par Vercel ; `api` en CNAME vers `<service>.onrender.com` ; aucun enregistrement AAAA (demandé par Render). Nuage gris (« DNS only »), surtout pour `api` : un nuage orange ajoute un intermédiaire et décale la position de l'IP lue par `_ip_client`.
-7. Variables sur Render, en ajout seulement : `ALLOWED_HOSTS` += `api.iwishop.app` ; `CORS_ALLOWED_ORIGINS` += `https://<app>.iwishop.app` ; `CSRF_TRUSTED_ORIGINS` += `https://<app>.iwishop.app`. Avant la formation du client : `FRONTEND_URL` = `https://<app>.iwishop.app`.
+5. Vercel : Domains → `gestion.iwishop.app` (certificat automatique ; le même déploiement sert les deux adresses).
+6. DNS (chez Cloudflare) : `gestion` en CNAME vers la valeur donnée par Vercel ; `api` en CNAME vers `<service>.onrender.com` ; aucun enregistrement AAAA (demandé par Render). Nuage gris (« DNS only »), surtout pour `api` : un nuage orange ajoute un intermédiaire et décale la position de l'IP lue par `_ip_client`.
+7. Variables sur Render, en ajout seulement : `ALLOWED_HOSTS` += `api.iwishop.app` ; `CORS_ALLOWED_ORIGINS` += `https://gestion.iwishop.app` ; `CSRF_TRUSTED_ORIGINS` += `https://gestion.iwishop.app`. Avant la formation du client : `FRONTEND_URL` = `https://gestion.iwishop.app`.
 8. Donner les valeurs actuelles (sans secret) de `JWT_REFRESH_COOKIE_SAMESITE`, `JWT_REFRESH_COOKIE_DOMAIN` et `CSRF_COOKIE_SAMESITE` (Render), et de `VITE_API_URL` (Vercel) : illisibles depuis le dépôt.
 9. Avant le changement d'adresse : sur les appareils de test (iPhone et PC), sur l'ancienne adresse, vérifier qu'aucune vente n'est en attente (pas de bandeau orange).
+
+### Configuration faite (2026-10-21)
+
+Fait et relevé par Mahamadou le 2026-10-21, backend d'abord :
+- Render : `api.iwishop.app` ajouté (Verified, Certificate Issued). Cloudflare : CNAME `api` → `iwishop.onrender.com`, DNS only.
+- Variables Render : `ALLOWED_HOSTS` = `.onrender.com,api.iwishop.app` ; `CORS_ALLOWED_ORIGINS` et `CSRF_TRUSTED_ORIGINS` = `https://iwishop.vercel.app,https://gestion.iwishop.app`. `FRONTEND_URL` inchangée.
+- `https://api.iwishop.app/api/csrf/` répond en JSON, cadenas valide (constat de Mahamadou).
+- Vercel : `gestion.iwishop.app` ajouté (Valid Configuration, Production, branche `main`). Cloudflare : CNAME `gestion` → `efbe0aee3b3a30e5.vercel-dns-017.com`, DNS only.
+- Valeurs relevées (étape 8) : `CSRF_COOKIE_SAMESITE=None`, `JWT_REFRESH_COOKIE_SAMESITE=None`, `JWT_REFRESH_COOKIE_DOMAIN` absente (donc `Domain` vide, comme prévu). `VITE_API_URL` est marquée « Sensitive » sur Vercel (illisible) ; d'après l'onglet Réseau, l'app appelle `https://iwishop.onrender.com/api/`.
+- Ancienne adresse `iwishop.vercel.app` après le changement de CORS : marche (connexion ; `accounts/me/` en 200 avec `Access-Control-Allow-Origin: https://iwishop.vercel.app` et `Access-Control-Allow-Credentials: true` ; tableau de bord affiché).
+- Remarque de Mahamadou : la réponse de `iwishop.onrender.com` porte un en-tête `Cf-Ray` (…-DKR) : Render passe lui-même par Cloudflare, même avec un enregistrement « DNS only » chez nous.
+- Étape 9 (appareils de test sans vente en attente) : faite avant la redirection (voir « Vérifié en prod (2026-10-21) »).
+
+### Vérifié en prod (2026-10-21)
+
+- Commits poussés le 2026-10-21, CI verte : `61a8d6e` (`revert(accounts)`, retire `DIAG_XFF` ; run 39672128439) et `27e3f59` (`feat(frontend)`, commit 2 ; run 39676353984).
+- Étape 9, faite avant la redirection (Mahamadou) : PC et iPhone, aucune vente en attente. Vérifié en plus à la source sur le PC : IndexedDB `sorashop-offline`, store `ventes_en_attente` de `iwishop.vercel.app`, « Total d'entrées : 0 » ; puis données du site effacées.
+- Déconnexion sur `gestion.iwishop.app` : `POST /api/token/logout/` en 204 dans les journaux de Render (relevé par Mahamadou), depuis Chrome sur PC, depuis l'app Google (GSA) sur iPhone et depuis Safari sur iPhone (`Version/26.0.1 Mobile Safari`). Le défaut Safari du 2026-10-19 (déconnexion en 403) est réglé.
+- `FRONTEND_URL` = `https://gestion.iwishop.app` sur Render (Mahamadou).
+- `iwishop.vercel.app` redirige en 308 vers `gestion.iwishop.app`, chemin conservé. Vérifié avec curl le 2026-10-21 à 22 h 42 UTC : `https://iwishop.vercel.app` → `Location: https://gestion.iwishop.app/` ; `https://iwishop.vercel.app/demande-acces` → `Location: https://gestion.iwishop.app/demande-acces` ; `Server: Vercel`. Une 308 est gardée en cache par les navigateurs : la retirer plus tard ne ramène pas forcément un appareil qui l'a déjà reçue.
+- Abandonné (Mahamadou, 2026-10-21) : la redirection prévue de `iwishop.app` vers `gestion`. `iwishop.app` recevra la landing page.
+- Non relevés dans cette note : rechargement et action après plus de 15 minutes sans reconnexion, attributs du cookie de rafraîchissement, photo de près de 5 Mo, premier appel après une veille de Render, facture PayDunya créée puis annulée, lien de l'email de demande d'accès, Sentry (voir « Tests »).
 
 ### Changements dans le code et la config
 
 - `ALLOWED_HOSTS`, CORS, `CSRF_TRUSTED_ORIGINS` : variables seulement, aucun code.
 - Cookies (`settings.py`) : aucun changement. `Domain` reste vide (cookies attachés à `api.iwishop.app` seul ; `api.js` lit le jeton CSRF dans la réponse de `csrf/`, pas dans `document.cookie`). `Secure` gardé. `SameSite=None` gardé tant que l'ancienne adresse appelle `onrender.com` depuis un autre site.
-- URL de l'API côté frontend : aujourd'hui en trois copies (`api.js`, `App.jsx`, `Settings.jsx`), à réunir dans un seul module. Choisie selon l'adresse de la page : sur `<app>.iwishop.app`, `https://api.iwishop.app/api/` ; ailleurs, `VITE_API_URL`, inchangée ; variable absente : comportement actuel. L'ancienne adresse ne change pas, ses utilisateurs ne sont pas déconnectés.
+- URL de l'API côté frontend : aujourd'hui en trois copies (`api.js`, `App.jsx`, `Settings.jsx`), à réunir dans un seul module. Choisie selon l'adresse de la page : sur `gestion.iwishop.app`, `https://api.iwishop.app/api/` ; ailleurs, `VITE_API_URL`, inchangée ; variable absente : comportement actuel. L'ancienne adresse ne change pas, ses utilisateurs ne sont pas déconnectés.
 - Liens des emails (`tenants/emails.py`) et retour de paiement (`return_url`, `cancel_url`, `tenants/paydunya.py`) : viennent de `FRONTEND_URL`, variable seulement. `callback_url` (`BACKEND_URL`) reste sur `onrender.com`. Une facture créée avant le changement renvoie vers l'ancienne adresse, qui reste en ligne.
 - Adresses écrites en dur : aucune dans le code (recherche du 2026-10-19), seulement un exemple en commentaire (`settings.py`, CORS).
 - PWA : manifeste en chemins relatifs, rien à changer. La nouvelle adresse est une nouvelle app (service worker et installation séparés).
@@ -126,9 +175,9 @@ Puis :
 
 Pourquoi c'est simple : un seul client, aucune vente chez lui, formé après le changement d'adresse.
 
-IndexedDB et `localStorage` sont liés à l'adresse exacte : les ventes en attente sur `iwishop.vercel.app` ne sont pas visibles depuis `<app>.iwishop.app`. D'où l'étape 9 de « Ce que fait Mahamadou » sur les appareils de test.
+IndexedDB et `localStorage` sont liés à l'adresse exacte : les ventes en attente sur `iwishop.vercel.app` ne sont pas visibles depuis `gestion.iwishop.app`. D'où l'étape 9 de « Ce que fait Mahamadou » sur les appareils de test.
 
-- L'ancienne adresse reste en marche (même projet Vercel, coût nul, comportement inchangé), sans bandeau ni redirection.
+- L'ancienne adresse reste en marche (même projet Vercel, coût nul, comportement inchangé), sans bandeau ni redirection. Changé le 2026-10-21 : elle redirige en 308 vers `gestion.iwishop.app` (voir « Vérifié en prod (2026-10-21) »).
 - Le client est formé directement sur la nouvelle adresse et l'installe sur son écran d'accueil.
 
 ### Retour en arrière
@@ -141,20 +190,31 @@ IndexedDB et `localStorage` sont liés à l'adresse exacte : les ventes en atten
 ### Tests
 
 Automatiques (frontend), chacun vu échouer avant le correctif :
-- URL de l'API : `<app>.iwishop.app` → `https://api.iwishop.app/api/` ; `iwishop.vercel.app` → `VITE_API_URL` ; variables absentes → valeur locale par défaut ; URL des logos déduite de la même façon.
+- URL de l'API : `gestion.iwishop.app` → `https://api.iwishop.app/api/` ; `iwishop.vercel.app` → `VITE_API_URL` ; variables absentes → valeur locale par défaut ; URL des logos déduite de la même façon.
 - Backend : aucun changement de code prévu. Si la mesure de l'IP l'impose, `_ip_client` change dans un commit à part, avec ses tests.
 
 En prod, avant de changer le frontend (bloquant) :
 1. `curl https://api.iwishop.app/api/csrf/` : 200, certificat valide, attributs de `Set-Cookie`.
-2. Requête de vérification CORS : acceptée depuis `https://<app>.iwishop.app`, refusée depuis une origine non listée.
+2. Requête de vérification CORS : acceptée depuis `https://gestion.iwishop.app`, refusée depuis une origine non listée.
 3. Nouvelle mesure de `X-Forwarded-For` sur `api.iwishop.app`, avec et sans en-tête falsifié, dans les journaux de Render (méthode du commentaire de `_ip_client`). Si la vraie IP n'est plus en 3ᵉ position depuis la fin, on s'arrête.
 
+Résultats (points 1 et 2 : curl depuis le PC de Mahamadou, 2026-10-21 vers 19 h 14 UTC) :
+- 1, fait : `GET https://api.iwishop.app/api/csrf/` en 200, JSON. Certificat valide (vérification OK) : `CN=api.iwishop.app`, émis par Google Trust Services (WE1), du 2026-10-21 au 2027-01-19. `Set-Cookie: csrftoken=… ; Max-Age=31449600 ; Path=/ ; SameSite=None ; Secure`, sans `Domain` (cookie attaché à `api.iwishop.app` seul), sans `HttpOnly` (normal pour `csrftoken`). `Server: cloudflare`, `CF-RAY: …-DKR`, `x-render-origin-server: gunicorn`, `strict-transport-security: max-age=300`. Le cookie de rafraîchissement n'est posé qu'à la connexion : ses attributs seront relevés pendant les tests sur la boutique de test.
+- 2, fait : prévol `OPTIONS /api/token/refresh/` (POST ; en-têtes `content-type`, `x-csrftoken`, `authorization`, `x-boutique-active`). Depuis `https://gestion.iwishop.app` : 200 avec `Access-Control-Allow-Origin: https://gestion.iwishop.app`, `Access-Control-Allow-Credentials: true`, les quatre en-têtes autorisés. Depuis `https://exemple-non-liste.com` : 200 sans aucun en-tête `Access-Control-Allow-*`, donc refusé par le navigateur. Même résultat sur `GET /api/csrf/`. À noter, sans effet : `x-csrftoken` apparaît deux fois dans `Access-Control-Allow-Headers`.
+- 3, réussi le 2026-10-21. Les journaux de Render ne montrent pas `X-Forwarded-For` (journaux de requêtes HTTP réservés à l'espace Pro, sans IP ni cet en-tête, d'après la documentation de Render lue le 2026-10-21 ; le journal `DIAG_XFF` de septembre, `a4cf9a0`, avait été retiré par `bf49d58`). D'où un journal temporaire, `e8ef558` (`diag(accounts)`, écrit seulement pour l'identifiant exact `diag-xff`, jamais le mot de passe), poussé le 2026-10-21, CI verte (run 39665389814), Live sur Render. 4 requêtes `POST /api/token/` avec `diag-xff` depuis le PC de Mahamadou, 19 h 58 UTC, toutes en 401 ; 4 lignes `DIAG_XFF` relevées par Mahamadou dans les journaux de Render, dans l'ordre (IP réelle notée `IP_CLIENT`, jamais écrite ici) :
+  1. `api.iwishop.app`, sans en-tête : `IP_CLIENT, <relais Cloudflare>, <proxy Render 10.x>`.
+  2. `api.iwishop.app`, `X-Forwarded-For: 1.2.3.4` envoyé : `1.2.3.4, IP_CLIENT, <relais Cloudflare>, <proxy Render 10.x>`.
+  3. `iwishop.onrender.com`, sans en-tête : même forme que 1.
+  4. `iwishop.onrender.com`, `1.2.3.4` envoyé : même forme que 2.
+  - Dans les 4 cas, `IP_CLIENT` est en 3ᵉ position depuis la fin (ce que lit `_ip_client`) et `1.2.3.4` n'y est jamais. `CF-Connecting-IP` vaut `IP_CLIENT` dans les 4 cas (lu par `tenants/throttling.py`). `REMOTE_ADDR` vaut `127.0.0.1` partout. Le relais Cloudflare et le proxy Render changent d'une requête à l'autre (plages `172.69.x` ou `104.23.x`, et `10.x`), mais il y en a toujours exactement un de chaque : même chaîne qu'en septembre, sur les deux adresses. Lecture faite par Mahamadou et vérifiée par Claude le 2026-10-21. Conclusion : `fix(accounts)` inutile, `_ip_client` ne change pas.
+  - Limite : mesure faite depuis un seul réseau, celui de Mahamadou, comme en septembre.
+
 En prod, boutique de test :
-- iPhone Safari sur `<app>.iwishop.app` : connexion ; rechargement sans retour à l'écran de connexion ; après plus de 15 minutes (par exemple 20), une action passe sans reconnexion ; déconnexion avec `POST /api/token/logout/` en 204 dans les journaux de Render ; rechargement après la déconnexion : écran de connexion.
+- iPhone Safari sur `gestion.iwishop.app` : connexion ; rechargement sans retour à l'écran de connexion ; après plus de 15 minutes (par exemple 20), une action passe sans reconnexion ; déconnexion avec `POST /api/token/logout/` en 204 dans les journaux de Render ; rechargement après la déconnexion : écran de connexion.
 - PC Chrome : mêmes étapes.
 - Photo de près de 5 Mo envoyée depuis la nouvelle adresse.
 - Premier appel après une veille de Render : il passe (environ 1 minute).
-- Ancienne adresse : comportement inchangé (connexion et une vente).
+- Ancienne adresse : comportement inchangé (connexion et une vente). Remplacé le 2026-10-21 par la redirection 308 vers `gestion.iwishop.app`.
 - Après le changement de `FRONTEND_URL` : facture PayDunya créée puis annulée, retour sur la nouvelle adresse (sans payer) ; demande d'accès, lien de l'email vers la nouvelle adresse.
 - Sentry : aucune nouvelle erreur.
 
@@ -164,14 +224,17 @@ Sans commit (Mahamadou) : registraire, domaine, DNS, Render, Vercel, variables, 
 
 Une seule livraison :
 1. `refactor(frontend)` : une seule source pour l'URL de l'API (`api.js`, `App.jsx`, `Settings.jsx`), sans changement de comportement. Fait : `f641618`, poussé ; vérifié en prod le 2026-10-19 (Mahamadou) : CI verte sur `f641618` (run 39283736188), produits chargés (`api.js`), logo affiché dans Paramètres et en haut de l'app.
-2. `feat(frontend)` : URL de l'API choisie selon l'adresse de la page, avec ses tests.
-3. Seulement si la mesure l'impose : `fix(accounts)` : IP du client derrière `api.iwishop.app`.
+2. `feat(frontend)` : URL de l'API choisie selon l'adresse de la page, avec ses tests. Fait : `27e3f59`, poussé le 2026-10-21, CI verte (run 39676353984).
+3. Seulement si la mesure l'impose : `fix(accounts)` : IP du client derrière `api.iwishop.app`. Inutile (mesure du 2026-10-21, vérification 3). À la place : `diag(accounts)` (`e8ef558`, poussé le 2026-10-21), puis `61a8d6e` (`revert(accounts)`, poussé le 2026-10-21, CI verte, run 39672128439), qui retire ce diagnostic.
 4. `docs` : `EN_COURS.md`.
 
 ### Décisions pour plus tard
 
-- Plans payants (Mahamadou, 2026-10-19) : plan Hobby de Vercel, réservé à un usage « non commercial, personnel » (documentation Vercel, lue le 2026-10-19 ; Pro à 20 $ par mois), et plan payant du service web Render (aujourd'hui gratuit, avec mise en veille). À décider ensemble, plus tard.
-- Quand l'ancienne adresse n'appellera plus l'API : retirer `iwishop.vercel.app` de CORS et de `CSRF_TRUSTED_ORIGINS`, et décider du passage des cookies en `SameSite=Lax`.
+- Plans payants (Mahamadou, 2026-10-19) : plan Hobby de Vercel, réservé à un usage « non commercial, personnel » (documentation Vercel, lue le 2026-10-19 ; Pro à 20 $ par mois), et plan payant du service web Render (aujourd'hui gratuit, avec mise en veille). Décidé le 2026-10-21 : Render en plan payant dans la liste « prêt à vendre », Vercel Pro après le premier client (voir « Prochaines étapes »).
+- Plus tard (Mahamadou, 2026-10-21) :
+  - retirer `iwishop.vercel.app` de CORS et de `CSRF_TRUSTED_ORIGINS` (l'ancienne adresse redirige vers `gestion.iwishop.app` depuis le 2026-10-21) ;
+  - cookies en `SameSite=Lax` ;
+  - `ALLOWED_HOSTS` en `iwishop.onrender.com` au lieu de `.onrender.com`, qui accepte tout sous-domaine de Render (relevé par Mahamadou le 2026-10-21).
 
 ## Photo de produit : plan validé le 2026-10-15
 
@@ -897,6 +960,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Réglé le 2026-10-20 : `creer-paiement/` sans contrôle de rôle (relevé le 2026-10-05). Voir « Chantier sécurité : paiement de l'abonnement (2026-10-20) ».
 - Chantier séparé (relevé le 2026-10-20, point C) : `CreerPaiementView` ne vérifie pas `boutique.actif`. Une boutique désactivée ne doit pas pouvoir payer (son abonnement serait prolongé alors qu'elle reste désactivée). Sans effet tant que le paiement en ligne est fermé.
 - Chantier séparé (relevé le 2026-10-20, point D) : aucune limite de débit sur `creer-paiement/` (pas de `DEFAULT_THROTTLE_CLASSES`). Risque : des factures PayDunya en masse sur notre compte marchand (la réutilisation sur 15 minutes ne vaut que par boutique et par formule). À régler avant d'ouvrir le paiement en ligne.
+- Plus tard (décidé par Mahamadou le 2026-10-21) : commit de nettoyage `test(accounts)`, remplacer les adresses réelles (et `1.2.3.4`) par des adresses de documentation RFC 5737 (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`) dans `accounts/throttling.py` (docstring de `_ip_client`) et `accounts/tests.py` (`IpClientResolutionTests`). Ces adresses viennent de la mesure de septembre (`bf49d58`). On ne réécrit pas l'historique (IP dynamique, pas un secret). `DiagXffTemporaireTests` utilise déjà des adresses RFC 5737, sauf `1.2.3.4`, et disparaît avec le journal `DIAG_XFF`.
 - Plus tard (décidé par Mahamadou le 2026-10-20) : une adresse de contact pro (par exemple `contact@iwishop.app`, après l'achat du domaine) dans le texte « contactez-nous », lue depuis une variable d'environnement, jamais écrite dans le code.
 - Cas limites relevés le 2026-10-20, déjà présents (ils touchent tous les écrans qui lisent `est_proprietaire`, pas seulement Mon Abonnement) :
   - Boutique active enregistrée devenue inaccessible au compte : `me/` part avec l'ancien `X-Boutique-Active`, `boutique_de` refuse, `est_proprietaire` vaut faux. `BoutiqueActiveProvider` corrige l'id sans recharger : un propriétaire est vu comme employé jusqu'au rechargement suivant (le serveur, lui, l'accepte). Piste : recharger `me/`, ou la page, après cette correction.
@@ -908,6 +972,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Test instable à surveiller (relevé le 2026-10-03) : `PurchasesAchatACredit.test.jsx`, « achat comptant : mode obligatoire sans valeur par défaut, puis envoyé sans `montant_paye` » (ajouté par le 7 bis), a dépassé le délai dans la suite complète : 5117 ms pour 5000 ms. Suite de 399 s ; machine : 0,8 Go de RAM libre sur 7,9 Go, Chrome ouvert (19 processus), CPU au repos au moment du relevé. Le même jour, seul et 10 fois de suite dans le même état : 1220 à 1852 ms (médiane 1368 ms), 10 sur 10 OK. CI verte. Cause probable (avis de Mahamadou) : la mémoire de la machine (0,8 Go libre) ; Mahamadou fermera Chrome pendant les suites complètes. À surveiller : s'il échoue à nouveau, la méthode de `Clients.test.jsx` (20 passages sous charge). Pas d'augmentation de délai sans accord. Deuxième cas le même jour : `SubmissionStates.test.jsx`, « protège la validation d'une vente pendant une requête en cours », 5035 ms pour 5000 dans la suite complète (1,9 Go de RAM libre, Chrome ouvert, 16 processus) ; seul, 5 fois : 1239 à 2377 ms, 5 sur 5 OK. Même tableau : la piste de la mémoire se renforce.
 - Constat (2026-10-03) : deux tests différents dépassent 5 s dans la suite complète sur la machine de Mahamadou, alors qu'ils passent seuls. Piste à mesurer après le 8 bis : limiter le nombre de workers Vitest en local, sans toucher aux délais.
 - Constat (2026-10-13) : les workers Vitest ne démarraient pas (« Timeout waiting for worker to respond », avant tout test, même sur `errorUtils.test.js`), environ 6 fois de suite, en `forks` comme en `threads`, même avec `--maxWorkers=1` ; puis de nouveau normal sans aucun changement. RAM libre 1,1 à 1,3 Go, environ 13 processus Chrome. À rattacher à la piste précédente.
+- Constat (2026-10-21, pendant le commit 2 du chantier « nom de domaine ») : de nouveau « Failed to start forks worker » et « Timeout waiting for worker to respond » vers 20 h 25 à 20 h 33 UTC, même sur `errorUtils.test.js` et même avec `--pool=threads`. Chrome ouvert (21 processus), 1,3 Go de RAM libre sur 7,9, processeur à 0 %. Chrome fermé (2,1 à 2,5 Go libres) : le worker démarre, suite complète 380 sur 380 en 345 s. Aucun délai ni aucune configuration de Vitest modifiés. Renforce la piste de la mémoire.
 - Chantier séparé : messages et exports du backend qui affichent un montant brut (`100.00 FCFA`) au lieu du rendu de l'app. Passer par `formater_montant` (`parametres/services.py`, même rendu que `formatCurrency`) : avertissement de plafond (`sales/services/credit.py`, `avertissement_plafond_credit`), notification de dette (`notifications/services.py`), export PDF du résumé financier et des ventes détaillées (`reports/views.py`, format `:.2f`). Les exports Excel (`#,##0.00` dans `reports/views.py`) sont des formats de cellule numériques : à examiner à part.
 - `date_annulation` sur Vente/Achat/Dépense, avant toute vraie clôture de caisse (voir `reports/caisse.py`).
 - Export PDF/Excel du journal de caisse.
@@ -931,6 +996,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
 - Vérifier que la ligne `postgresql://` est supprimée de l'historique PowerShell.
-- Plus tard : plan Hobby de Vercel et plan payant du service web Render, à décider ensemble (voir « Nom de domaine : plan validé le 2026-10-19 », « Décisions pour plus tard »).
+- Plans payants, décidés le 2026-10-21 : service web Render en plan payant dans la liste « prêt à vendre », Vercel Pro après le premier client (voir « Prochaines étapes »).
 - Compte marchand PayDunya : NIF et papiers, avant le premier paiement en ligne d'un client (voir « Ouvrir un jour le paiement en ligne »).
+- Début septembre 2027 : vérifier que la carte a assez d'argent pour le renouvellement de `iwishop.app` (14,20 $, prélèvement prévu le 2027-09-21 ; un domaine expiré met toute l'app hors ligne).
 - Render → Billing : relever la date du prochain paiement de la base `iwishop-db`, et vérifier que la carte aura assez d'argent à cette date (une base suspendue met toute l'app hors ligne, comme du 2026-10-10 au 2026-10-13).
