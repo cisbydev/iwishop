@@ -39,6 +39,25 @@ describe('calculerUrlApi : valeurs écrites en clair', () => {
   ])('VITE_API_URL %s', (_, env, attendue) => {
     expect(calculerUrlApi(env)).toBe(attendue);
   });
+
+  it.each([
+    ['gestion.iwishop.app', AVEC_SLASH, 'https://api.iwishop.app/api/'],
+    ['gestion.iwishop.app', ABSENTE, 'https://api.iwishop.app/api/'],
+    ['gestion.iwishop.app', VIDE, 'https://api.iwishop.app/api/'],
+    ['iwishop.vercel.app', AVEC_SLASH, 'https://api.exemple.test/api/'],
+    ['iwishop.vercel.app', ABSENTE, LOCALE],
+    ['127.0.0.1', ABSENTE, LOCALE],
+    ['localhost', AVEC_SLASH, 'https://api.exemple.test/api/'],
+    // Noms proches : seule l'adresse exacte de l'app passe par api.iwishop.app.
+    ['iwishop.app', AVEC_SLASH, 'https://api.exemple.test/api/'],
+    ['api.iwishop.app', AVEC_SLASH, 'https://api.exemple.test/api/'],
+    ['xgestion.iwishop.app', AVEC_SLASH, 'https://api.exemple.test/api/'],
+    ['gestion.iwishop.app.exemple.test', AVEC_SLASH, 'https://api.exemple.test/api/'],
+    ['', AVEC_SLASH, 'https://api.exemple.test/api/'],
+    [undefined, AVEC_SLASH, 'https://api.exemple.test/api/'],
+  ])('page sur %j, VITE_API_URL %j', (nomHote, env, attendue) => {
+    expect(calculerUrlApi(env, nomHote)).toBe(attendue);
+  });
 });
 
 describe('resoudreUrlLogo : valeurs écrites en clair', () => {
@@ -54,60 +73,38 @@ describe('resoudreUrlLogo : valeurs écrites en clair', () => {
   ])('logo %j, VITE_API_URL %j', (logo, env, attendue) => {
     expect(resoudreUrlLogo(logo, calculerUrlApi(env))).toBe(attendue);
   });
-});
 
-// Preuve du refactor (commit 1 du chantier « nom de domaine ») : copie exacte
-// de l'ancien calcul (api.js, App.jsx, Settings.jsx), seule la source de
-// l'environnement est passée en paramètre. Au commit 2, le comportement
-// changera exprès sur <app>.iwishop.app : retirer alors cette copie et ce
-// bloc, et garder les valeurs écrites en clair ci-dessus.
-function ancienneUrlApi(env) {
-  const API_URL = env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
-  return API_URL;
-}
-
-function ancienneUrlLogo(logo, env) {
-  const API_URL = env.VITE_API_URL || 'http://127.0.0.1:8001/api/';
-  const SERVER_BASE_URL = API_URL.replace(/api\/?$/, '');
-  if (!logo) return null;
-  if (logo.startsWith('http')) return logo;
-  return `${SERVER_BASE_URL}${logo.startsWith('/') ? logo.slice(1) : logo}`;
-}
-
-describe('mêmes valeurs que l’ancien calcul', () => {
-  const environnements = [AVEC_SLASH, SANS_SLASH, ABSENTE, VIDE];
-  const logos = [
-    null,
-    undefined,
-    '',
-    'https://r2.exemple.test/logos/x.png?signature=1',
-    'http://127.0.0.1:8001/media/logos/x.png',
-    '/media/logos/x.png',
-    'logos/x.png',
-  ];
-
-  it.each(environnements)('adresse de l’API, VITE_API_URL %j', (env) => {
-    expect(calculerUrlApi(env)).toBe(ancienneUrlApi(env));
-  });
-
-  it.each(environnements)('URL des logos, VITE_API_URL %j', (env) => {
-    for (const logo of logos) {
-      expect(resoudreUrlLogo(logo, calculerUrlApi(env))).toBe(ancienneUrlLogo(logo, env));
-    }
+  it.each([
+    ['/media/logos/x.png', 'https://api.iwishop.app/media/logos/x.png'],
+    ['logos/x.png', 'https://api.iwishop.app/logos/x.png'],
+    ['https://r2.exemple.test/logos/x.png?signature=1', 'https://r2.exemple.test/logos/x.png?signature=1'],
+    [null, null],
+  ])('page sur gestion.iwishop.app, logo %j', (logo, attendue) => {
+    expect(resoudreUrlLogo(logo, calculerUrlApi(AVEC_SLASH, 'gestion.iwishop.app'))).toBe(attendue);
   });
 });
 
-describe('branchement sur import.meta.env', () => {
+describe('branchement sur import.meta.env et l’adresse de la page', () => {
+  // Adresse de la page dans jsdom (instance exposée par Vitest), remise après
+  // chaque test.
+  const ADRESSE_INITIALE = window.location.href;
+
   afterEach(() => {
     vi.unstubAllEnvs();
+    globalThis.jsdom.reconfigure({ url: ADRESSE_INITIALE });
   });
 
   // Vitest lit le .env local, absent en CI : la variable est fixée ici, puis
   // les modules sont rechargés (l'adresse est calculée à l'import).
   it.each([
-    ['définie', 'https://api.exemple.test/api/', 'https://api.exemple.test/api/', 'https://api.exemple.test/media/logos/x.png'],
-    ['absente', undefined, LOCALE, 'http://127.0.0.1:8001/media/logos/x.png'],
-  ])('VITE_API_URL %s : API_URL, logo par défaut, api et authClient d’api.js', async (_, valeur, attendue, logoAttendu) => {
+    ['localhost', 'définie', 'https://api.exemple.test/api/', 'https://api.exemple.test/api/', 'https://api.exemple.test/media/logos/x.png'],
+    ['localhost', 'absente', undefined, LOCALE, 'http://127.0.0.1:8001/media/logos/x.png'],
+    ['iwishop.vercel.app', 'définie', 'https://api.exemple.test/api/', 'https://api.exemple.test/api/', 'https://api.exemple.test/media/logos/x.png'],
+    ['gestion.iwishop.app', 'définie', 'https://api.exemple.test/api/', 'https://api.iwishop.app/api/', 'https://api.iwishop.app/media/logos/x.png'],
+    ['gestion.iwishop.app', 'absente', undefined, 'https://api.iwishop.app/api/', 'https://api.iwishop.app/media/logos/x.png'],
+  ])('page sur %s, VITE_API_URL %s : API_URL, logo par défaut, api et authClient d’api.js', async (nomHote, _, valeur, attendue, logoAttendu) => {
+    globalThis.jsdom.reconfigure({ url: `https://${nomHote}/` });
+    expect(window.location.hostname).toBe(nomHote);
     vi.stubEnv('VITE_API_URL', valeur);
     // Le .env local vaut l'adresse par défaut : sans ce contrôle, « absente »
     // passerait même si la variable n'était pas retirée.
