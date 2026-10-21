@@ -1,4 +1,5 @@
 import itertools
+import logging
 from decimal import Decimal
 from unittest import mock
 
@@ -912,6 +913,83 @@ class LoginThrottlingTests(APITestCase):
             for entree in valeur:
                 self.assertIsInstance(entree, float)
             self.assertNotIn(mot_de_passe_distinctif, str(valeur))
+
+
+class _CaptureJournaux(logging.Handler):
+    def __init__(self):
+        super().__init__(level=logging.DEBUG)
+        self.messages = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+
+class DiagXffTemporaireTests(APITestCase):
+    """DIAGNOSTIC TEMPORAIRE, à supprimer avec le journal DIAG_XFF
+    (accounts.views) : il ne s'écrit que pour l'identifiant exact
+    « diag-xff ». Une IP est une donnée personnelle : les vraies connexions
+    ne laissent aucune trace. Tous les journaux sont capturés (racine en
+    DEBUG), pas seulement celui d'accounts.views."""
+
+    XFF = '1.2.3.4, 203.0.113.7, 198.51.100.20, 10.30.70.4'
+    CF_IP = '203.0.113.7'
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        boutique = Boutique.objects.create(nom="Boutique", slug="boutique-diag-xff")
+        user = User.objects.create_user(username="vrai_compte", password="motdepasse_correct")
+        Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
+
+        self.journaux = _CaptureJournaux()
+        racine = logging.getLogger()
+        niveau_initial = racine.level
+        racine.addHandler(self.journaux)
+        racine.setLevel(logging.DEBUG)
+        self.addCleanup(racine.setLevel, niveau_initial)
+        self.addCleanup(racine.removeHandler, self.journaux)
+
+    def _login(self, username, password):
+        return APIClient().post(
+            '/api/token/',
+            {'username': username, 'password': password},
+            HTTP_X_FORWARDED_FOR=self.XFF,
+            HTTP_CF_CONNECTING_IP=self.CF_IP,
+        )
+
+    def _lignes_diag(self):
+        return [m for m in self.journaux.messages if 'DIAG_XFF' in m]
+
+    def test_diag_xff_journalise_le_reseau_sans_le_mot_de_passe(self):
+        response = self._login('diag-xff', 'mdp-distinctif-diag')
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        lignes = self._lignes_diag()
+        self.assertEqual(len(lignes), 1)
+        self.assertIn(f'HTTP_X_FORWARDED_FOR={self.XFF}', lignes[0])
+        self.assertIn(f'HTTP_CF_CONNECTING_IP={self.CF_IP}', lignes[0])
+        for message in self.journaux.messages:
+            self.assertNotIn('mdp-distinctif-diag', message)
+
+    def test_rien_n_est_journalise_pour_un_autre_username(self):
+        cas = [
+            ('vrai_compte', 'motdepasse_correct', status.HTTP_200_OK),
+            ('vrai_compte', 'mauvais', status.HTTP_401_UNAUTHORIZED),
+            ('DIAG-XFF', 'mauvais', status.HTTP_401_UNAUTHORIZED),
+            (' diag-xff', 'mauvais', status.HTTP_401_UNAUTHORIZED),
+            ('diag-xff-2', 'mauvais', status.HTTP_401_UNAUTHORIZED),
+        ]
+        for username, password, statut_attendu in cas:
+            with self.subTest(username=username, password=password):
+                self.journaux.messages.clear()
+
+                response = self._login(username, password)
+
+                self.assertEqual(response.status_code, statut_attendu)
+                self.assertEqual(len(self._lignes_diag()), 0)
+                for message in self.journaux.messages:
+                    self.assertNotIn('203.0.113.7', message)
+                    self.assertNotIn('1.2.3.4', message)
 
 
 class MeBoutiqueIdTests(APITestCase):

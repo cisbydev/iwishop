@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -27,6 +29,18 @@ from .serializers_auth import CustomTokenObtainPairSerializer
 from .permissions import IsOwner
 from .throttling import LoginIPRateThrottle, LoginUsernameRateThrottle
 
+logger = logging.getLogger(__name__)
+
+# DIAGNOSTIC TEMPORAIRE - A SUPPRIMER APRES LA MESURE
+# Nouvelle mesure de X-Forwarded-For derrière api.iwishop.app (chantier
+# « nom de domaine », vérification bloquante 3) : _ip_client lit l'IP en
+# position -3, mesurée en septembre derrière iwishop.onrender.com seulement.
+# Journalisé uniquement pour cet identifiant exact, qui ne correspond à
+# aucun compte : une IP est une donnée personnelle, les vraies connexions
+# ne laissent aucune trace. Jamais le mot de passe.
+_DIAG_XFF_USERNAME = 'diag-xff'
+# FIN DIAGNOSTIC TEMPORAIRE
+
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
@@ -40,6 +54,19 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     throttle_classes = [LoginIPRateThrottle, LoginUsernameRateThrottle]
 
     def post(self, request, *args, **kwargs):
+        # DIAGNOSTIC TEMPORAIRE - A SUPPRIMER APRES LA MESURE
+        # logger.warning volontaire : sans configuration LOGGING, seuls les
+        # WARNING et plus remontent dans les journaux de Render.
+        data = request.data if isinstance(request.data, dict) else {}
+        if data.get('username') == _DIAG_XFF_USERNAME:
+            logger.warning(
+                "DIAG_XFF HOST=%s REMOTE_ADDR=%s HTTP_X_FORWARDED_FOR=%s HTTP_CF_CONNECTING_IP=%s",
+                request.META.get('HTTP_HOST'),
+                request.META.get('REMOTE_ADDR'),
+                request.META.get('HTTP_X_FORWARDED_FOR'),
+                request.META.get('HTTP_CF_CONNECTING_IP'),
+            )
+        # FIN DIAGNOSTIC TEMPORAIRE
         response = super().post(request, *args, **kwargs)
         refresh = response.data.pop('refresh', None)
         if refresh:
