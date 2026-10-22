@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-21.
+Mis à jour le 2026-10-22.
 
 ## Incident prod (2026-10-10 au 2026-10-13) : base Render expirée
 
@@ -9,6 +9,7 @@ Mis à jour le 2026-10-21.
 - Intégrité des données : établie par Mahamadou le 2026-10-13 : les ventes V-2F621063 et V-AD91351B (Bintou) sont présentes, la caisse du 2026-10-05 affiche ses chiffres, `iwishop-db` est « Available ».
 - Aucun commit n'a été poussé pendant la panne : à la rédaction de cette note, `main` = `origin/main`, sur `b9053a7`. Règle tant qu'une panne dure : tout commit poussé est noté « non vérifié en prod », et on les vérifie tous après la réparation.
 - Horloge du PC décalée une fois de plus le 2026-10-16 : elle affichait le 2026-10-15 (et a reculé de plusieurs heures après une première correction). Mise à l'heure à la main par Mahamadou, synchronisation automatique désactivée pour la journée ; vérifiée avec `Get-Date` (vendredi 2026-10-16) avant les commits `b047434` et `bba2b20`. À réactiver et revérifier ensuite.
+- Horloge du PC décalée le 2026-10-22 : elle affichait le vendredi 2026-10-23 (Claude s'y est fié dans un message). Corrigée par Mahamadou, vérifiée avec `Get-Date` (jeudi 2026-10-22, 13 h 22) avant `d3bd0e1`, puis avant chaque commit suivant.
 - Horloge du PC de nouveau décalée : le 2026-10-13, elle affichait le 2026-10-07. Remise à l'heure par Mahamadou le même jour, vérifiée avec `date` et `Get-Date` (2026-10-13) avant le commit de cette note (`ccfcb3c`, daté du 2026-10-13). Les dates de cette note viennent de Mahamadou et de Render, pas du PC.
 
 ## Prochaines étapes (ordre décidé par Mahamadou le 2026-10-21)
@@ -16,21 +17,82 @@ Mis à jour le 2026-10-21.
 Aucun vrai client à ce jour (Mahamadou, 2026-10-21) : SoraShop n'est pas utilisée. Les notes plus anciennes parlent d'un « seul vrai client » (boutique SoraShop) : c'est dépassé. Objectif : finir la liste « prêt à vendre », puis chercher des clients.
 
 Liste « prêt à vendre », dans l'ordre :
-1. Landing page : à refaire dans le dépôt, comme un projet séparé de l'app. Une première version avait été faite avec ChatGPT Sites, mais l'abonnement ChatGPT de Mahamadou a expiré et son code ne peut pas être récupéré. Les 15 captures de cette version servent de modèle.
-2. Essai gratuit : vérifier que l'app tient la promesse de la landing page (14 jours, gratuit, sans carte bancaire), et l'aligner si besoin. À rappeler : une formule « Essai gratuit » à 3 000 FCFA existe en prod, et `ApprouverDemandeView` la cherche par son nom exact (voir « En attente, côté code »).
+1. Landing page : à refaire dans le dépôt, comme un projet séparé de l'app. Une première version avait été faite avec ChatGPT Sites, mais l'abonnement ChatGPT de Mahamadou a expiré et son code ne peut pas être récupéré. Les 15 captures de cette version servent de modèle. Plan validé le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 »).
+2. Essai gratuit : vérifier que l'app tient la promesse de la landing page (14 jours, gratuit, sans carte bancaire), et l'aligner si besoin. Fait le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 », essai gratuit). Reste le chantier séparé de la recherche par le nom (voir « En attente, côté code »).
 3. Mise en ligne de la landing page sur `iwishop.app`.
-4. 2FA sur GitHub et sur Render.
+4. 2FA sur GitHub et sur Render. GitHub : fait le 2026-10-22 (voir « Sécurité GitHub (2026-10-22) »). Render : à faire.
 5. Sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base »). Son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19.
 6. Sécurité : « pas d'abonnement = accès » (voir « En attente, côté code »), `/admin-plateforme`, limite de débit.
 7. Service web Render en plan payant (aujourd'hui gratuit, avec mise en veille).
 
 Marque (Mahamadou, 2026-10-21) : le nom s'écrit « iwiShop » partout (app, landing page, emails). Le logo est celui de l'app (la goutte « iwi »), pas le sac bleu de la version ChatGPT. Constat du 2026-10-21 (recherche dans le dépôt, rien n'est corrigé) : les emails (`tenants/emails.py`), PayDunya (`tenants/paydunya.py`), l'écran de connexion et l'assistant écrivent déjà « iwiShop ». En revanche, l'app affiche « IwiShop » dans `index.html` (titre, `apple-mobile-web-app-title`, description), `manifest.webmanifest` (`name`, `short_name`), `App.jsx` (texte alternatif du logo), `InstallPwaModal.jsx` (3 textes, et ses tests) et `main.jsx` (message de nouvelle version). Le nom d'expéditeur des emails vient de `BREVO_SENDER_NAME` sur Render (« iwiShop » si absente) : valeur non relevée.
 
-Pour le 2026-10-22, avec le chantier de la landing page (décidé par Mahamadou le 2026-10-21) :
-- commit `fix(frontend)` à part : « iwiShop » dans `index.html`, `manifest.webmanifest`, `App.jsx`, `InstallPwaModal.jsx` et ses tests, `main.jsx`. Plan d'abord ;
-- commit `docs` à part : `CLAUDE.md`, « iWiShop » → « iwiShop » ;
-- Mahamadou relève `BREVO_SENDER_NAME` sur Render.
-Les commentaires internes « audit IwiShop » (`accounts/`, `tenants/`) restent tels quels.
+Fait le 2026-10-22, poussé le même jour (`d574c75..bfd9138`), CI verte (run 39792929659 sur `bfd9138` : jobs backend et frontend en succès, de 14 h 07 à 14 h 08 UTC ; Vercel a déployé l'app dans la minute) :
+- `d3bd0e1` `fix(frontend)` : « iwiShop » dans `index.html`, `manifest.webmanifest`, `App.jsx`, `InstallPwaModal.jsx` et ses tests, `main.jsx`. Lint OK, build OK ; tests 380/380 au 2e passage (le 1er, en 950 s, avait 7 échecs dans 4 fichiers et 3 erreurs, non identifiés : seules les 15 dernières lignes avaient été gardées ; 34 fichiers comptés sur 37, ce qui évoque des workers non démarrés ; 2,4 Go de RAM libre sur 8 à la relance).
+- `1c41185` `chore(frontend)` : `favicon.ico` 32 px tiré de la goutte ; retrait de `favicon.svg` (éclair de Vite) et `icons.svg` (icônes du modèle Vite), référencés nulle part mais mis en cache par le service worker. L'onglet affichait déjà la goutte (`index.html` déclare `/pwa-192x192.png`) ; `/favicon.ico` renvoyait la page en `text/html`. Vérifié sur `vite preview` : `/favicon.ico` en `image/x-icon`, `dist/sw.js` sans `.svg` (10 entrées), onglet vu par Mahamadou. Vérifié en prod le 2026-10-22 à 14 h 08 UTC (curl) : `/favicon.ico` en 200, `image/vnd.microsoft.icon` (type officiel du format ICO ; `image/x-icon` en est l'ancien nom, accepté de même), 1 477 octets, même empreinte SHA-256 que le fichier du dépôt ; `/favicon.svg` en 200 `text/html` (la page de l'app, le fichier n'existe plus) ; `sw.js` servi sans aucun `.svg` ; titre de la page « iwiShop ».
+- `9c6d0e9` `docs` : `CLAUDE.md`, « iWiShop » → « iwiShop ».
+- `ad961a8` `fix(hooks)` et `bfd9138` `ci` : voir « Hook de secrets : échec fermé (2026-10-22) ».
+Reste : Mahamadou relève `BREVO_SENDER_NAME` sur Render. Les commentaires internes « audit IwiShop » (`accounts/`, `tenants/`) restent tels quels.
+
+## Hook de secrets : échec fermé (2026-10-22)
+
+Constat (commit `1c41185`, trace Python pendant le commit) : le hook laissait passer des fichiers sans les analyser, dans quatre cas :
+- lecture en cp1252 sous Windows (`text=True`) : un octet inconnu de cet encodage (U+FE0F d'un emoji : octet 0x8F) faisait sauter le fichier. `AdminPlateformePage.jsx` et `tenants/emails.py` n'avaient jamais été analysés ;
+- `git show` en échec : fichier sauté sans message ;
+- nom avec accent : chemin entre guillemets (sans `-z`), donc `git show` en échec ;
+- fichier renommé : exclu par `--diff-filter=ACM`.
+
+Corrigé par `ad961a8` : lecture en octets, décodage UTF-8 (`errors="replace"`) ; seul un fichier binaire (octet nul dans les 8 000 premiers octets) est sauté, et il est cité ; un fichier illisible ou une erreur inattendue bloque le commit. Tests : `scripts/git-hooks/test_pre_commit.py`, 8 tests ; 7 échouent sur l'ancien hook (le 8e, secret ASCII simple, sert de témoin), 8/8 passent ; 5 mutations sur 5 détectées. `bfd9138` lance ces tests dans le job backend de la CI, et la même commande est dans les vérifications locales de `CLAUDE.md`. Premier passage en CI (run 39792929659) : étape en succès, ce qui prouve qu'au moins un test a tourné sans échec (Python 3.13 sort en erreur si aucun test ne tourne). Nombre de tests lu dans le journal par Mahamadou (le journal n'est pas lisible par l'API sans droits d'administrateur) : « Ran 8 tests, OK ».
+
+Contrôles en lecture seule (2026-10-22) : passage unique du hook corrigé sur les 405 fichiers suivis : 396 analysés, 9 binaires (images de `sorashop-frontend` et `favicon.ico`), 0 illisible, 0 trouvaille. `AdminPlateformePage.jsx` (540 lignes) et `tenants/emails.py` (129 lignes) : 0 trouvaille, et 0 aussi dans leurs 10 versions passées.
+
+Limite connue : un secret dans un fichier binaire n'est pas détecté (choix de Mahamadou ; chaque binaire sauté est cité).
+
+## Sécurité GitHub (2026-10-22)
+
+Fait par Mahamadou le 2026-10-22 :
+- 2FA activé sur le compte GitHub (application), codes de secours sur papier ;
+- dépôt : Private vulnerability reporting, Secret Protection et Push protection activés ;
+- Secret scanning : aucune alerte.
+
+## Landing page : plan validé le 2026-10-22
+
+Décisions de Mahamadou (2026-10-22) :
+1. Modèle : les 15 captures de la version ChatGPT Sites, dans `C:\Users\User\Desktop\landing-captures\`, hors du dépôt (ne jamais les y ajouter).
+2. Outil : Vite sans framework, dans `landing/`, déployé comme un second projet Vercel sur `iwishop.app` (DNS Cloudflare, DNS only ; `www` redirigé vers `iwishop.app`). Activer sur les deux projets Vercel « ne pas redéployer si rien n'a changé dans le dossier racine ».
+3. WhatsApp : numéro confirmé par Mahamadou le 2026-10-22, écrit seulement dans la configuration de la landing (un seul endroit, pas dans cette note) ; texte prérempli « Bonjour, je souhaite en savoir plus sur iwiShop. »
+4. Prix affiché : « 15 000 FCFA / mois par boutique ».
+5. Après l'essai : « Paiement par Orange Money, Moov Money ou en espèces. Activation par notre équipe. », avec un lien WhatsApp (le paiement en ligne reste fermé).
+6. Délai de validation annoncé : « sous 24 h » (les demandes d'accès sont validées à la main).
+7. Admin, relevé par Mahamadou le 2026-10-22 : « Essai gratuit » 14 jours, `actif=False`, prix passé de 3 000 à 0 (nom inchangé) ; « 1 MOIS » 30 jours, 15 000, actif ; « 3 MOIS » 90 jours, 45 000, actif.
+8. Rappels de dettes en retard : retirés de la landing (voir « En attente, côté code »).
+9. Données de démonstration : commande `seed_demo` dans le dépôt, qui refuse de tourner hors de localhost (testé). Captures de l'app prises sur la base locale seulement.
+10. Mentions légales : Mahamadou Cissé, Bamako, Mali ; contact `contact@iwishop.app` (à créer avec Cloudflare Email Routing) ; pas de RCCM ni de NIF pour l'instant, ne rien inventer.
+11. Mesure d'audience : aucune.
+
+Règle de contenu : ne promettre que ce que l'app fait (relu dans le code le 2026-10-22), avec ses limites :
+- ventes hors ligne : ventes seulement, téléphone déjà connecté une fois, envoi au retour du réseau ;
+- installation sur l'écran d'accueil ; factures PDF partageables (WhatsApp par le partage du téléphone) ; photos de produits ; unités de vente ;
+- stock et alerte « stock bas » dans l'app seulement (ni SMS, ni email, ni notification du téléphone) ;
+- crédits clients, fournisseurs et achats, dépenses, journal de caisse (Mobile Money est un mode enregistré : l'app n'encaisse rien) ;
+- rapports avec export PDF et Excel, journal de caisse, assistant Iwi (30 questions par jour par défaut) : propriétaire seulement ;
+- multi-boutiques : un compte, plusieurs boutiques, données séparées ; pas de vue regroupée ; une nouvelle boutique passe par une demande ; un abonnement par boutique ;
+- après l'essai : données conservées, en lecture seule.
+À ne pas écrire : paiement en ligne, accès immédiat, rappels de dettes, alerte avant la fin de l'abonnement (l'email ne part que si le propriétaire ouvre « Mon abonnement » dans les 3 derniers jours), sauvegardes automatiques (pas encore faites), code-barres, SMS, témoignages ou chiffres de clients (aucun client).
+
+Essai gratuit (vérifié dans le code le 2026-10-22) : durée lue en base (`duree_jours`) ; l'accès dure du jour J au jour J+14 inclus (`abonnement_valide`), donc au moins 14 jours ; le formulaire de demande ne demande ni carte ni paiement ; aucun palier ne limite les fonctions (offre unique). Promesse « 14 jours, gratuit, sans carte bancaire » tenue.
+
+Relevé pour un commit `fix(frontend)` à venir : `DemandeAccesPage.jsx` a une largeur fixe `w-96` (384 px) qui déborde sur un téléphone de 360 px, et tutoie (« Ta demande ») alors que la landing vouvoie.
+
+Découpage prévu (un diff et un « oui, commit » par commit, un push par livraison) :
+1. `feat(landing)` : squelette Vite, configuration unique (liens, WhatsApp), `vercel.json`, tests de base (`node --test` sur `dist/`).
+2. `feat(landing)` : textes de toutes les sections.
+3. `feat(landing)` : logo, icônes, captures WebP, image Open Graph (1200×630, moins de 300 Ko).
+4. `feat(landing)` : mentions légales et politique de confidentialité.
+5. `ci` : job `landing` (build et tests).
+6. `fix(frontend)` : `DemandeAccesPage` à 360 px.
+7. `docs` : cette note.
+Budget de poids : premier affichage sous 150 Ko, page entière sous 500 Ko, chaque capture sous 60 Ko ; polices du système, aucun JavaScript livré.
 
 Photo de produit : la livraison 1 est terminée (voir « Photo de produit : plan validé le 2026-10-15 »).
 
@@ -973,7 +1035,8 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Cas limites relevés le 2026-10-20, déjà présents (ils touchent tous les écrans qui lisent `est_proprietaire`, pas seulement Mon Abonnement) :
   - Boutique active enregistrée devenue inaccessible au compte : `me/` part avec l'ancien `X-Boutique-Active`, `boutique_de` refuse, `est_proprietaire` vaut faux. `BoutiqueActiveProvider` corrige l'id sans recharger : un propriétaire est vu comme employé jusqu'au rechargement suivant (le serveur, lui, l'accepte). Piste : recharger `me/`, ou la page, après cette correction.
   - Premier chargement sans boutique enregistrée : le serveur prend la première boutique **active** (`profil_par_defaut`), le frontend la première de `mes-boutiques/`. Ils ne diffèrent que si la première boutique du compte est désactivée.
-- Chantier séparé : « Essai gratuit » est trouvée par son nom exact (`FormuleAbonnement.objects.get(nom='Essai gratuit')`, `ApprouverDemandeView`), ce qui est fragile : la renommer dans l'admin bloque toute nouvelle inscription. La remplacer par un identifiant stable. À rapprocher : la formule « Essai gratuit » à 3 000 FCFA existe toujours en prod (vue par Mahamadou le 2026-10-20 ; son état `actif` n'a pas été relevé ce jour-là, voir le point « Réglé le 2026-10-05 » plus haut).
+- Chantier séparé : « Essai gratuit » est trouvée par son nom exact (`FormuleAbonnement.objects.get(nom='Essai gratuit')`, `ApprouverDemandeView`), ce qui est fragile : la renommer dans l'admin bloque toute nouvelle inscription. La remplacer par un identifiant stable. Relevé par Mahamadou le 2026-10-22 : `actif=False`, 14 jours, prix passé de 3 000 à 0, nom inchangé.
+- Tâche à part (décidée par Mahamadou le 2026-10-22) : faire tourner `verifier_dettes_en_retard` en prod. La commande existe (`notifications/management/commands/`), mais rien ne la lance (ni `build.sh`, ni une tâche planifiée) : les notifications « dette en retard » ne sont probablement jamais créées en prod. Retirée de la landing en attendant.
 - Chantier séparé : `Clients.jsx` : le corps de la carte de vente (~200 lignes dans le map) est à extraire en composant `CarteVente`, avec ses tests inchangés.
 - Chantier séparé : `Clients.jsx:55` (`grouperRemboursements`) calcule le montant effectif d'un remboursement côté frontend, en flottants avec arrondi, contrairement à `CLAUDE.md` (aucun calcul de montant dans le frontend). Le faire calculer par le backend, comme `montant_effectif` dans l'historique fournisseur.
 - Chantier séparé : autres calculs de montants existants dans le frontend. `Purchases.jsx` (sous-totaux et « Montant Total » du panier) et `Sales.jsx` (« Restera dû » calculé pendant la saisie d'une vente à crédit). Nuance : un total provisoire pendant la saisie est acceptable si le serveur recalcule la valeur enregistrée ; le chantier vérifiera au cas par cas.
@@ -1001,7 +1064,6 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 ## En attente, côté Mahamadou
 
 - Vérifier en prod Ctrl+P et l'état vide du journal de caisse.
-- Activer Secret scanning et Push protection sur GitHub.
 - Changer l'ancien mot de passe PostgreSQL local.
 - Vérifier que la ligne `postgresql://` est supprimée de l'historique PowerShell.
 - Plans payants, décidés le 2026-10-21 : service web Render en plan payant dans la liste « prêt à vendre », Vercel Pro après le premier client (voir « Prochaines étapes »).
