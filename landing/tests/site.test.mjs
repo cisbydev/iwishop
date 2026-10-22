@@ -240,6 +240,14 @@ test('icônes : favicon.ico et apple-touch-icon servis', () => {
   }
 });
 
+test('robots.txt et sitemap.xml listent les adresses canoniques des pages', () => {
+  assert.match(readFileSync(join(DIST, 'robots.txt'), 'utf-8'), new RegExp(`Sitemap: ${SITE.urlSite}/sitemap\\.xml`));
+  const sitemap = readFileSync(join(DIST, 'sitemap.xml'), 'utf-8');
+  const adresses = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  const canoniques = PAGES.map((page) => attributs(lirePage(page), 'link', 'href').find((h) => h.startsWith(SITE.urlSite)));
+  assert.deepEqual([...adresses].sort(), [...canoniques].sort());
+});
+
 test('titre, description et adresse canonique de chaque page', () => {
   for (const page of PAGES) {
     const html = lirePage(page);
