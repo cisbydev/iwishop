@@ -17,7 +17,7 @@ Mis à jour le 2026-10-22.
 Aucun vrai client à ce jour (Mahamadou, 2026-10-21) : SoraShop n'est pas utilisée. Les notes plus anciennes parlent d'un « seul vrai client » (boutique SoraShop) : c'est dépassé. Objectif : finir la liste « prêt à vendre », puis chercher des clients.
 
 Liste « prêt à vendre », dans l'ordre :
-1. Landing page : à refaire dans le dépôt, comme un projet séparé de l'app. Une première version avait été faite avec ChatGPT Sites, mais l'abonnement ChatGPT de Mahamadou a expiré et son code ne peut pas être récupéré. Les 15 captures de cette version servent de modèle. Plan validé le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 »).
+1. Landing page : à refaire dans le dépôt, comme un projet séparé de l'app. Une première version avait été faite avec ChatGPT Sites, mais l'abonnement ChatGPT de Mahamadou a expiré et son code ne peut pas être récupéré. Les 15 captures de cette version servent de modèle. Plan validé le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 »). Code fait et poussé le 2026-10-22, CI verte (voir « Landing page : fait le 2026-10-22 ») ; reste la mesure de fluidité, interrompue.
 2. Essai gratuit : vérifier que l'app tient la promesse de la landing page (14 jours, gratuit, sans carte bancaire), et l'aligner si besoin. Fait le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 », essai gratuit). Reste le chantier séparé de la recherche par le nom (voir « En attente, côté code »).
 3. Mise en ligne de la landing page sur `iwishop.app`.
 4. 2FA sur GitHub et sur Render. GitHub : fait le 2026-10-22 (voir « Sécurité GitHub (2026-10-22) »). Render : à faire.
@@ -55,6 +55,22 @@ Fait par Mahamadou le 2026-10-22 :
 - dépôt : Private vulnerability reporting, Secret Protection et Push protection activés ;
 - Secret scanning : aucune alerte.
 
+## Landing page : fait le 2026-10-22
+
+Poussé en deux fois, CI verte les deux fois (jobs landing, backend et frontend en succès) :
+- `ab5218f..d995b62` : les 8 commits `landing` et `ci` (`a0ce057` à `d995b62`). Run 39838311034, terminé à 19 h 15 UTC.
+- `d995b62..9395de9` : `cb187e3` et `9395de9`. Run 39853176393, de 20 h 56 à 20 h 58 UTC.
+La landing n'est pas encore en ligne (étape 3 : second projet Vercel sur `iwishop.app`).
+
+Mesure de fluidité de la landing (animations de `d995b62`) : interrompue le 2026-10-22 au soir, Claude Code s'étant fermé pendant la mesure. Aucun résultat sur le disque ; le message de `d995b62` renvoie au « compte rendu de la session », perdu avec elle. À refaire, en notant l'état de la machine. Relevé après la fermeture : aucun serveur Vite, Playwright ou Chromium de test ne tournait encore.
+
+`cb187e3` `fix(frontend)` : `DemandeAccesPage`.
+- Constat corrigé : à 360 px, la carte `w-96` ne débordait pas (`scrollWidth` 360), mais touchait les deux bords (carte de 0 à 360). Après : `w-full max-w-sm` dans un conteneur `px-4`, carte de 16 à 344 ; 1366 px inchangé (carte de 491 à 875). Mesure Playwright (un seul Chromium headless, API simulée), formulaire et confirmation, vue échouer avant sur la marge de 16 px.
+- Vouvoiement et promesses de la landing : « 14 jours d'essai gratuit, sans carte bancaire. », « Votre demande est examinée sous 24 h, puis vos accès vous sont envoyés par email. » (avant et après l'envoi). Libellés « Votre nom », « Nom de votre boutique ».
+- Tests : `DemandeAccesPage.test.jsx`, 3 tests, chacun vu échouer avant pour la bonne raison (textes absents, tutoiement). Lint OK, build OK. `npm test` en local : 378 réussis, 5 dépassements du délai de 5 s dans 4 fichiers qui n'importent ni la page ni `App` (`PurchasesAchatACredit` ×2, `RefusAbonnementExpireHistoriqueClients`, `SubmissionStates`, `isolationHorsLigne`), en 1 011 s ; relancés seuls : 3 dépassements, `isolationHorsLigne` passe. Machine : 1,0 à 1,8 Go de RAM libre sur 7,9, 11 à 12 processus Chrome, application Codex ouverte. Aucun délai modifié ; la CI est passée.
+
+`9395de9` `feat(tenants)` : `seed_demo`. Compte « demo », deux boutiques fictives, chacune avec un abonnement `ACTIF` d'un an (formule « 1 MOIS », réutilisée si elle existe, sinon créée avec les valeurs de la prod), 9 ventes passées par l'API. Refuse de tourner sans `DEBUG`, hors de localhost (hôte vide compris), et si le compte existe déjà. 8 tests ; suite backend 691 tests OK ; `check` et `makemigrations --check` sans changement.
+
 ## Landing page : plan validé le 2026-10-22
 
 Décisions de Mahamadou (2026-10-22) :
@@ -82,16 +98,17 @@ Règle de contenu : ne promettre que ce que l'app fait (relu dans le code le 202
 
 Essai gratuit (vérifié dans le code le 2026-10-22) : durée lue en base (`duree_jours`) ; l'accès dure du jour J au jour J+14 inclus (`abonnement_valide`), donc au moins 14 jours ; le formulaire de demande ne demande ni carte ni paiement ; aucun palier ne limite les fonctions (offre unique). Promesse « 14 jours, gratuit, sans carte bancaire » tenue.
 
-Relevé pour un commit `fix(frontend)` à venir : `DemandeAccesPage.jsx` a une largeur fixe `w-96` (384 px) qui déborde sur un téléphone de 360 px, et tutoie (« Ta demande ») alors que la landing vouvoie.
+Relevé pour un commit `fix(frontend)` à venir : `DemandeAccesPage.jsx` a une largeur fixe `w-96` (384 px) qui déborde sur un téléphone de 360 px, et tutoie (« Ta demande ») alors que la landing vouvoie. Corrigé le 2026-10-22 (`cb187e3`) ; la mesure a démenti le débordement : la carte, enfant flex, rétrécissait à 360 px mais touchait les deux bords (voir « Landing page : fait le 2026-10-22 »).
 
 Découpage prévu (un diff et un « oui, commit » par commit, un push par livraison) :
-1. `feat(landing)` : squelette Vite, configuration unique (liens, WhatsApp), `vercel.json`, tests de base (`node --test` sur `dist/`).
-2. `feat(landing)` : textes de toutes les sections.
-3. `feat(landing)` : logo, icônes, captures WebP, image Open Graph (1200×630, moins de 300 Ko).
-4. `feat(landing)` : mentions légales et politique de confidentialité.
-5. `ci` : job `landing` (build et tests).
-6. `fix(frontend)` : `DemandeAccesPage` à 360 px.
+1. `feat(landing)` : squelette Vite, configuration unique (liens, WhatsApp), `vercel.json`, tests de base (`node --test` sur `dist/`). Fait : `a0ce057`.
+2. `feat(landing)` : textes de toutes les sections. Fait : `b61a853`.
+3. `feat(landing)` : logo, icônes, captures WebP, image Open Graph (1200×630, moins de 300 Ko). Fait : `433e94b`.
+4. `feat(landing)` : mentions légales et politique de confidentialité. Fait : `56b4606`.
+5. `ci` : job `landing` (build et tests). Fait : `6ce6ce3`.
+6. `fix(frontend)` : `DemandeAccesPage` à 360 px. Fait : `cb187e3`.
 7. `docs` : cette note.
+Ajoutés en route : `111bcd5` (robots.txt et sitemap.xml), `378793f` (passe de design), `d995b62` (animations en CSS), `9395de9` (`seed_demo`).
 Budget de poids : premier affichage sous 150 Ko, page entière sous 500 Ko, chaque capture sous 60 Ko ; polices du système, aucun JavaScript livré.
 
 Photo de produit : la livraison 1 est terminée (voir « Photo de produit : plan validé le 2026-10-15 »).
@@ -1037,6 +1054,10 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
   - Premier chargement sans boutique enregistrée : le serveur prend la première boutique **active** (`profil_par_defaut`), le frontend la première de `mes-boutiques/`. Ils ne diffèrent que si la première boutique du compte est désactivée.
 - Chantier séparé : « Essai gratuit » est trouvée par son nom exact (`FormuleAbonnement.objects.get(nom='Essai gratuit')`, `ApprouverDemandeView`), ce qui est fragile : la renommer dans l'admin bloque toute nouvelle inscription. La remplacer par un identifiant stable. Relevé par Mahamadou le 2026-10-22 : `actif=False`, 14 jours, prix passé de 3 000 à 0, nom inchangé.
 - Tâche à part (décidée par Mahamadou le 2026-10-22) : faire tourner `verifier_dettes_en_retard` en prod. La commande existe (`notifications/management/commands/`), mais rien ne la lance (ni `build.sh`, ni une tâche planifiée) : les notifications « dette en retard » ne sont probablement jamais créées en prod. Retirée de la landing en attendant.
+- Relevés le 2026-10-22 (commit `cb187e3`), rien n'est corrigé :
+  - `Login.jsx` a la même carte `w-96` que `DemandeAccesPage` avant `cb187e3` : probablement collée aux bords à 360 px, non mesuré.
+  - L'email d'identifiants tutoie (« Tes identifiants de connexion iwiShop », `tenants/emails.py`), comme l'alerte d'expiration (« Ton abonnement iwiShop expire… ») ; la landing et la demande d'accès vouvoient.
+  - « 14 jours » est écrit en dur dans `DemandeAccesPage` (et dans la landing), alors que l'essai lit sa durée en base (`duree_jours` de « Essai gratuit ») : à changer ensemble si cette durée change.
 - Chantier séparé : `Clients.jsx` : le corps de la carte de vente (~200 lignes dans le map) est à extraire en composant `CarteVente`, avec ses tests inchangés.
 - Chantier séparé : `Clients.jsx:55` (`grouperRemboursements`) calcule le montant effectif d'un remboursement côté frontend, en flottants avec arrondi, contrairement à `CLAUDE.md` (aucun calcul de montant dans le frontend). Le faire calculer par le backend, comme `montant_effectif` dans l'historique fournisseur.
 - Chantier séparé : autres calculs de montants existants dans le frontend. `Purchases.jsx` (sous-totaux et « Montant Total » du panier) et `Sales.jsx` (« Restera dû » calculé pendant la saisie d'une vente à crédit). Nuance : un total provisoire pendant la saisie est acceptable si le serveur recalcule la valeur enregistrée ; le chantier vérifiera au cas par cas.
