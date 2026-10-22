@@ -1,0 +1,66 @@
+:root {
+  --bleu: #2563eb;
+  --bleu-fonce: #1d4ed8;
+  --encre: #0f172a;
+  --texte: #334155;
+  --fond: #ffffff;
+  --largeur: 72rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  color: var(--texte);
+  background: var(--fond);
+}
+
+.conteneur {
+  width: 100%;
+  max-width: var(--largeur);
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+.entete__barre {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 4rem;
+}
+
+.marque {
+  font-weight: 800;
+  color: var(--encre);
+  text-decoration: none;
+}
+
+.entete__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.bouton {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.bouton--plein {
+  background: var(--bleu);
+  color: #fff;
+}
+
+.bouton--contour {
+  border: 1px solid #cbd5e1;
+  color: var(--encre);
+}
