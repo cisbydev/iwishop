@@ -13,19 +13,417 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-panier" viewBox="0 0 24 24"><path d="M3 4h2l2.4 10.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 1.9-1.5L21 8H6.2" /><circle cx="10" cy="20" r="1.3" /><circle cx="17" cy="20" r="1.3" /></symbol>
+      <symbol id="i-hors-ligne" viewBox="0 0 24 24"><path d="M2 8.8a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0" /><circle cx="12" cy="19.5" r="1" /><path d="M3 3l18 18" /></symbol>
+      <symbol id="i-facture" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></symbol>
+      <symbol id="i-photo" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="M21 15l-5-5L5 21" /></symbol>
+      <symbol id="i-unites" viewBox="0 0 24 24"><path d="M12 3L3 7.5l9 4.5 9-4.5z" /><path d="M3 12l9 4.5 9-4.5M3 16.5L12 21l9-4.5" /></symbol>
+      <symbol id="i-alerte" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a2 2 0 0 0 3.4 0" /></symbol>
+      <symbol id="i-camion" viewBox="0 0 24 24"><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="18" r="2" /></symbol>
+      <symbol id="i-portefeuille" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="14" rx="2" /><path d="M3 10h18M7 6V4h10v2" /><circle cx="16.5" cy="15" r="1" /></symbol>
+      <symbol id="i-billet" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /><path d="M6 12h.01M18 12h.01" /></symbol>
+      <symbol id="i-graphique" viewBox="0 0 24 24"><path d="M4 20V11M10 20V5M16 20v-6M21 20H3" /></symbol>
+      <symbol id="i-annuler" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></symbol>
+      <symbol id="i-equipe" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5" /><path d="M2 20a7 7 0 0 1 14 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 4 6" /></symbol>
+      <symbol id="i-assistant" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /><path d="M9 10.5h.01M12 10.5h.01M15 10.5h.01" /></symbol>
+      <symbol id="i-boutique" viewBox="0 0 24 24"><path d="M4 10v10h16V10" /><path d="M3 10l2-6h14l2 6zM9 20v-5h6v5" /></symbol>
+      <symbol id="i-ecrans" viewBox="0 0 24 24"><rect x="2" y="4" width="14" height="10" rx="1.5" /><path d="M6 18h6M9 14v4" /><rect x="17" y="9" width="5" height="11" rx="1" /></symbol>
+      <symbol id="i-coche" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" /></symbol>
+      <symbol id="i-fleche" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" /></symbol>
+      <symbol id="i-horloge" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></symbol>
+      <symbol id="i-bouclier" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" /><path d="M8.5 12l2.5 2.5 4.5-5" /></symbol>
+      <symbol id="i-carton" viewBox="0 0 24 24"><path d="M21 8l-9-5-9 5v8l9 5 9-5z" /><path d="M3 8l9 5 9-5M12 13v8" /></symbol>
+      <symbol id="i-tendance" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8" /><path d="M15 7h6v6" /></symbol>
+      <symbol id="i-message" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3z" /><path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1.2-1.4-2-1-1 .9a4 4 0 0 1-2.2-2.2l.9-1-1-2z" /></symbol>
+    </svg>
+
+    <a class="lien-evitement" href="#contenu">Aller au contenu</a>
+
     <header class="entete">
       <div class="conteneur entete__barre">
-        <a class="marque" href="#haut">iwiShop</a>
+        <a class="marque" href="#haut" aria-label="iwiShop, retour en haut de la page">
+          <span class="marque__nom">iwiShop</span>
+        </a>
+        <nav class="menu" aria-label="Menu principal">
+          <a href="#fonctionnalites">Fonctionnalités</a>
+          <a href="#avantages">Avantages</a>
+          <a href="#fonctionnement">Fonctionnement</a>
+          <a href="#tarif">Tarif</a>
+          <a href="#faq">FAQ</a>
+        </nav>
         <div class="entete__actions">
-          <a class="bouton bouton--contour" href="{{urlConnexion}}">Se connecter</a>
+          <a class="bouton bouton--contour bouton--masque-mobile" href="{{urlConnexion}}">Se connecter</a>
           <a class="bouton bouton--plein" href="{{urlDemandeAcces}}">Commencer</a>
+          <details class="menu-mobile">
+            <summary aria-label="Ouvrir le menu">
+              <span class="menu-mobile__barres" aria-hidden="true"></span>
+            </summary>
+            <nav class="menu-mobile__panneau" aria-label="Menu">
+              <a href="#fonctionnalites">Fonctionnalités</a>
+              <a href="#avantages">Avantages</a>
+              <a href="#fonctionnement">Fonctionnement</a>
+              <a href="#tarif">Tarif</a>
+              <a href="#faq">FAQ</a>
+              <a class="bouton bouton--contour" href="{{urlConnexion}}">Se connecter</a>
+            </nav>
+          </details>
         </div>
       </div>
     </header>
-    <main id="haut">
-      <section class="conteneur">
-        <h1>Votre boutique. Mieux gérée.</h1>
+
+    <main id="contenu">
+      <section class="accroche" id="haut" aria-labelledby="titre-accroche">
+        <div class="conteneur accroche__grille">
+          <div class="accroche__texte">
+            <p class="badge">Conçu pour la réalité des commerçants</p>
+            <h1 id="titre-accroche">
+              <span class="accroche__ligne">Votre boutique.</span>
+              <span class="accroche__ligne accroche__ligne--bleue">Mieux gérée.</span>
+            </h1>
+            <p class="accroche__intro">
+              Gérez vos ventes, votre stock, vos achats, vos dépenses et vos performances depuis un seul espace simple et
+              adapté à votre activité.
+            </p>
+            <div class="boutons">
+              <a class="bouton bouton--plein bouton--grand" href="{{urlDemandeAcces}}">
+                Commencer gratuitement
+                <svg class="icone" aria-hidden="true"><use href="#i-fleche" /></svg>
+              </a>
+              <a class="bouton bouton--contour bouton--grand" href="#fonctionnalites">Découvrir les fonctionnalités</a>
+            </div>
+            <p class="accroche__delai">Votre demande est examinée sous 24 h, puis vos accès vous sont envoyés par email.</p>
+            <ul class="coches">
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>14 jours d'essai gratuit</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Sans carte bancaire</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Fonctionne même sans internet pour vos ventes</li>
+            </ul>
+          </div>
+
+          <div class="accroche__visuel">
+            <figure class="carte-apercu" aria-label="Exemple de tableau de bord, chiffres fictifs">
+              <div class="carte-apercu__entete">
+                <p class="carte-apercu__titre">Vue d'ensemble</p>
+                <p class="etiquette-exemple">Exemple</p>
+              </div>
+              <dl class="indicateurs">
+                <div class="indicateur">
+                  <dt>Chiffre d'affaires du jour</dt>
+                  <dd>245&nbsp;000&nbsp;FCFA</dd>
+                </div>
+                <div class="indicateur">
+                  <dt>Ventes du jour</dt>
+                  <dd>18</dd>
+                </div>
+                <div class="indicateur">
+                  <dt>Bénéfice du jour</dt>
+                  <dd>52&nbsp;500&nbsp;FCFA</dd>
+                </div>
+                <div class="indicateur indicateur--alerte">
+                  <dt>Stock faible</dt>
+                  <dd>5 produits</dd>
+                </div>
+              </dl>
+              <div class="meilleurs">
+                <p class="meilleurs__titre">Meilleurs produits</p>
+                <ol>
+                  <li><span>Riz parfumé 25 kg</span><span>87&nbsp;500&nbsp;FCFA</span></li>
+                  <li><span>Pagne wax 6 yards</span><span>37&nbsp;500&nbsp;FCFA</span></li>
+                  <li><span>Thé vert (paquet)</span><span>10&nbsp;800&nbsp;FCFA</span></li>
+                </ol>
+              </div>
+              <figcaption class="carte-apercu__legende">Chiffres d'exemple, pour illustrer le tableau de bord.</figcaption>
+            </figure>
+
+            <figure class="carte-iwi" aria-label="Exemple de question à l'assistant Iwi">
+              <div class="carte-apercu__entete">
+                <p class="carte-iwi__titre">
+                  <svg class="icone" aria-hidden="true"><use href="#i-assistant" /></svg>Assistant IA Iwi
+                </p>
+                <p class="etiquette-exemple">Exemple</p>
+              </div>
+              <p class="bulle bulle--question">Quel est l'état de mon stock ?</p>
+              <p class="bulle bulle--reponse">5 produits nécessitent votre attention aujourd'hui.</p>
+              <figcaption class="carte-iwi__note">Consultation uniquement · aucune donnée modifiée</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="fonctionnalites" aria-labelledby="titre-fonctionnalites">
+        <div class="conteneur">
+          <div class="section__entete">
+            <p class="surtitre">Tout votre commerce au même endroit</p>
+            <h2 id="titre-fonctionnalites">Les outils utiles, réunis dans un espace clair</h2>
+            <p class="section__intro">
+              Suivez les opérations importantes sans multiplier les cahiers, les calculs et les fichiers.
+            </p>
+          </div>
+          <ul class="grille-cartes">
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-panier" /></svg>
+              <h3>Ventes au comptant et à crédit</h3>
+              <p>Encaissez en espèces, Mobile Money ou carte, ou vendez à crédit avec un plafond par client et le suivi de ce qui reste dû.</p>
+            </li>
+            <li class="carte carte--mise-en-avant">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-hors-ligne" /></svg>
+              <h3>Ventes hors ligne</h3>
+              <p>Plus de réseau ? Continuez à vendre : la vente est gardée sur l'appareil et envoyée dès que la connexion revient.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-facture" /></svg>
+              <h3>Factures PDF à partager</h3>
+              <p>Créez la facture d'une vente en PDF et envoyez-la par WhatsApp depuis votre téléphone.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-photo" /></svg>
+              <h3>Produits, catégories et photos</h3>
+              <p>Classez vos articles par catégorie et ajoutez une photo à chaque produit.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-unites" /></svg>
+              <h3>Unités de vente</h3>
+              <p>Vendez à la pièce, à la douzaine ou dans vos propres unités, chacune avec son prix.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-alerte" /></svg>
+              <h3>Stock et alertes de stock bas</h3>
+              <p>Le stock se met à jour à chaque vente et à chaque achat. Une alerte s'affiche dans l'application quand un produit passe sous son seuil.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-camion" /></svg>
+              <h3>Achats et fournisseurs</h3>
+              <p>Enregistrez vos achats, comptant ou à crédit, et suivez ce que vous devez à chaque fournisseur.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-portefeuille" /></svg>
+              <h3>Dépenses</h3>
+              <p>Loyer, transport, électricité : notez vos dépenses, elles sont déduites de votre bénéfice dans les rapports.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-billet" /></svg>
+              <h3>Journal de caisse</h3>
+              <p>Les entrées et sorties d'argent de la journée, par mode de paiement : espèces, Mobile Money, carte.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-graphique" /></svg>
+              <h3>Rapports et exports PDF et Excel</h3>
+              <p>Résumé financier et ventes détaillées sur la période de votre choix, à exporter en PDF ou en Excel.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-annuler" /></svg>
+              <h3>Annulations sans effacement</h3>
+              <p>Une vente annulée reste visible avec le statut « Annulée », et le stock est rétabli automatiquement.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-equipe" /></svg>
+              <h3>Gestion des employés</h3>
+              <p>Chaque employé vend avec son propre accès. Les rapports, la caisse et les réglages restent réservés au propriétaire.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-assistant" /></svg>
+              <h3>Assistant IA Iwi</h3>
+              <p>Questions sur vos ventes, vos bénéfices, vos clients en dette ou votre stock faible. Iwi consulte vos données sans les modifier. Pour le propriétaire, 30 questions par jour.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-boutique" /></svg>
+              <h3>Plusieurs boutiques</h3>
+              <p>Un seul compte pour toutes vos boutiques, chacune avec ses propres données. Une nouvelle boutique s'ajoute sur demande.</p>
+            </li>
+            <li class="carte">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-ecrans" /></svg>
+              <h3>Sur tous vos écrans</h3>
+              <p>Téléphone, tablette ou ordinateur, depuis le navigateur. Ajoutez-la à l'écran d'accueil pour l'ouvrir comme une application.</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section section--sombre" id="avantages" aria-labelledby="titre-avantages">
+        <div class="conteneur">
+          <div class="section__entete">
+            <p class="surtitre surtitre--clair">Pourquoi choisir <span class="nom-marque">iwiShop</span> ?</p>
+            <h2 id="titre-avantages">Plus de clarté pour mieux piloter votre boutique.</h2>
+          </div>
+          <ul class="grille-avantages">
+            <li class="avantage">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-horloge" /></svg>
+              <h3>Gagnez du temps</h3>
+              <p>Ventes, stock et caisse se mettent à jour ensemble : fini les cahiers à recopier le soir.</p>
+            </li>
+            <li class="avantage">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-bouclier" /></svg>
+              <h3>Réduisez les erreurs manuelles</h3>
+              <p>Totaux, reste à payer et stock sont calculés par l'application, pas à la main.</p>
+            </li>
+            <li class="avantage">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-carton" /></svg>
+              <h3>Connaissez votre stock</h3>
+              <p>Voyez ce qu'il reste, ce qui se vend le mieux et ce qu'il faut racheter.</p>
+            </li>
+            <li class="avantage">
+              <svg class="icone icone--carte" aria-hidden="true"><use href="#i-tendance" /></svg>
+              <h3>Décidez avec vos chiffres</h3>
+              <p>Chiffre d'affaires et bénéfice du jour ou du mois, et rapports sur la période de votre choix.</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="fonctionnement" aria-labelledby="titre-fonctionnement">
+        <div class="conteneur">
+          <div class="section__entete">
+            <p class="surtitre">Comment ça marche ?</p>
+            <h2 id="titre-fonctionnement">Commencez en trois étapes simples</h2>
+          </div>
+          <ol class="etapes">
+            <li class="etape">
+              <span class="etape__numero" aria-hidden="true">01</span>
+              <h3>Demandez votre accès</h3>
+              <p>Remplissez un court formulaire. Votre demande est examinée sous 24 h, puis vos accès arrivent par email.</p>
+            </li>
+            <li class="etape">
+              <span class="etape__numero" aria-hidden="true">02</span>
+              <h3>Configurez votre boutique</h3>
+              <p>Ajoutez vos produits et leurs prix, vos unités de vente et les comptes de vos employés.</p>
+            </li>
+            <li class="etape">
+              <span class="etape__numero" aria-hidden="true">03</span>
+              <h3>Gérez vos opérations</h3>
+              <p>Ventes, achats, dépenses et stock : tout est enregistré au même endroit, au fil de la journée.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section section--bleutee" id="tarif" aria-labelledby="titre-tarif">
+        <div class="conteneur">
+          <div class="section__entete">
+            <p class="surtitre">Tarif simple et transparent</p>
+            <h2 id="titre-tarif">Une formule claire pour gérer votre boutique.</h2>
+          </div>
+          <div class="carte-tarif">
+            <p class="badge badge--vert">14 jours d'essai gratuit</p>
+            <p class="carte-tarif__prix"><span class="carte-tarif__montant">15&nbsp;000&nbsp;FCFA</span> / mois par boutique</p>
+            <p class="carte-tarif__option">Ou 45&nbsp;000&nbsp;FCFA pour 3 mois.</p>
+            <ul class="coches coches--liste">
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Toutes les fonctions incluses</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Comptes pour vos employés</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Ventes hors ligne et factures PDF</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Rapports PDF et Excel</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Assistant Iwi : 30 questions par jour</li>
+            </ul>
+            <a class="bouton bouton--plein bouton--grand bouton--large" href="{{urlDemandeAcces}}">Essayer gratuitement</a>
+            <p class="carte-tarif__note">
+              Sans carte bancaire. Après l'essai : paiement par Orange Money, Moov Money ou en espèces, activation par notre
+              équipe.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="faq" aria-labelledby="titre-faq">
+        <div class="conteneur conteneur--etroit">
+          <div class="section__entete">
+            <p class="surtitre">Questions fréquentes</p>
+            <h2 id="titre-faq">Vos questions, nos réponses</h2>
+          </div>
+          <div class="faq">
+            <details>
+              <summary>Dois-je installer un logiciel ?</summary>
+              <p>
+                Non. iwiShop s'utilise depuis le navigateur de votre téléphone ou de votre ordinateur. Vous pouvez aussi
+                l'ajouter à l'écran d'accueil pour l'ouvrir comme une application.
+              </p>
+            </details>
+            <details>
+              <summary>Ça marche sans internet ?</summary>
+              <p>
+                Pour les ventes, oui : si le réseau coupe, la vente est gardée sur l'appareil et envoyée dès que la connexion
+                revient. Il faut s'être connecté au moins une fois sur cet appareil. Le reste (achats, stock, rapports…)
+                demande une connexion.
+              </p>
+            </details>
+            <details>
+              <summary>Puis-je l'utiliser sur téléphone ?</summary>
+              <p>Oui. iwiShop est conçu d'abord pour le téléphone, et fonctionne aussi sur tablette et sur ordinateur.</p>
+            </details>
+            <details>
+              <summary>Faut-il une carte bancaire ?</summary>
+              <p>Non. L'essai de 14 jours est gratuit et ne demande aucun moyen de paiement.</p>
+            </details>
+            <details>
+              <summary>Mes employés ont-ils leurs propres accès ?</summary>
+              <p>
+                Oui. Vous créez un compte pour chaque employé. Ils vendent avec leur propre accès ; les rapports, le journal
+                de caisse, les réglages et l'assistant Iwi restent réservés au propriétaire.
+              </p>
+            </details>
+            <details>
+              <summary>Que se passe-t-il après les 14 jours ?</summary>
+              <p>
+                Vos données restent consultables. Pour continuer à enregistrer des ventes, des achats ou des dépenses, il faut
+                payer l'abonnement.
+              </p>
+            </details>
+            <details>
+              <summary>Comment payer ?</summary>
+              <p>
+                Par Orange Money, Moov Money ou en espèces. Écrivez-nous sur
+                <a href="{{urlWhatsApp}}">WhatsApp</a> : notre équipe active ensuite votre abonnement.
+              </p>
+            </details>
+            <details>
+              <summary>Mes données sont-elles séparées de celles des autres boutiques ?</summary>
+              <p>
+                Oui. Chaque boutique ne voit que ses propres données, y compris entre vos propres boutiques. Pour vous aider,
+                notre équipe peut consulter votre boutique en lecture seule ; chaque consultation est enregistrée.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="titre-appel">
+        <div class="conteneur">
+          <div class="appel">
+            <h2 id="titre-appel">Prêt à mieux gérer votre boutique ?</h2>
+            <p>Demandez votre accès et découvrez iwiShop gratuitement pendant 14 jours.</p>
+            <div class="boutons boutons--centre">
+              <a class="bouton bouton--blanc bouton--grand" href="{{urlDemandeAcces}}">Commencer gratuitement</a>
+              <a class="bouton bouton--transparent bouton--grand" href="{{urlWhatsApp}}">Parler à un conseiller</a>
+              <a class="bouton bouton--transparent bouton--grand" href="{{urlConnexion}}">Se connecter</a>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
+
+    <footer class="pied">
+      <div class="conteneur pied__grille">
+        <div>
+          <p class="marque marque--pied"><span class="marque__nom">iwiShop</span></p>
+          <p class="pied__texte">
+            Une solution simple pour suivre les ventes, le stock, les achats, les dépenses et les performances de votre
+            boutique.
+          </p>
+        </div>
+        <nav class="pied__liens" aria-label="Pied de page">
+          <a href="#fonctionnalites">Fonctionnalités</a>
+          <a href="#avantages">Avantages</a>
+          <a href="#fonctionnement">Fonctionnement</a>
+          <a href="#tarif">Tarif</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+      </div>
+      <div class="conteneur pied__bas">
+        <p>© 2026 iwiShop. Tous droits réservés.</p>
+        <p>Votre boutique. Mieux gérée.</p>
+      </div>
+    </footer>
+
+    <a class="whatsapp" href="{{urlWhatsApp}}" aria-label="Écrire à iwiShop sur WhatsApp">
+      <svg class="icone" aria-hidden="true"><use href="#i-message" /></svg>
+    </a>
   </body>
 </html>

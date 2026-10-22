@@ -67,6 +67,78 @@ test('aucun JavaScript ni style en ligne dans les pages (CSP stricte)', () => {
   }
 });
 
+// Texte lu par le visiteur ou les moteurs : balises retirées, adresses
+// (href, src, srcset) retirées, entités courantes décodées.
+function texteVisible(html) {
+  return html
+    .replace(/\s(href|src|srcset)="[^"]*"/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replaceAll('&nbsp;', ' ')
+    .replaceAll('&amp;', '&')
+    .replace(/\s+/g, ' ');
+}
+
+test('la marque s\'écrit « iwiShop » partout', () => {
+  for (const page of PAGES) {
+    const html = lirePage(page);
+    // Les attributs (aria-label, alt, content) comptent aussi.
+    const sansAdresses = html.replace(/\s(href|src|srcset)="[^"]*"/g, '').replaceAll('iwishop.app', '');
+    const graphies = sansAdresses.match(/iwi\s?shop/gi) ?? [];
+    assert.ok(graphies.length > 0, `${page} : marque absente`);
+    for (const graphie of graphies) {
+      assert.equal(graphie, 'iwiShop', `${page} : graphie « ${graphie} »`);
+    }
+  }
+});
+
+test('chaque ancre interne mène à un identifiant de la page', () => {
+  for (const page of PAGES) {
+    const html = lirePage(page);
+    const ids = new Set(attributs(html, '[a-z0-9]+', 'id'));
+    for (const href of attributs(html, 'a', 'href').filter((h) => h.startsWith('#'))) {
+      assert.ok(ids.has(href.slice(1)), `${page} : ancre ${href} sans cible`);
+    }
+  }
+});
+
+test("les chiffres de l'accroche sont marqués comme des exemples", () => {
+  const html = lirePage('index.html');
+  const accroche = html.match(/<section class="accroche"[\s\S]*?<\/section>/)?.[0] ?? '';
+  const figures = accroche.match(/<figure\b[\s\S]*?<\/figure>/g) ?? [];
+  assert.equal(figures.length, 2, 'aperçu et carte Iwi attendus');
+  for (const figure of figures) {
+    assert.match(figure, /class="etiquette-exemple">Exemple</, 'badge « Exemple » manquant');
+  }
+  // Aucun montant hors de ces deux cartes dans l'accroche.
+  const horsFigures = accroche.replace(/<figure\b[\s\S]*?<\/figure>/g, '');
+  assert.doesNotMatch(horsFigures, /FCFA/);
+});
+
+// Ce que l'app ne fait pas (relu dans le code le 2026-10-22) : jamais
+// promis sur la landing.
+const PROMESSES_INTERDITES = [
+  [/paiement en ligne|payez en ligne/i, 'paiement en ligne (fermé)'],
+  [/accès immédiat|immédiatement/i, 'accès immédiat (validation à la main)'],
+  [/rappels? (de|des) dettes?|dettes? en retard/i, 'rappels de dettes (non planifiés en prod)'],
+  [/sauvegardes? automatiques?/i, 'sauvegardes automatiques (pas encore faites)'],
+  [/code[- ]barres?|scanner/i, 'code-barres'],
+  [/\bSMS\b/, 'SMS'],
+  [/témoignages?|nos clients|\+\s?\d+ boutiques/i, 'clients ou témoignages (aucun client)'],
+  [/illimité/i, 'illimité (non vérifié)'],
+  [/sécurisé/i, '« sécurisé » (sans sauvegardes automatiques)'],
+  [/traçab/i, 'annulations traçables (auteur non enregistré)'],
+  [/vue (globale|consolidée|regroupée)|toutes vos boutiques en un/i, 'vue regroupée des boutiques'],
+];
+
+test("aucune promesse que l'app ne tient pas", () => {
+  for (const page of PAGES) {
+    const texte = texteVisible(lirePage(page));
+    for (const [motif, raison] of PROMESSES_INTERDITES) {
+      assert.doesNotMatch(texte, motif, `${page} : ${raison}`);
+    }
+  }
+});
+
 test('titre, description et adresse canonique', () => {
   const html = lirePage('index.html');
   const titre = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
