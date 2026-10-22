@@ -17,6 +17,12 @@ Contournement volontaire (faux positif avéré) : git commit --no-verify
 - mécanisme standard de git. Seule exception permanente : les valeurs
 exactes listées dans EXCEPTIONS_AUTORISEES (fichier + valeur), à garder
 aussi courte que possible.
+
+Échec fermé : un fichier indexé n'est sauté que s'il est binaire (cité
+dans la sortie) ; un fichier illisible ou une erreur inattendue bloque le
+commit, jamais l'inverse.
+
+Tests : python -m unittest discover -s scripts/git-hooks -p "test_*.py" -v
 """
 import re
 import subprocess
@@ -73,24 +79,48 @@ EXCEPTIONS_AUTORISEES = {
 NOMS_FICHIERS_BLOQUES = {"tes", "test"}
 
 
+# Fichier binaire = octet nul dans ses 8 000 premiers octets (même règle
+# que git pour décider d'afficher un diff).
+TAILLE_DETECTION_BINAIRE = 8000
+
+
+class LectureImpossible(Exception):
+    """Fichier indexé que git ne peut pas lire : commit bloqué."""
+
+    def __init__(self, chemin, detail):
+        super().__init__(f"{chemin} ({detail})")
+        self.chemin = chemin
+        self.detail = detail
+
+
 def fichiers_indexes():
+    # -z : chemins bruts. Sans -z, git écrit un nom avec accent entre
+    # guillemets et échappé ("caf\303\251.txt"), que `git show` ne trouve
+    # plus. R et T en plus de ACM : un fichier renommé (ou changé de type)
+    # dans le même commit qu'une modification est analysé lui aussi.
     sortie = subprocess.run(
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
-        capture_output=True, text=True, check=True,
+        ["git", "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMRT"],
+        capture_output=True, check=True,
     )
-    return [ligne for ligne in sortie.stdout.splitlines() if ligne]
+    return [chemin.decode("utf-8") for chemin in sortie.stdout.split(b"\0") if chemin]
 
 
 def contenu_indexe(chemin):
     """Contenu STAGED (pas le fichier sur disque) : c'est exactement ce
     qui serait commité, pas ce qui traîne éventuellement en plus dans le
-    working tree."""
-    resultat = subprocess.run(
-        ["git", "show", f":{chemin}"], capture_output=True, text=True,
-    )
+    working tree.
+
+    Lu en octets puis décodé en UTF-8 : avec text=True, Python décodait
+    selon la langue du système (cp1252 sous Windows), et un octet inconnu
+    de cet encodage (U+FE0F d'un emoji, par exemple) faisait sauter le
+    fichier sans l'analyser. Renvoie None pour un fichier binaire."""
+    resultat = subprocess.run(["git", "show", f":{chemin}"], capture_output=True)
     if resultat.returncode != 0:
+        erreur = resultat.stderr.decode("utf-8", errors="replace").strip()
+        raise LectureImpossible(chemin, f"git show : {erreur or f'code {resultat.returncode}'}")
+    if b"\0" in resultat.stdout[:TAILLE_DETECTION_BINAIRE]:
         return None
-    return resultat.stdout
+    return resultat.stdout.decode("utf-8", errors="replace")
 
 
 def masque(valeur):
@@ -100,7 +130,17 @@ def masque(valeur):
     return f"{valeur[:4]}...{valeur[-4:]} ({len(valeur)} caractères)"
 
 
-def main():
+def analyser_contenu(chemin, contenu):
+    problemes = []
+    for numero_ligne, ligne in enumerate(contenu.splitlines(), start=1):
+        for categorie, motif in MOTIFS:
+            trouve = motif.search(ligne)
+            if trouve and (chemin, trouve.group(0)) not in EXCEPTIONS_AUTORISEES:
+                problemes.append((chemin, numero_ligne, categorie, masque(trouve.group(0))))
+    return problemes
+
+
+def analyser_index():
     problemes = []
 
     for chemin in fichiers_indexes():
@@ -111,13 +151,32 @@ def main():
 
         contenu = contenu_indexe(chemin)
         if contenu is None:
-            continue  # binaire ou illisible en texte - hors périmètre de ce scan
+            print(f"[pre-commit] Fichier binaire non analysé : {chemin}", file=sys.stderr)
+            continue
 
-        for numero_ligne, ligne in enumerate(contenu.splitlines(), start=1):
-            for categorie, motif in MOTIFS:
-                trouve = motif.search(ligne)
-                if trouve and (chemin, trouve.group(0)) not in EXCEPTIONS_AUTORISEES:
-                    problemes.append((chemin, numero_ligne, categorie, masque(trouve.group(0))))
+        problemes.extend(analyser_contenu(chemin, contenu))
+
+    return problemes
+
+
+def main():
+    try:
+        problemes = analyser_index()
+    except LectureImpossible as erreur:
+        print(
+            f"\n[pre-commit] Impossible de lire {erreur.chemin} dans l'index "
+            f"({erreur.detail}) : commit bloqué par prudence.",
+            file=sys.stderr,
+        )
+        return 1
+    except Exception as erreur:
+        # Échec fermé : sans analyse complète, pas de commit.
+        print(
+            f"\n[pre-commit] Erreur inattendue ({type(erreur).__name__} : {erreur}) : "
+            "commit bloqué par prudence.",
+            file=sys.stderr,
+        )
+        return 1
 
     if problemes:
         print("\n[pre-commit] Secret potentiel détecté - commit bloqué :\n", file=sys.stderr)
@@ -135,4 +194,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Un chemin que la console ne sait pas afficher ne doit pas faire
+    # planter le message de blocage.
+    sys.stderr.reconfigure(errors="backslashreplace")
     sys.exit(main())
