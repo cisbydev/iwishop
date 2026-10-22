@@ -21,6 +21,8 @@ function configurationDuSite() {
 export default defineConfig({
   plugins: [configurationDuSite()],
   build: {
+    // Jamais d'image intégrée en data: : la CSP (img-src 'self') la bloquerait.
+    assetsInlineLimit: 0,
     rolldownOptions: {
       input: {
         index: resolve(import.meta.dirname, 'index.html'),

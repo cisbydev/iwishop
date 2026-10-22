@@ -10,6 +10,22 @@
     />
     <link rel="canonical" href="{{urlSite}}/" />
     <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="iwiShop" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:url" content="{{urlSite}}/" />
+    <meta property="og:title" content="iwiShop : votre boutique, mieux gérée" />
+    <meta
+      property="og:description"
+      content="Ventes même sans internet, stock, achats, dépenses et caisse. Essai gratuit de 14 jours, sans carte bancaire."
+    />
+    <meta property="og:image" content="{{urlSite}}/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Logo iwiShop et slogan « Votre boutique. Mieux gérée. »" />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -43,6 +59,14 @@
     <header class="entete">
       <div class="conteneur entete__barre">
         <a class="marque" href="#haut" aria-label="iwiShop, retour en haut de la page">
+          <img
+            class="marque__logo"
+            src="/src/images/logo-48.webp"
+            srcset="/src/images/logo-48.webp 1x, /src/images/logo-96.webp 2x"
+            width="36"
+            height="36"
+            alt=""
+          />
           <span class="marque__nom">iwiShop</span>
         </a>
         <nav class="menu" aria-label="Menu principal">
@@ -239,6 +263,90 @@
         </div>
       </section>
 
+      <section class="section section--bleutee" id="apercu" aria-labelledby="titre-apercu">
+        <div class="conteneur">
+          <div class="section__entete">
+            <p class="surtitre">Le logiciel, réellement</p>
+            <h2 id="titre-apercu">iwiShop en action</h2>
+            <p class="section__intro">De vraies captures de l'application sur téléphone.</p>
+          </div>
+          <div class="captures" role="region" aria-label="Captures de l'application (faire défiler)" tabindex="0">
+            <figure class="capture">
+              <img
+                src="/src/images/capture-tableau-de-bord-360.webp"
+                srcset="/src/images/capture-tableau-de-bord-360.webp 360w, /src/images/capture-tableau-de-bord-720.webp 720w"
+                sizes="(min-width: 960px) 20rem, 72vw"
+                width="360"
+                height="751"
+                loading="lazy"
+                decoding="async"
+                alt="Tableau de bord : chiffre d'affaires du jour 158 450 FCFA, 7 ventes, bénéfice du jour 31 750 FCFA, 5 produits à stock faible."
+              />
+              <figcaption>Tableau de bord</figcaption>
+            </figure>
+            <figure class="capture">
+              <img
+                src="/src/images/capture-ventes-360.webp"
+                srcset="/src/images/capture-ventes-360.webp 360w, /src/images/capture-ventes-720.webp 720w"
+                sizes="(min-width: 960px) 20rem, 72vw"
+                width="360"
+                height="751"
+                loading="lazy"
+                decoding="async"
+                alt="Écran Ventes : panier de trois articles, montant net à payer 40 350 FCFA, paiement en espèces, options vente à crédit et facture."
+              />
+              <figcaption>Ventes</figcaption>
+            </figure>
+            <figure class="capture">
+              <img
+                src="/src/images/capture-produits-360.webp"
+                srcset="/src/images/capture-produits-360.webp 360w, /src/images/capture-produits-720.webp 720w"
+                sizes="(min-width: 960px) 20rem, 72vw"
+                width="360"
+                height="751"
+                loading="lazy"
+                decoding="async"
+                alt="Écran Produits et stocks : recherche par nom et liste des produits avec leur catégorie."
+              />
+              <figcaption>Produits &amp; Stocks</figcaption>
+            </figure>
+          </div>
+          <p class="legende-demo">Données de démonstration : boutique et chiffres fictifs.</p>
+        </div>
+      </section>
+
+      <section class="section" id="boutiques" aria-labelledby="titre-boutiques">
+        <div class="conteneur deux-colonnes">
+          <div class="deux-colonnes__texte">
+            <p class="surtitre">Un seul compte, plusieurs activités</p>
+            <h2 id="titre-boutiques">Toute votre activité, même avec plusieurs boutiques</h2>
+            <p class="section__intro">
+              Passez facilement d'une boutique à une autre et consultez séparément leurs ventes, bénéfices, stocks et
+              alertes.
+            </p>
+            <ul class="coches coches--liste">
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Boutiques et données isolées</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Un abonnement par boutique</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Assistant Iwi sur toutes les pages, pour le propriétaire</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Nouvelle boutique ajoutée sur demande</li>
+            </ul>
+          </div>
+          <figure class="capture capture--seule">
+            <img
+              src="/src/images/capture-plus-360.webp"
+              srcset="/src/images/capture-plus-360.webp 360w, /src/images/capture-plus-720.webp 720w"
+              sizes="(min-width: 960px) 20rem, 72vw"
+              width="360"
+              height="751"
+              loading="lazy"
+              decoding="async"
+              alt="Menu « Plus » de l'application : choix de la boutique active en haut, puis catégories, stock, fournisseurs, achats, dépenses, rapports, paramètres, historique et clients."
+            />
+            <figcaption>Choix de la boutique active, depuis le menu « Plus » (données de démonstration)</figcaption>
+          </figure>
+        </div>
+      </section>
+
       <section class="section section--sombre" id="avantages" aria-labelledby="titre-avantages">
         <div class="conteneur">
           <div class="section__entete">
@@ -402,7 +510,19 @@
     <footer class="pied">
       <div class="conteneur pied__grille">
         <div>
-          <p class="marque marque--pied"><span class="marque__nom">iwiShop</span></p>
+          <p class="marque marque--pied">
+            <img
+              class="marque__logo"
+              src="/src/images/logo-48.webp"
+              srcset="/src/images/logo-48.webp 1x, /src/images/logo-96.webp 2x"
+              width="36"
+              height="36"
+              alt=""
+              loading="lazy"
+              decoding="async"
+            />
+            <span class="marque__nom">iwiShop</span>
+          </p>
           <p class="pied__texte">
             Une solution simple pour suivre les ventes, le stock, les achats, les dépenses et les performances de votre
             boutique.

@@ -139,6 +139,83 @@ test("aucune promesse que l'app ne tient pas", () => {
   }
 });
 
+const KO = 1024;
+
+function tailleDist(chemin) {
+  const fichier = join(DIST, chemin.replace(/^\//, ''));
+  assert.ok(existsSync(fichier), `${chemin} absent de dist/`);
+  return readFileSync(fichier).length;
+}
+
+function balises(html, nom) {
+  return html.match(new RegExp(`<${nom}\\b[^>]*>`, 'g')) ?? [];
+}
+
+function attribut(balise, nom) {
+  return balise.match(new RegExp(`\\s${nom}="([^"]*)"`))?.[1];
+}
+
+test('chaque image a alt, largeur et hauteur ; hors logo, chargement différé', () => {
+  for (const page of PAGES) {
+    // La CSP (img-src 'self') bloque toute image intégrée en data:.
+    assert.doesNotMatch(lirePage(page), /data:image/, `${page} : image en data:`);
+    for (const img of balises(lirePage(page), 'img')) {
+      assert.notEqual(attribut(img, 'alt'), undefined, `alt manquant : ${img}`);
+      assert.ok(attribut(img, 'width') && attribut(img, 'height'), `taille manquante : ${img}`);
+      if (!/class="marque__logo"/.test(img)) {
+        assert.equal(attribut(img, 'loading'), 'lazy', `chargement différé manquant : ${img}`);
+      }
+    }
+  }
+});
+
+test('budget de poids pour les réseaux lents', () => {
+  const html = lirePage('index.html');
+  const css = attributs(html, 'link', 'href').filter((h) => h.endsWith('.css'));
+  const base = tailleDist('index.html') + css.reduce((t, h) => t + tailleDist(h), 0);
+  let premierAffichage = base;
+  let pageEntiere = base;
+  for (const img of balises(html, 'img')) {
+    // Pire cas : la plus grande variante de srcset.
+    const candidats = [attribut(img, 'src'), ...(attribut(img, 'srcset') ?? '').split(',').map((c) => c.trim().split(' ')[0])]
+      .filter(Boolean);
+    const tailles = candidats.map(tailleDist);
+    tailles.forEach((t, i) => assert.ok(t <= 60 * KO, `${candidats[i]} : ${Math.round(t / KO)} Ko > 60 Ko`));
+    const plusGrande = Math.max(...tailles);
+    pageEntiere += plusGrande;
+    if (attribut(img, 'loading') !== 'lazy') premierAffichage += plusGrande;
+  }
+  assert.ok(premierAffichage <= 150 * KO, `premier affichage : ${Math.round(premierAffichage / KO)} Ko`);
+  assert.ok(pageEntiere <= 500 * KO, `page entière : ${Math.round(pageEntiere / KO)} Ko`);
+});
+
+function meta(html, propriete) {
+  return html.match(new RegExp(`<meta\\s+(?:property|name)="${propriete}"\\s+content="([^"]*)"`))?.[1];
+}
+
+test('aperçu de partage (WhatsApp, Facebook) : balises et image 1200 x 630', () => {
+  const html = lirePage('index.html');
+  for (const propriete of ['og:title', 'og:description', 'og:type', 'og:locale', 'twitter:card']) {
+    assert.ok(meta(html, propriete), `${propriete} manquant`);
+  }
+  assert.equal(meta(html, 'og:url'), `${SITE.urlSite}/`);
+  const image = meta(html, 'og:image');
+  assert.equal(image, `${SITE.urlSite}/og-image.png`, 'adresse complète en https attendue');
+  const png = readFileSync(join(DIST, 'og-image.png'));
+  assert.equal(png.toString('ascii', 12, 16), 'IHDR', 'og-image.png doit être un PNG');
+  assert.equal(png.readUInt32BE(16), 1200);
+  assert.equal(png.readUInt32BE(20), 630);
+  assert.ok(png.length <= 300 * KO, `og-image.png : ${Math.round(png.length / KO)} Ko (WhatsApp : 300 Ko au plus)`);
+});
+
+test('icônes : favicon.ico et apple-touch-icon servis', () => {
+  const liens = attributs(lirePage('index.html'), 'link', 'href');
+  for (const icone of ['/favicon.ico', '/apple-touch-icon.png']) {
+    assert.ok(liens.includes(icone), `${icone} non déclaré`);
+    assert.ok(tailleDist(icone) > 0);
+  }
+});
+
 test('titre, description et adresse canonique', () => {
   const html = lirePage('index.html');
   const titre = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
