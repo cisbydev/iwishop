@@ -117,17 +117,20 @@
               <a class="bouton bouton--contour bouton--grand" href="#fonctionnalites">Découvrir les fonctionnalités</a>
             </div>
             <p class="accroche__delai">Votre demande est examinée sous 24 h, puis vos accès vous sont envoyés par email.</p>
-            <ul class="coches">
+            <ul class="coches coches--ligne">
               <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>14 jours d'essai gratuit</li>
               <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Sans carte bancaire</li>
-              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Fonctionne même sans internet pour vos ventes</li>
+              <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Ventes même sans internet</li>
             </ul>
           </div>
 
           <div class="accroche__visuel">
             <figure class="carte-apercu" aria-label="Exemple de tableau de bord, chiffres fictifs">
               <div class="carte-apercu__entete">
-                <p class="carte-apercu__titre">Vue d'ensemble</p>
+                <div>
+                  <p class="carte-apercu__titre">Vue d'ensemble</p>
+                  <p class="carte-apercu__legende">Chiffres d'exemple, pour illustrer le tableau de bord</p>
+                </div>
                 <p class="etiquette-exemple">Exemple</p>
               </div>
               <dl class="indicateurs">
@@ -156,7 +159,6 @@
                   <li><span>Thé vert (paquet)</span><span>10&nbsp;800&nbsp;FCFA</span></li>
                 </ol>
               </div>
-              <figcaption class="carte-apercu__legende">Chiffres d'exemple, pour illustrer le tableau de bord.</figcaption>
             </figure>
 
             <figure class="carte-iwi" aria-label="Exemple de question à l'assistant Iwi">
@@ -411,30 +413,39 @@
             <h2 id="titre-tarif">Une formule claire pour gérer votre boutique.</h2>
           </div>
           <div class="carte-tarif">
-            <p class="badge badge--vert">14 jours d'essai gratuit</p>
-            <p class="carte-tarif__prix"><span class="carte-tarif__montant">15&nbsp;000&nbsp;FCFA</span> / mois par boutique</p>
-            <p class="carte-tarif__option">Ou 45&nbsp;000&nbsp;FCFA pour 3 mois.</p>
-            <ul class="coches coches--liste">
+            <div class="carte-tarif__principal">
+              <p class="badge badge--vert">14 jours d'essai gratuit</p>
+              <p class="carte-tarif__prix"><span class="carte-tarif__montant">15&nbsp;000&nbsp;FCFA</span> / mois par boutique</p>
+              <p class="carte-tarif__option">Ou 45&nbsp;000&nbsp;FCFA pour 3 mois.</p>
+              <a class="bouton bouton--plein bouton--grand bouton--large" href="{{urlDemandeAcces}}">Essayer gratuitement</a>
+              <p class="carte-tarif__note">
+                Sans carte bancaire. Après l'essai : paiement par Orange Money, Moov Money ou en espèces, activation par
+                notre équipe.
+              </p>
+            </div>
+            <div class="carte-tarif__inclus">
+              <p class="carte-tarif__titre-liste">Tout est inclus</p>
+              <ul class="coches coches--liste">
               <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Toutes les fonctions incluses</li>
               <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Comptes pour vos employés</li>
               <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Ventes hors ligne et factures PDF</li>
               <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Rapports PDF et Excel</li>
               <li><svg class="icone" aria-hidden="true"><use href="#i-coche" /></svg>Assistant Iwi : 30 questions par jour</li>
-            </ul>
-            <a class="bouton bouton--plein bouton--grand bouton--large" href="{{urlDemandeAcces}}">Essayer gratuitement</a>
-            <p class="carte-tarif__note">
-              Sans carte bancaire. Après l'essai : paiement par Orange Money, Moov Money ou en espèces, activation par notre
-              équipe.
-            </p>
+              </ul>
+            </div>
           </div>
         </div>
       </section>
 
       <section class="section" id="faq" aria-labelledby="titre-faq">
-        <div class="conteneur conteneur--etroit">
-          <div class="section__entete">
+        <div class="conteneur faq-grille">
+          <div class="faq__intro">
             <p class="surtitre">Questions fréquentes</p>
             <h2 id="titre-faq">Vos questions, nos réponses</h2>
+            <p>Une autre question ? Écrivez-nous sur WhatsApp.</p>
+            <a class="bouton bouton--contour" href="{{urlWhatsApp}}">
+              <svg class="icone" aria-hidden="true"><use href="#i-message" /></svg>Nous écrire
+            </a>
           </div>
           <div class="faq">
             <details>
@@ -492,7 +503,7 @@
         </div>
       </section>
 
-      <section class="section" aria-labelledby="titre-appel">
+      <section class="section section--appel" aria-labelledby="titre-appel">
         <div class="conteneur">
           <div class="appel">
             <h2 id="titre-appel">Prêt à mieux gérer votre boutique ?</h2>
