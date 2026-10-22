@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Règles permanentes du projet iWiShop (nom interne des dossiers : sorashop) : backend Django à la racine, frontend React dans `sorashop-frontend/`.
+Règles permanentes du projet iwiShop (nom interne des dossiers : sorashop) : backend Django à la racine, frontend React dans `sorashop-frontend/`.
 L'état du travail en cours est dans `docs/EN_COURS.md`, pas ici.
 
 ## Discipline
