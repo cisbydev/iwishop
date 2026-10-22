@@ -10,7 +10,7 @@ import { SITE, VALEURS_UNIQUES } from '../site.config.js';
 const RACINE = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = join(RACINE, 'dist');
 
-const PAGES = ['index.html'];
+const PAGES = ['index.html', 'mentions-legales.html', 'confidentialite.html'];
 
 function lirePage(nom) {
   const chemin = join(DIST, nom);
@@ -34,9 +34,11 @@ test("les liens vers l'app et WhatsApp sont exactement ceux de la configuration"
   for (const page of PAGES) {
     const liens = attributs(lirePage(page), 'a', 'href');
     const externes = liens.filter((href) => /gestion\.iwishop\.app|wa\.me/.test(href));
-    assert.ok(externes.length > 0, `${page} : aucun lien vers l'app`);
     for (const href of externes) {
       assert.ok(permis.has(href), `${page} : lien inattendu ${href}`);
+    }
+    for (const href of liens.filter((h) => h.startsWith('mailto:'))) {
+      assert.equal(href, `mailto:${SITE.emailContact}`, `${page} : email inattendu`);
     }
   }
   assert.ok(attributs(lirePage('index.html'), 'a', 'href').includes(SITE.urlConnexion));
@@ -91,14 +93,36 @@ test('la marque s\'écrit « iwiShop » partout', () => {
   }
 });
 
-test('chaque ancre interne mène à un identifiant de la page', () => {
+test('chaque lien interne mène à une page ou à un identifiant existant', () => {
   for (const page of PAGES) {
     const html = lirePage(page);
     const ids = new Set(attributs(html, '[a-z0-9]+', 'id'));
-    for (const href of attributs(html, 'a', 'href').filter((h) => h.startsWith('#'))) {
-      assert.ok(ids.has(href.slice(1)), `${page} : ancre ${href} sans cible`);
+    for (const href of attributs(html, 'a', 'href')) {
+      if (href.startsWith('#')) {
+        assert.ok(ids.has(href.slice(1)), `${page} : ancre ${href} sans cible`);
+      } else if (href.startsWith('/')) {
+        // Adresses sans .html : servies par cleanUrls sur Vercel.
+        const cible = href === '/' ? 'index.html' : `${href.slice(1)}.html`;
+        assert.ok(existsSync(join(DIST, cible)), `${page} : ${href} ne mène à aucune page`);
+      }
     }
   }
+});
+
+test("mentions légales et confidentialité : contenu minimal, rien d'inventé", () => {
+  const mentions = texteVisible(lirePage('mentions-legales.html'));
+  for (const attendu of ['Mahamadou Cissé', 'Bamako', 'Mali', SITE.emailContact, 'Vercel', 'Render', 'Cloudflare']) {
+    assert.ok(mentions.includes(attendu), `mentions légales : « ${attendu} » manquant`);
+  }
+  // Ni RCCM ni NIF à ce jour : aucun numéro inventé.
+  assert.doesNotMatch(mentions, /RCCM|NIF|SIRE[NT]/);
+  const confidentialite = texteVisible(lirePage('confidentialite.html'));
+  for (const attendu of ['Anthropic', 'Brevo', 'Sentry', 'lecture seule', 'APDP', SITE.emailContact]) {
+    assert.ok(confidentialite.includes(attendu), `confidentialité : « ${attendu} » manquant`);
+  }
+  // Les deux pages sont liées depuis l'accueil.
+  const liens = attributs(lirePage('index.html'), 'a', 'href');
+  assert.ok(liens.includes('/mentions-legales') && liens.includes('/confidentialite'));
 });
 
 test("les chiffres de l'accroche sont marqués comme des exemples", () => {
@@ -216,11 +240,14 @@ test('icônes : favicon.ico et apple-touch-icon servis', () => {
   }
 });
 
-test('titre, description et adresse canonique', () => {
-  const html = lirePage('index.html');
-  const titre = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
-  assert.ok(titre.length > 0 && titre.length <= 60, `titre de ${titre.length} caractères`);
-  const description = html.match(/<meta\s+name="description"\s+content="([^"]*)"/)?.[1] ?? '';
-  assert.ok(description.length >= 50 && description.length <= 160, `description de ${description.length} caractères`);
-  assert.ok(attributs(html, 'link', 'href').includes(`${SITE.urlSite}/`), 'adresse canonique absente');
+test('titre, description et adresse canonique de chaque page', () => {
+  for (const page of PAGES) {
+    const html = lirePage(page);
+    const titre = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? '';
+    assert.ok(titre.length > 0 && titre.length <= 60, `${page} : titre de ${titre.length} caractères`);
+    const description = html.match(/<meta\s+name="description"\s+content="([^"]*)"/)?.[1] ?? '';
+    assert.ok(description.length >= 50 && description.length <= 160, `${page} : description de ${description.length} caractères`);
+    const canonique = page === 'index.html' ? `${SITE.urlSite}/` : `${SITE.urlSite}/${page.replace('.html', '')}`;
+    assert.ok(attributs(html, 'link', 'href').includes(canonique), `${page} : adresse canonique ${canonique} absente`);
+  }
 });

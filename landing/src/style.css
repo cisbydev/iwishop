@@ -943,6 +943,51 @@ section[id] {
   color: var(--texte-doux);
 }
 
+/* Pages légales */
+
+.page-legale {
+  padding: 2.5rem 0 4rem;
+}
+
+.page-legale h1 {
+  font-size: clamp(1.75rem, 6vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 1.5rem;
+}
+
+.page-legale h2 {
+  margin: 2rem 0 0.5rem;
+  font-size: 1.25rem;
+}
+
+.page-legale p + p {
+  margin-top: 0.75rem;
+}
+
+.page-legale ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.page-legale li + li {
+  margin-top: 0.375rem;
+}
+
+.page-legale__retour {
+  margin-top: 2.5rem;
+  font-weight: 700;
+}
+
+.pied--simple {
+  padding: 0 0 2rem;
+}
+
+.pied--simple .pied__bas {
+  margin-top: 0;
+  border-top: 0;
+}
+
 /* Bouton WhatsApp flottant */
 
 .whatsapp {

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mentions légales | iwiShop</title>
+    <meta name="description" content="Mentions légales du site iwiShop : éditeur, contact et hébergeurs du site et de l'application." />
+    <link rel="canonical" href="{{urlSite}}/mentions-legales" />
+    <meta name="theme-color" content="#2563EB" />
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <a class="lien-evitement" href="#contenu">Aller au contenu</a>
+    <header class="entete">
+      <div class="conteneur entete__barre">
+        <a class="marque" href="/" aria-label="iwiShop, page d'accueil">
+          <img
+            class="marque__logo"
+            src="/src/images/logo-48.webp"
+            srcset="/src/images/logo-48.webp 1x, /src/images/logo-96.webp 2x"
+            width="36"
+            height="36"
+            alt=""
+          />
+          <span class="marque__nom">iwiShop</span>
+        </a>
+        <a class="bouton bouton--contour" href="/">Retour à l'accueil</a>
+      </div>
+    </header>
+
+    <main id="contenu" class="page-legale">
+      <div class="conteneur conteneur--etroit">
+        <h1>Mentions légales</h1>
+
+        <h2>Éditeur</h2>
+        <p>
+          Le site iwiShop (iwishop.app) et l'application iwiShop sont édités par Mahamadou Cissé, à Bamako, au Mali.
+        </p>
+        <p>Directeur de la publication : Mahamadou Cissé.</p>
+
+        <h2>Contact</h2>
+        <p>
+          Par email : <a href="mailto:{{emailContact}}">{{emailContact}}</a>.<br />
+          Par <a href="{{urlWhatsApp}}">WhatsApp</a>.
+        </p>
+
+        <h2>Hébergement</h2>
+        <ul>
+          <li>Site et application (pages affichées dans le navigateur) : Vercel Inc., États-Unis (vercel.com).</li>
+          <li>Serveur et base de données de l'application : Render Services, Inc., États-Unis (render.com).</li>
+          <li>Noms de domaine et stockage des photos de produits : Cloudflare, Inc., États-Unis (cloudflare.com).</li>
+        </ul>
+
+        <h2>Propriété</h2>
+        <p>
+          Les textes, images et le logo de ce site appartiennent à leur éditeur. Les captures de l'application présentées
+          sur le site utilisent des données de démonstration.
+        </p>
+
+        <p class="page-legale__retour"><a href="/confidentialite">Politique de confidentialité</a></p>
+      </div>
+    </main>
+
+    <footer class="pied pied--simple">
+      <div class="conteneur pied__bas">
+        <p>© 2026 iwiShop. Tous droits réservés.</p>
+        <nav class="pied__liens" aria-label="Pages légales">
+          <a href="/mentions-legales">Mentions légales</a>
+          <a href="/confidentialite">Confidentialité</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

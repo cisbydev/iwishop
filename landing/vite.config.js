@@ -26,6 +26,8 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         index: resolve(import.meta.dirname, 'index.html'),
+        mentions: resolve(import.meta.dirname, 'mentions-legales.html'),
+        confidentialite: resolve(import.meta.dirname, 'confidentialite.html'),
       },
     },
   },
