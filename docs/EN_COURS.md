@@ -19,7 +19,7 @@ Aucun vrai client à ce jour (Mahamadou, 2026-10-21) : SoraShop n'est pas utilis
 Liste « prêt à vendre », dans l'ordre :
 1. Landing page : à refaire dans le dépôt, comme un projet séparé de l'app. Une première version avait été faite avec ChatGPT Sites, mais l'abonnement ChatGPT de Mahamadou a expiré et son code ne peut pas être récupéré. Les 15 captures de cette version servent de modèle. Plan validé le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 »). Code fait et poussé le 2026-10-22, CI verte (voir « Landing page : fait le 2026-10-22 ») ; reste la mesure de fluidité, interrompue.
 2. Essai gratuit : vérifier que l'app tient la promesse de la landing page (14 jours, gratuit, sans carte bancaire), et l'aligner si besoin. Fait le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 », essai gratuit). Reste le chantier séparé de la recherche par le nom (voir « En attente, côté code »).
-3. Mise en ligne de la landing page sur `iwishop.app`.
+3. Mise en ligne de la landing page sur `iwishop.app`. Fait par Mahamadou le 2026-10-22, vérifié en prod le même jour (voir « Landing page : mise en ligne (2026-10-22) »).
 4. 2FA sur GitHub et sur Render. GitHub : fait le 2026-10-22 (voir « Sécurité GitHub (2026-10-22) »). Render : à faire.
 5. Sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base »). Son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19.
 6. Sécurité : « pas d'abonnement = accès » (voir « En attente, côté code »), `/admin-plateforme`, limite de débit.
@@ -55,12 +55,36 @@ Fait par Mahamadou le 2026-10-22 :
 - dépôt : Private vulnerability reporting, Secret Protection et Push protection activés ;
 - Secret scanning : aucune alerte.
 
+## Landing page : mise en ligne (2026-10-22)
+
+Fait par Mahamadou le 2026-10-22 :
+- Vercel : nouveau projet `iwishop-landing` (même dépôt, Root Directory `landing`, preset Vite lu dans `vercel.json`). Adresse de test `iwishop-landing.vercel.app` : 4 liens vérifiés (Se connecter, Commencer, WhatsApp, Mentions légales).
+- Domaines du projet landing : `iwishop.app` (Production) ; `www.iwishop.app` en 308 vers `iwishop.app` (case « rediriger vers www » décochée, pour garder `iwishop.app` comme adresse officielle).
+- Cloudflare DNS (DNS only) : CNAME `@` → `1ad0e908a17c3b56.vercel-dns-017.com` (CNAME à la racine, aplati par Cloudflare) ; CNAME `www` → même valeur. Total : `api`, `gestion`, `iwishop.app`, `www`.
+- Cloudflare Email Routing activé : 3 MX, DKIM et SPF ajoutés sans conflit avec le CNAME de la racine ; destination Gmail vérifiée ; `contact@iwishop.app` → Gmail, actif ; catch-all en Drop, désactivé. Test de réception : pas encore fait.
+
+Vérifié en prod le 2026-10-22 avec curl via DoH (`--doh-url https://cloudflare-dns.com/dns-query` : la box de Mahamadou gardait un NXDOMAIN en cache pour `www`) :
+- `iwishop.app` : 200, `text/html`, titre « iwiShop : gestion de boutique, ventes, stock et caisse », adresse canonique `https://iwishop.app/` ;
+- `www.iwishop.app` : 308, `Location: https://iwishop.app/` ;
+- `/mentions-legales` et `/confidentialite` : 200, `text/html` ;
+- `/favicon.ico` (200, `image/vnd.microsoft.icon`) et `/og-image.png` (200, `image/png`, déclarée en `og:image` 1200×630) : mêmes empreintes SHA-256 que `landing/public/`.
+Non vérifié : HTML servi comparé à un build de `d995b62` (rien ne prouve encore que la prod sert le dernier commit de la landing).
+
+À faire :
+- tester la réception sur `contact@iwishop.app` depuis un autre compte ;
+- activer sur les deux projets Vercel « ne pas redéployer si rien n'a changé dans le dossier » ;
+- refaire la mesure de fluidité (voir « Landing page : fait le 2026-10-22 ») ;
+- `Login.jsx` (`w-96`) et emails qui tutoient (voir « En attente, côté code ») ;
+- panier à 390 px ;
+- quota d'Iwi modifiable par le propriétaire ;
+- 2FA Render (étape 4).
+
 ## Landing page : fait le 2026-10-22
 
 Poussé en deux fois, CI verte les deux fois (jobs landing, backend et frontend en succès) :
 - `ab5218f..d995b62` : les 8 commits `landing` et `ci` (`a0ce057` à `d995b62`). Run 39838311034, terminé à 19 h 15 UTC.
 - `d995b62..9395de9` : `cb187e3` et `9395de9`. Run 39853176393, de 20 h 56 à 20 h 58 UTC.
-La landing n'est pas encore en ligne (étape 3 : second projet Vercel sur `iwishop.app`).
+Mise en ligne le même jour : voir « Landing page : mise en ligne (2026-10-22) ».
 
 Mesure de fluidité de la landing (animations de `d995b62`) : interrompue le 2026-10-22 au soir, Claude Code s'étant fermé pendant la mesure. Aucun résultat sur le disque ; le message de `d995b62` renvoie au « compte rendu de la session », perdu avec elle. À refaire, en notant l'état de la machine. Relevé après la fermeture : aucun serveur Vite, Playwright ou Chromium de test ne tournait encore.
 
@@ -83,7 +107,7 @@ Décisions de Mahamadou (2026-10-22) :
 7. Admin, relevé par Mahamadou le 2026-10-22 : « Essai gratuit » 14 jours, `actif=False`, prix passé de 3 000 à 0 (nom inchangé) ; « 1 MOIS » 30 jours, 15 000, actif ; « 3 MOIS » 90 jours, 45 000, actif.
 8. Rappels de dettes en retard : retirés de la landing (voir « En attente, côté code »).
 9. Données de démonstration : commande `seed_demo` dans le dépôt, qui refuse de tourner hors de localhost (testé). Captures de l'app prises sur la base locale seulement.
-10. Mentions légales : Mahamadou Cissé, Bamako, Mali ; contact `contact@iwishop.app` (à créer avec Cloudflare Email Routing) ; pas de RCCM ni de NIF pour l'instant, ne rien inventer.
+10. Mentions légales : Mahamadou Cissé, Bamako, Mali ; contact `contact@iwishop.app` (créé le 2026-10-22 avec Cloudflare Email Routing, réception pas encore testée) ; pas de RCCM ni de NIF pour l'instant, ne rien inventer.
 11. Mesure d'audience : aucune.
 
 Règle de contenu : ne promettre que ce que l'app fait (relu dans le code le 2026-10-22), avec ses limites :
