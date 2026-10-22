@@ -14,6 +14,7 @@ L'état du travail en cours est dans `docs/EN_COURS.md`, pas ici.
 - Frontend (`sorashop-frontend/`) : `npm run lint`, `npm test`, `npm run build`.
   Sur cette machine, Vitest se lance sous PowerShell (pas sous Bash).
 - Backend (racine) : `python manage.py check`, `python manage.py makemigrations --check --dry-run`, `python manage.py test`.
+- Hook de secrets (racine) : `python -m unittest discover -s scripts/git-hooks -p "test_*.py" -v`.
 
 ## Multi-boutique
 
