@@ -110,7 +110,7 @@ function AppContent() {
             <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-100 min-[1280px]:h-14 min-[1280px]:w-14 min-[1280px]:rounded-xl min-[1280px]:bg-white min-[1280px]:shadow-[0_3px_10px_rgba(15,23,42,0.10)] min-[1280px]:ring-slate-200/80">
               <img
                 src={logoUrl}
-                alt="Logo IwiShop"
+                alt="Logo iwiShop"
                 className="h-9 w-9 object-contain min-[1280px]:h-12 min-[1280px]:w-12"
                 onError={(event) => {
                   event.currentTarget.onerror = null;

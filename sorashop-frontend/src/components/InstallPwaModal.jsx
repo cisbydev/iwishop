@@ -156,10 +156,10 @@ export default function InstallPwaModal() {
         </button>
 
         <div className="flex flex-col items-center gap-3 px-6 pb-2 pt-8 text-center">
-          <img src="/pwa-192x192.png" alt="Icône IwiShop" className="h-16 w-16 rounded-2xl shadow-sm" />
-          <h2 className="text-lg font-bold text-slate-900">Installer IwiShop</h2>
+          <img src="/pwa-192x192.png" alt="Icône iwiShop" className="h-16 w-16 rounded-2xl shadow-sm" />
+          <h2 className="text-lg font-bold text-slate-900">Installer iwiShop</h2>
           <p className="text-sm text-slate-600">
-            Installez IwiShop sur votre écran d'accueil pour y accéder plus vite et fiabiliser l'enregistrement de vos ventes hors connexion.
+            Installez iwiShop sur votre écran d'accueil pour y accéder plus vite et fiabiliser l'enregistrement de vos ventes hors connexion.
           </p>
         </div>
 

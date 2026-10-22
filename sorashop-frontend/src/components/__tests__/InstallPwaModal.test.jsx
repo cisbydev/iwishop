@@ -65,7 +65,7 @@ describe('InstallPwaModal', () => {
     render(<InstallPwaModal />);
     await avancerDelai();
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
   });
 
   it("ne s'affiche jamais si déjà en mode standalone (navigator.standalone Safari iOS)", async () => {
@@ -76,7 +76,7 @@ describe('InstallPwaModal', () => {
     render(<InstallPwaModal />);
     await avancerDelai();
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
   });
 
   it('ne raffiche pas la boîte moins de 3 jours après une fermeture', async () => {
@@ -87,7 +87,7 @@ describe('InstallPwaModal', () => {
     render(<InstallPwaModal />);
     await avancerDelai();
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
   });
 
   it('raffiche la boîte plus de 3 jours après une fermeture', async () => {
@@ -98,7 +98,7 @@ describe('InstallPwaModal', () => {
     render(<InstallPwaModal />);
     await avancerDelai();
 
-    expect(screen.getByText('Installer IwiShop')).toBeInTheDocument();
+    expect(screen.getByText('Installer iwiShop')).toBeInTheDocument();
   });
 
   it("ne s'affiche plus jamais si l'installation a déjà réussi (localStorage)", async () => {
@@ -108,7 +108,7 @@ describe('InstallPwaModal', () => {
     render(<InstallPwaModal />);
     await avancerDelai();
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
   });
 
   it("affiche les instructions iOS en 2 étapes quand la plateforme détectée est iOS", async () => {
@@ -117,7 +117,7 @@ describe('InstallPwaModal', () => {
     render(<InstallPwaModal />);
     await avancerDelai();
 
-    expect(screen.getByText('Installer IwiShop')).toBeInTheDocument();
+    expect(screen.getByText('Installer iwiShop')).toBeInTheDocument();
     expect(screen.getByText(/Appuyez sur/)).toHaveTextContent('Partager');
     expect(screen.getByText(/Choisissez/)).toHaveTextContent("Sur l'écran d'accueil");
     expect(screen.getByRole('button', { name: 'Compris' })).toBeInTheDocument();
@@ -130,7 +130,7 @@ describe('InstallPwaModal', () => {
     render(<InstallPwaModal />);
     await avancerDelai();
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
   });
 
   it('affiche le bouton "Installer maintenant" et déclenche le prompt natif capturé via beforeinstallprompt', async () => {
@@ -155,7 +155,7 @@ describe('InstallPwaModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Plus tard' }));
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
     expect(window.localStorage.getItem(CLE_FERMETURE)).toBeTruthy();
   });
 
@@ -164,11 +164,11 @@ describe('InstallPwaModal', () => {
 
     render(<InstallPwaModal />);
     await avancerDelai();
-    screen.getByText('Installer IwiShop');
+    screen.getByText('Installer iwiShop');
 
     fireEvent.click(screen.getByRole('button', { name: 'Fermer' }));
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
     expect(window.localStorage.getItem(CLE_FERMETURE)).toBeTruthy();
   });
 
@@ -178,13 +178,13 @@ describe('InstallPwaModal', () => {
     render(<InstallPwaModal />);
     declencherBeforeInstallPrompt();
     await avancerDelai();
-    screen.getByText('Installer IwiShop');
+    screen.getByText('Installer iwiShop');
 
     act(() => {
       window.dispatchEvent(new Event('appinstalled'));
     });
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
     expect(window.localStorage.getItem(CLE_INSTALLE)).toBe('true');
   });
 
@@ -193,6 +193,6 @@ describe('InstallPwaModal', () => {
 
     render(<InstallPwaModal />);
 
-    expect(screen.queryByText('Installer IwiShop')).not.toBeInTheDocument();
+    expect(screen.queryByText('Installer iwiShop')).not.toBeInTheDocument();
   });
 });

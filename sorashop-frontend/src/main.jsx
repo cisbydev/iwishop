@@ -20,17 +20,17 @@ const updateSW = registerSW({
   immediate: true,
   onNeedRefresh() {
     const veutMettreAJour = window.confirm(
-      "Une nouvelle version de IwiShop est disponible. Recharger maintenant pour l'installer ?"
+      "Une nouvelle version d'iwiShop est disponible. Recharger maintenant pour l'installer ?"
     )
     if (veutMettreAJour) {
       updateSW(true)
     }
   },
   onOfflineReady() {
-    console.info('IwiShop est prêt à fonctionner hors ligne.')
+    console.info('iwiShop est prêt à fonctionner hors ligne.')
   },
   onRegisterError(error) {
-    console.error("Échec de l'enregistrement du service worker IwiShop :", error)
+    console.error("Échec de l'enregistrement du service worker iwiShop :", error)
   },
 })
 
