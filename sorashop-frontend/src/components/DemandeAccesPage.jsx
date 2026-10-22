@@ -2,6 +2,8 @@ import { useState } from 'react';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
 
+const DELAI_REPONSE = 'Votre demande est examinée sous 24 h, puis vos accès vous sont envoyés par email.';
+
 export default function DemandeAccesPage() {
   const [nomContact, setNomContact] = useState('');
   const [email, setEmail] = useState('');
@@ -31,20 +33,24 @@ export default function DemandeAccesPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
-      <div className="px-8 py-6 mt-4 text-left bg-white shadow-lg rounded-lg w-96">
+    <div className="flex items-center justify-center min-h-screen px-4 bg-gray-100">
+      <div className="w-full max-w-sm px-6 py-6 mt-4 text-left bg-white shadow-lg rounded-lg sm:px-8">
         <h3 className="text-2xl font-bold text-center text-gray-800">Demander un accès à iwiShop</h3>
 
+        {/* Mêmes promesses que la landing (landing/index.html). */}
         {envoye ? (
           <div className="mt-4 text-sm text-green-700 bg-green-100 p-3 rounded">
-            Merci ! Ta demande a été envoyée. Tu recevras tes identifiants de connexion une fois qu'elle sera validée.
+            <p className="font-medium">Merci ! Votre demande a bien été envoyée.</p>
+            <p className="mt-1">{DELAI_REPONSE}</p>
           </div>
         ) : (
           <form onSubmit={handleSubmit}>
+            <p className="mt-2 text-sm font-medium text-center text-blue-700">14 jours d’essai gratuit, sans carte bancaire.</p>
+            <p className="mt-2 text-sm text-center text-gray-600">{DELAI_REPONSE}</p>
             {error && <div className="mt-4 text-sm text-red-600 bg-red-100 p-2 rounded">{error}</div>}
             <div className="mt-4">
               <div>
-                <label className="block text-gray-700">Nom du contact</label>
+                <label className="block text-gray-700">Votre nom</label>
                 <input
                   type="text"
                   value={nomContact}
@@ -73,7 +79,7 @@ export default function DemandeAccesPage() {
                 />
               </div>
               <div className="mt-4">
-                <label className="block text-gray-700">Nom de la boutique souhaité</label>
+                <label className="block text-gray-700">Nom de votre boutique</label>
                 <input
                   type="text"
                   value={nomBoutiqueSouhaite}
