@@ -78,7 +78,7 @@
         </nav>
         <div class="entete__actions">
           <a class="bouton bouton--contour bouton--masque-mobile" href="{{urlConnexion}}">Se connecter</a>
-          <a class="bouton bouton--plein" href="{{urlDemandeAcces}}">Commencer</a>
+          <a class="bouton bouton--plein bouton--pulse" href="{{urlDemandeAcces}}">Commencer</a>
           <details class="menu-mobile">
             <summary aria-label="Ouvrir le menu">
               <span class="menu-mobile__barres" aria-hidden="true"></span>
@@ -169,7 +169,10 @@
                 <p class="etiquette-exemple">Exemple</p>
               </div>
               <p class="bulle bulle--question">Quel est l'état de mon stock ?</p>
-              <p class="bulle bulle--reponse">5 produits nécessitent votre attention aujourd'hui.</p>
+              <p class="bulle bulle--reponse">
+                <span class="frappe" aria-hidden="true"><span></span><span></span><span></span></span>
+                <span class="mot">5</span> <span class="mot">produits</span> <span class="mot">nécessitent</span> <span class="mot">votre</span> <span class="mot">attention</span> <span class="mot">aujourd'hui.</span>
+              </p>
               <figcaption class="carte-iwi__note">Consultation uniquement · aucune donnée modifiée</figcaption>
             </figure>
           </div>

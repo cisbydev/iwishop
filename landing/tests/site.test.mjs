@@ -259,3 +259,100 @@ test('titre, description et adresse canonique de chaque page', () => {
     assert.ok(attributs(html, 'link', 'href').includes(canonique), `${page} : adresse canonique ${canonique} absente`);
   }
 });
+
+// Mouvements (feuille de style construite, minifiée).
+function feuilleDeStyle() {
+  const html = lirePage('index.html');
+  const css = attributs(html, 'link', 'href').filter((h) => h.endsWith('.css'));
+  assert.equal(css.length, 1);
+  return readFileSync(join(DIST, css[0].replace(/^\//, '')), 'utf-8');
+}
+
+// Blocs de premier niveau : { prelude, corps }.
+function blocsCss(css) {
+  const blocs = [];
+  let profondeur = 0;
+  let debutPrelude = 0;
+  let debutCorps = 0;
+  let prelude = '';
+  for (let i = 0; i < css.length; i += 1) {
+    if (css[i] === '{') {
+      if (profondeur === 0) {
+        prelude = css.slice(debutPrelude, i).trim();
+        debutCorps = i + 1;
+      }
+      profondeur += 1;
+    } else if (css[i] === '}') {
+      profondeur -= 1;
+      if (profondeur === 0) {
+        blocs.push({ prelude, corps: css.slice(debutCorps, i) });
+        debutPrelude = i + 1;
+      }
+    }
+  }
+  return blocs;
+}
+
+const MOUVEMENT_PERMIS = /^@media \(prefers-reduced-motion: ?no-preference\)$/;
+const DECLARATION_MOUVEMENT = /(?:^|[;{])\s*(?:animation|transition)[a-z-]*\s*:/;
+
+test('aucune animation ni transition hors de prefers-reduced-motion: no-preference', () => {
+  const blocs = blocsCss(feuilleDeStyle());
+  assert.ok(blocs.some((b) => MOUVEMENT_PERMIS.test(b.prelude)), 'bloc de mouvements absent');
+  for (const { prelude, corps } of blocs) {
+    if (MOUVEMENT_PERMIS.test(prelude) || prelude.startsWith('@keyframes')) continue;
+    assert.doesNotMatch(corps, DECLARATION_MOUVEMENT, `mouvement hors du bloc permis : ${prelude}`);
+  }
+});
+
+test('les animations ne touchent que transform, translate, scale et opacity', () => {
+  const images = blocsCss(feuilleDeStyle()).filter((b) => b.prelude.startsWith('@keyframes'));
+  assert.ok(images.length > 0);
+  for (const { prelude, corps } of images) {
+    const proprietes = [...corps.matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
+    for (const propriete of proprietes) {
+      assert.ok(['opacity', 'transform', 'translate', 'scale'].includes(propriete), `${prelude} anime ${propriete}`);
+    }
+  }
+});
+
+// Cycles lents permis (flottement de 6 s ; pulsation et onde : 0,6 s de
+// mouvement puis repos) ; toute autre durée entre 0,2 et 0,6 s.
+const CYCLES = new Set(['flotte', 'pulsation', 'onde']);
+
+function secondes(jeton) {
+  return jeton.endsWith('ms') ? Number(jeton.slice(0, -2)) / 1000 : Number(jeton.slice(0, -1));
+}
+
+test('durées entre 0,2 et 0,6 s, transitions sur transform et opacity seulement', () => {
+  const css = feuilleDeStyle();
+  const noms = new Set([...css.matchAll(/@keyframes\s+([\w-]+)/g)].map((m) => m[1]));
+  const mouvements = blocsCss(css).filter((b) => MOUVEMENT_PERMIS.test(b.prelude)).map((b) => b.corps).join('');
+  for (const [, valeur] of mouvements.matchAll(/(?:^|[;{])\s*animation\s*:\s*([^;}]+)/g)) {
+    const jetons = valeur.split(/\s+(?![^(]*\))/);
+    const nom = jetons.find((j) => noms.has(j));
+    assert.ok(nom, `animation sans nom connu : ${valeur}`);
+    const durees = jetons.filter((j) => /^\d*\.?\d+m?s$/.test(j));
+    if (durees.length === 0 || CYCLES.has(nom)) continue; // liée au défilement, ou cycle lent
+    const duree = secondes(durees[0]);
+    assert.ok(duree >= 0.2 && duree <= 0.6, `${nom} : ${duree} s`);
+  }
+  for (const [, valeur] of mouvements.matchAll(/(?:^|[;{])\s*transition\s*:\s*([^;}]+)/g)) {
+    for (const partie of valeur.split(',')) {
+      const [propriete, duree] = partie.trim().split(/\s+/);
+      assert.ok(['transform', 'opacity'].includes(propriete), `transition sur ${propriete}`);
+      assert.ok(secondes(duree) >= 0.2 && secondes(duree) <= 0.6, `transition de ${duree}`);
+    }
+  }
+});
+
+test('rien de caché par défaut : opacity 0 seulement sur les décors', () => {
+  for (const { prelude, corps } of blocsCss(feuilleDeStyle())) {
+    if (MOUVEMENT_PERMIS.test(prelude) || prelude.startsWith('@keyframes') || prelude.startsWith('@')) continue;
+    if (/(?:^|;)\s*opacity\s*:\s*0(?:[;}]|$)/.test(corps)) {
+      for (const selecteur of prelude.split(',')) {
+        assert.match(selecteur.trim(), /frappe|:(?::)?(?:after|before)$/, `contenu caché par défaut : ${selecteur}`);
+      }
+    }
+  }
+});

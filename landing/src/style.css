@@ -34,12 +34,6 @@
   box-sizing: border-box;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  html {
-    scroll-behavior: smooth;
-  }
-}
-
 body {
   margin: 0;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -138,10 +132,11 @@ a {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgb(255 255 255 / 0.9);
+  /* Fond presque opaque, sans backdrop-filter : un flou d'arrière-plan
+     serait recalculé à chaque image pendant les animations et le
+     défilement (saccades mesurées sur téléphone lent). */
+  background: rgb(255 255 255 / 0.97);
   border-bottom: 1px solid rgb(226 232 240 / 0.8);
-  -webkit-backdrop-filter: saturate(1.6) blur(12px);
-  backdrop-filter: saturate(1.6) blur(12px);
 }
 
 .entete__barre {
@@ -285,16 +280,6 @@ a {
   white-space: nowrap;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .bouton {
-    transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-  }
-
-  .bouton:hover {
-    transform: translateY(-1px);
-  }
-}
-
 .bouton--grand {
   min-height: 3.25rem;
   padding: 0 1.5rem;
@@ -343,6 +328,28 @@ a {
 
 .bouton--transparent:hover {
   background: rgb(255 255 255 / 0.12);
+}
+
+.bouton--pulse {
+  position: relative;
+}
+
+.bouton--pulse::after,
+.whatsapp::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.bouton--pulse::after {
+  border: 2px solid var(--bleu);
+}
+
+.whatsapp::before {
+  border: 2px solid var(--vert);
 }
 
 .bouton--masque-mobile {
@@ -508,8 +515,7 @@ a {
   position: absolute;
   inset: -12% -8% -6%;
   z-index: -1;
-  background: radial-gradient(closest-side, rgb(37 99 235 / 0.28), rgb(14 165 233 / 0.12) 55%, transparent 100%);
-  filter: blur(8px);
+  background: radial-gradient(closest-side, rgb(37 99 235 / 0.26), rgb(14 165 233 / 0.1) 50%, transparent 100%);
 }
 
 .carte-apercu,
@@ -663,10 +669,28 @@ a {
 }
 
 .bulle--reponse {
+  position: relative;
   margin-top: 0.375rem;
   background: #f1f5f9;
   color: var(--encre);
   border-bottom-left-radius: 0.25rem;
+}
+
+.frappe {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  display: flex;
+  gap: 0.25rem;
+  margin-top: -0.1875rem;
+  opacity: 0;
+}
+
+.frappe span {
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 999px;
+  background: var(--texte-doux);
 }
 
 /* Sections */
@@ -762,6 +786,7 @@ section[id] {
 }
 
 .carte {
+  position: relative;
   padding: 1.375rem;
   background: #fff;
   border: 1px solid var(--bordure);
@@ -769,17 +794,19 @@ section[id] {
   box-shadow: var(--ombre-douce);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .carte,
-  .avantage {
-    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
-  }
+.carte::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid var(--bleu-pale);
+  border-radius: inherit;
+  box-shadow: var(--ombre);
+  opacity: 0;
+  pointer-events: none;
+}
 
-  .carte:hover {
-    transform: translateY(-3px);
-    border-color: var(--bleu-pale);
-    box-shadow: var(--ombre);
-  }
+.carte:hover::after {
+  opacity: 1;
 }
 
 .carte h3,
@@ -1511,5 +1538,272 @@ section[id] {
 
   .pied {
     padding-bottom: 3rem;
+  }
+}
+
+/* Mouvements : seulement si l'utilisateur ne demande pas à les réduire.
+   Uniquement transform, translate et opacity. Sans ces règles (mouvement
+   réduit, navigateur ancien), tout le contenu est visible et immobile. */
+
+@keyframes entree {
+  from {
+    opacity: 0;
+    translate: 0 0.75rem;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes entree-gauche {
+  from {
+    opacity: 0;
+    translate: -1.5rem 0.75rem;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* Flottement lent (cycle de 6 s) : seul mouvement continu, très ample
+   de 8 px au plus. */
+@keyframes flotte {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.5rem);
+  }
+}
+
+@keyframes fondu {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Indicateur « Iwi écrit… » : apparaît, puis s'efface avant la réponse. */
+@keyframes frappe {
+  0% {
+    opacity: 0;
+  }
+  15%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes point {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-0.1875rem);
+  }
+}
+
+/* Pulsation et onde : le mouvement dure 0,6 s, puis repos jusqu'au cycle
+   suivant. */
+@keyframes pulsation {
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  20%,
+  100% {
+    opacity: 0;
+    transform: scale(1.15);
+  }
+}
+
+@keyframes onde {
+  0% {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  15%,
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+@keyframes apparition {
+  from {
+    opacity: 0;
+    translate: 0 1.5rem;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Survol */
+  .bouton {
+    transition: transform 0.2s ease-out;
+  }
+
+  .bouton:hover {
+    transform: translateY(-2px);
+  }
+
+  .bouton:active {
+    transform: translateY(0);
+  }
+
+  .carte {
+    transition: transform 0.25s ease-out;
+  }
+
+  .carte::after {
+    transition: opacity 0.25s ease-out;
+  }
+
+  .carte:hover {
+    transform: translateY(-3px);
+  }
+
+  /* Accroche : apparition en cascade au chargement. */
+  .accroche__texte > * {
+    animation: entree 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+
+  .accroche__texte > :nth-child(2) {
+    animation-delay: 0.08s;
+  }
+
+  .accroche__texte > :nth-child(3) {
+    animation-delay: 0.16s;
+  }
+
+  .accroche__texte > :nth-child(4) {
+    animation-delay: 0.24s;
+  }
+
+  .accroche__texte > :nth-child(5) {
+    animation-delay: 0.32s;
+  }
+
+  .accroche__texte > :nth-child(6) {
+    animation-delay: 0.4s;
+  }
+
+  .accroche__visuel {
+    animation: entree 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) 0.2s both;
+  }
+
+  .carte-iwi {
+    animation: entree-gauche 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) 0.7s both;
+  }
+
+  /* Iwi : la question, puis « Iwi écrit… », puis la réponse mot à mot. */
+  .bulle--question {
+    animation: fondu 0.3s ease-out 1.1s both;
+  }
+
+  .bulle--reponse {
+    animation: fondu 0.3s ease-out 1.5s both;
+  }
+
+  .frappe {
+    animation: frappe 0.6s ease-out 1.5s both;
+  }
+
+  .frappe span {
+    animation: point 0.3s ease-in-out 1.5s 2;
+  }
+
+  .frappe span:nth-child(2) {
+    animation-delay: 1.55s;
+  }
+
+  .frappe span:nth-child(3) {
+    animation-delay: 1.6s;
+  }
+
+  .bulle--reponse .mot {
+    animation: fondu 0.2s ease-out 2.1s both;
+  }
+
+  .bulle--reponse .mot:nth-of-type(3) {
+    animation-delay: 2.2s;
+  }
+
+  .bulle--reponse .mot:nth-of-type(4) {
+    animation-delay: 2.3s;
+  }
+
+  .bulle--reponse .mot:nth-of-type(5) {
+    animation-delay: 2.4s;
+  }
+
+  .bulle--reponse .mot:nth-of-type(6) {
+    animation-delay: 2.5s;
+  }
+
+  .bulle--reponse .mot:nth-of-type(7) {
+    animation-delay: 2.6s;
+  }
+
+  /* Bouton « Commencer » de l'en-tête et bouton WhatsApp. */
+  .bouton--pulse::after {
+    animation: pulsation 3s ease-out 2s infinite;
+  }
+
+  .whatsapp::before {
+    animation: onde 4s ease-out 3s infinite;
+  }
+
+  /* Flottement sur écran large seulement : sur téléphone, la carte reste
+     immobile (moins de travail pour un processeur lent). */
+  @media (min-width: 960px) {
+    .carte-apercu {
+      animation: flotte 6s ease-in-out 0.8s infinite;
+    }
+  }
+
+  /* Apparition au défilement, en cascade, liée au défilement lui-même
+     (aucun script) ; un navigateur qui ne la connaît pas affiche les
+     cartes directement. Limitée aux cartes des sections : chaque élément
+     suivi coûte à chaque image sur un téléphone lent (mesuré). */
+  @supports (animation-timeline: view()) {
+    .grille-cartes > li,
+    .grille-avantages > li,
+    .etapes > li,
+    .captures > figure,
+    .capture--seule {
+      animation: apparition linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 60%;
+    }
+
+    .grille-cartes > li:nth-child(3n + 2),
+    .grille-avantages > li:nth-child(2n),
+    .etapes > li:nth-child(2),
+    .captures > figure:nth-child(2) {
+      animation-range: entry 10% entry 70%;
+    }
+
+    .grille-cartes > li:nth-child(3n),
+    .etapes > li:nth-child(3),
+    .captures > figure:nth-child(3) {
+      animation-range: entry 20% entry 80%;
+    }
   }
 }
