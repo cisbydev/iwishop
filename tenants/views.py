@@ -22,6 +22,9 @@ from .throttling import DemandeAccesRateThrottle
 
 logger = logging.getLogger(__name__)
 
+# La formule d'essai est trouvée par ce nom exact : ne jamais la renommer.
+NOM_FORMULE_ESSAI = 'Essai gratuit'
+
 class DemandeAccesCreateView(generics.CreateAPIView):
     """Formulaire public : n'importe qui peut soumettre une demande."""
     queryset = DemandeAcces.objects.all()
@@ -39,6 +42,21 @@ class DemandeAccesCreateView(generics.CreateAPIView):
             nom_boutique_souhaite=demande.nom_boutique_souhaite,
             telephone=demande.telephone,
         )
+
+class EssaiGratuitView(APIView):
+    """Public : durée de l'essai gratuit, affichée par la page de demande
+    d'accès. Seule la durée est exposée (la formule est inactive et ne
+    figure pas dans formules-abonnement/)."""
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        duree_jours = (
+            FormuleAbonnement.objects.filter(nom=NOM_FORMULE_ESSAI)
+            .values_list('duree_jours', flat=True).first()
+        )
+        if duree_jours is None:
+            return Response({"detail": "Essai gratuit introuvable."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"duree_jours": duree_jours})
 
 class DemandeAccesListView(generics.ListAPIView):
     """Liste des demandes, réservée à moi (admin plateforme)."""
@@ -103,11 +121,12 @@ class ApprouverDemandeView(APIView):
                     defaults={'facteur_conversion': facteur, 'est_systeme': True}
                 )
 
-            # Essai gratuit de 14 jours pour toute nouvelle boutique créée via ce
-            # flux client. Les boutiques créées manuellement depuis l'admin
-            # Django (tests, cas particuliers) restent volontairement exemptées
-            # (pas d'Abonnement créé => fallback abonnement_valide()=True).
-            formule_essai = FormuleAbonnement.objects.get(nom='Essai gratuit')
+            # Essai gratuit (durée lue dans la formule) pour toute nouvelle
+            # boutique créée via ce flux client. Les boutiques créées
+            # manuellement depuis l'admin Django (tests, cas particuliers)
+            # restent volontairement exemptées (pas d'Abonnement créé =>
+            # fallback abonnement_valide()=True).
+            formule_essai = FormuleAbonnement.objects.get(nom=NOM_FORMULE_ESSAI)
             aujourdhui = timezone.localdate()
             Abonnement.objects.create(
                 boutique=boutique,

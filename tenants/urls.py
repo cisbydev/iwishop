@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    DemandeAccesCreateView, DemandeAccesListView, ApprouverDemandeView, RejeterDemandeView,
+    DemandeAccesCreateView, EssaiGratuitView, DemandeAccesListView, ApprouverDemandeView, RejeterDemandeView,
     RechercherUtilisateurView, BoutiqueListView, ToggleBoutiqueActifView, DemarrerVueSupportView,
     MesAccesSupportView, MesBoutiquesView, MonAbonnementView, FormuleAbonnementListView,
     CreerPaiementView, PaiementAbonnementStatutView, PaydunyaWebhookView,
@@ -8,6 +8,7 @@ from .views import (
 
 urlpatterns = [
     path('demande-acces/', DemandeAccesCreateView.as_view(), name='demande-acces-create'),
+    path('essai-gratuit/', EssaiGratuitView.as_view(), name='essai-gratuit'),
     path('demandes/', DemandeAccesListView.as_view(), name='demandes-list'),
     path('demandes/<int:demande_id>/approuver/', ApprouverDemandeView.as_view(), name='demande-approuver'),
     path('demandes/<int:demande_id>/rejeter/', RejeterDemandeView.as_view(), name='demande-rejeter'),

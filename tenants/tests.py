@@ -1726,3 +1726,27 @@ class EmailsVouvoiementTests(TestCase):
         self.assertIn("Pensez à le renouveler", payload['htmlContent'])
         self.assertIn("votre espace iwiShop", payload['htmlContent'])
         self.assertNotRegex(payload['subject'] + payload['htmlContent'], self.TUTOIEMENT)
+
+
+class EssaiGratuitPublicTests(TestCase):
+    """La page publique de demande d'accès lit la durée de l'essai en base
+    (formule « Essai gratuit », trouvée par son nom, comme à
+    l'approbation), au lieu d'écrire « 14 jours » en dur."""
+
+    URL = '/api/tenants/essai-gratuit/'
+
+    def test_anonyme_lit_la_duree_de_la_formule(self):
+        FormuleAbonnement.objects.filter(nom='Essai gratuit').update(duree_jours=21)
+
+        response = APIClient().get(self.URL)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {'duree_jours': 21})
+
+    def test_formule_absente_renvoie_404(self):
+        FormuleAbonnement.objects.filter(nom='Essai gratuit').delete()
+
+        response = APIClient().get(self.URL)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data, {'detail': "Essai gratuit introuvable."})

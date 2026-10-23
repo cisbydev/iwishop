@@ -1,8 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import api from '../services/api';
 import { getErrorMessage } from '../services/errorUtils';
 
 const DELAI_REPONSE = 'Votre demande est examinée sous 24 h, puis vos accès vous sont envoyés par email.';
+
+// Durée lue dans la formule « Essai gratuit » ; sans réponse exploitable
+// (API injoignable, champ absent), le texte reste vrai, sans chiffre.
+function texteEssai(dureeJours) {
+  if (!Number.isInteger(dureeJours) || dureeJours <= 0) {
+    return 'Essai gratuit, sans carte bancaire.';
+  }
+  return `${dureeJours} jour${dureeJours > 1 ? 's' : ''} d’essai gratuit, sans carte bancaire.`;
+}
 
 export default function DemandeAccesPage() {
   const [nomContact, setNomContact] = useState('');
@@ -12,6 +21,19 @@ export default function DemandeAccesPage() {
   const [error, setError] = useState('');
   const [envoi, setEnvoi] = useState(false);
   const [envoye, setEnvoye] = useState(false);
+  const [dureeEssai, setDureeEssai] = useState(null);
+
+  useEffect(() => {
+    let actif = true;
+    api.get('tenants/essai-gratuit/')
+      .then((response) => {
+        if (actif) setDureeEssai(response.data?.duree_jours ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      actif = false;
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -45,7 +67,7 @@ export default function DemandeAccesPage() {
           </div>
         ) : (
           <form onSubmit={handleSubmit}>
-            <p className="mt-2 text-sm font-medium text-center text-blue-700">14 jours d’essai gratuit, sans carte bancaire.</p>
+            <p className="mt-2 text-sm font-medium text-center text-blue-700">{texteEssai(dureeEssai)}</p>
             <p className="mt-2 text-sm text-center text-gray-600">{DELAI_REPONSE}</p>
             {error && <div className="mt-4 text-sm text-red-600 bg-red-100 p-2 rounded">{error}</div>}
             <div className="mt-4">
