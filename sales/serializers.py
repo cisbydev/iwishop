@@ -5,7 +5,7 @@ from .services.factures import emettre_facture
 from inventory.models import MouvementStock
 from products.models import Produit, UniteVente, ProduitPrix
 from rest_framework import status
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, NotFound, ValidationError
 from tenants.profil import boutique_de
 from notifications.services import verifier_stock_bas
 
@@ -34,7 +34,25 @@ class ClientSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Le téléphone est obligatoire.")
         return value
 
+class VenteDeLaBoutiqueField(serializers.PrimaryKeyRelatedField):
+    """Une vente d'une autre boutique est traitée comme inexistante : même
+    404, même message, pour ne jamais révéler qu'elle existe ailleurs (cf.
+    CLAUDE.md, Sécurité ; même principe que AchatDeLaBoutiqueField)."""
+
+    def get_queryset(self):
+        return Vente.objects.filter(boutique=boutique_de(self.context['request']))
+
+    def to_internal_value(self, data):
+        try:
+            return self.get_queryset().get(pk=data)
+        except Vente.DoesNotExist:
+            raise NotFound("Vente introuvable.")
+        except (TypeError, ValueError):
+            self.fail('incorrect_type', data_type=type(data).__name__)
+
+
 class RemboursementSerializer(serializers.ModelSerializer):
+    vente = VenteDeLaBoutiqueField()
     # enregistre_par n'est jamais accepté depuis la requête : il est résolu
     # côté vue à partir de request.user et passé directement au service
     # (cf. RemboursementViewSet.perform_create), jamais depuis le payload.

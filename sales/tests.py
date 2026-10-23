@@ -1465,14 +1465,22 @@ class ClientCreditTests(APITestCase):
     # --- Isolation multi-tenant : Remboursement ---
 
     def test_remboursement_refuse_sur_vente_dune_autre_boutique(self):
+        """CLAUDE.md, Sécurité : une vente d'une autre boutique est traitée
+        comme inexistante (même 404, même message), pour ne jamais révéler
+        qu'elle existe ailleurs."""
         vente = self._creer_vente_credit(self.boutique_a, self.client_a, montant=Decimal("1000.00"))
+        id_inexistant = Vente.objects.order_by('-pk').first().pk + 1000
         self.api_client.force_authenticate(user=self.user_b)
 
-        response = self.api_client.post(
+        autre = self.api_client.post(
             self.url_remboursements, {"vente": vente.id, "montant": "100.00"}, format='json'
         )
+        inexistante = self.api_client.post(
+            self.url_remboursements, {"vente": id_inexistant, "montant": "100.00"}, format='json'
+        )
 
-        self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND))
+        self.assertEqual(autre.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual((autre.status_code, autre.data), (inexistante.status_code, inexistante.data))
         self.assertEqual(Remboursement.objects.count(), 0)
 
     # --- enregistre_par toujours issu de l'utilisateur authentifié ---

@@ -1,6 +1,6 @@
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
@@ -268,9 +268,9 @@ class RemboursementViewSet(
         boutique = self._boutique_effective()
         self._verifier_acces(boutique)
 
+        # Vente déjà limitée à la boutique par VenteDeLaBoutiqueField (une
+        # vente d'une autre boutique y est un 404, comme une vente inexistante).
         vente = serializer.validated_data['vente']
-        if vente.boutique_id != boutique.id:
-            raise PermissionDenied("Cette vente n'appartient pas à votre boutique.")
 
         # La logique de recalcul (dette, statut_paiement) vit uniquement
         # dans le service : jamais de serializer.save() direct ici.
