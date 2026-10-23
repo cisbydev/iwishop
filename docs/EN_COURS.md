@@ -47,6 +47,29 @@ Tests au moment du push : backend 698 OK, hook 8 OK, frontend 387/387 (38 fichie
 Relevés pendant ce lot (`MonAbonnement.jsx` qui tutoie, carte `w-96` d'`AdminPlateformePage.jsx`, contradiction avec `CLAUDE.md`) : traités par le lot 2 du même jour.
 Horloge du PC : saut d'environ 12 h le 2026-10-23 au matin (00 h 27 puis 12 h 37) ; l'heure des commits concorde ensuite avec celle de GitHub (CI à 14 h 41 UTC, dernier commit à 14 h 27).
 
+## Images de catégories et logo (lot du 2026-10-23, méthode par lot)
+
+Plan validé par Mahamadou le 2026-10-23 : carré recadré au centre, 320 px, WebP qualité 80 ; tout employé peut envoyer ou retirer l'image ; affichage dans l'écran Catégories seulement (le filtre par catégorie sur l'écran de vente est un chantier séparé, prévu le 2026-10-24) ; hors ligne, icône par défaut sans cache ; tout en un seul push ; logo passé par le même traitement (étape 6), anciens logos gardés pour les factures.
+
+Commits locaux, pas encore poussés (le push attend « oui, push ») :
+1. `69c64b9` `feat(products)` : `traiter_photo(fichier, cote_max=800, carre=False)`.
+2. `b1a74de` `refactor(products)` : `enregistrer_image`, `retirer_image` et `supprimer_image_apres_commit` communs à tout champ image (option `supprimer_ancienne=False` pour le logo). Tests des produits inchangés (80/80), dont celui de concurrence sur deux connexions PostgreSQL.
+3. `4a450c6` `feat(categories)` : `Categorie.image`, migration `categories/0005` (`ADD COLUMN NULL`) ; `POST`/`DELETE categories/{id}/image/` ; `image` en lecture seule dans la catégorie ; image supprimée après le commit au remplacement, au retrait et à la suppression de la catégorie.
+4. `38eaf98` `feat(frontend)` : image dans le formulaire de création (envoyée après la catégorie ; échec : « Catégorie créée, image non envoyée : … »).
+5. `a32f125` `feat(frontend)` : miniature de 48 px sur la carte ; l'écran n'a pas de fiche de modification, donc « Ajouter / Changer l'image » et « Retirer l'image » sur la carte, envoyés tout de suite. Champ absent (backend pas encore déployé) : icône, aucune action. Mesuré à 360 et 390 px (Playwright, API simulée) : pas de débordement.
+6. `568aabf` `fix(parametres)` : le logo passe par `traiter_photo` (format réel, 40 mégapixels, WebP 800 px, métadonnées supprimées), chemin `logos/<id boutique>/<uuid>.webp` (migration `parametres/0008`, no-op en SQL). Les anciens logos restent à leur chemin. `Settings.jsx` ne propose plus que JPG, PNG et WebP.
+7. commit `docs` : cette note.
+
+Preuves : chaque correctif vu échouer avant (validation : GIF nommé .png, texte nommé .jpg, 5 Mo, 40 mégapixels, position GPS ; suppression : remplacement, retrait, suppression de la catégorie, échec de la base ; accès : abonnement expiré ; migration : INSERT de l'ancien code en SQL brut). Une contre-épreuve survit : retirer `if (isSaving) return;` du formulaire de création, déjà doublé par le bouton désactivé.
+Tests au moment du commit docs : backend 727 OK, hook 8 OK, frontend 403/403 (39 fichiers), lint et build OK.
+
+À vérifier en prod après le push (rien n'est vérifié) : envoyer une image de catégorie, puis la changer et la retirer ; vérifier dans R2 que `categories/<id>/` ne garde que le dernier fichier ; envoyer un nouveau logo et vérifier qu'il est en `.webp` dans `logos/<id>/`, que l'ancien reste, et qu'une facture déjà émise garde son ancien logo.
+
+Relevés, rien n'est corrigé :
+- `ProductsMiniature.test.jsx`, « hors ligne : image par défaut… », a échoué une fois (« Pas de photo pour Savon » introuvable) dans un groupe de 5 fichiers ; seul : 4/4, avec et sans le changement de `PhotoProduit` ; deux passages du groupe ensuite : 42/42. À surveiller.
+- Suite frontend complète en 1 716 s le 2026-10-23 (contre 330 s plus tôt le même jour), environnement 92 % du temps, 2,5 Go de RAM libre, aucun Chrome ouvert : cause inconnue.
+- Les images (produits, catégories, logos) ne sont pas dans la sauvegarde de la base (D8 des photos de produits).
+
 ## Lot 3 du 2026-10-23 (méthode par lot, sécurité)
 
 Poussés le 2026-10-23 (`c9ec562..e980150`), CI verte sur `e980150` (jobs backend, frontend et landing en succès, de 16 h 10 à 16 h 11 UTC). Non vérifiés en prod. Relus par Mahamadou après le push, pas avant ; contre-épreuve des tâches 1 et 2 refaite sur `e980150`, mêmes échecs sans les correctifs (401 au lieu de 429 ; 32 lignes au lieu de 12) :
