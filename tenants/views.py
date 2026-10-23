@@ -18,7 +18,7 @@ from .emails import envoyer_identifiants_email, notifier_nouvelle_demande, envoy
 from . import paydunya
 from .services import confirmer_paiement
 from .profil import boutique_de
-from .throttling import DemandeAccesRateThrottle
+from .throttling import CreerPaiementRateThrottle, DemandeAccesRateThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -379,8 +379,12 @@ class CreerPaiementView(APIView):
     d'employé.
 
     Refusé en 503, avant toute écriture, tant que le paiement en ligne est
-    fermé (paydunya.paiement_en_ligne_actif)."""
+    fermé (paydunya.paiement_en_ligne_actif).
+
+    Limité par utilisateur (CreerPaiementRateThrottle) : au-delà, 429 avant
+    toute écriture et tout appel à PayDunya."""
     permission_classes = [IsAuthenticated, IsOwner]
+    throttle_classes = [CreerPaiementRateThrottle]
 
     def post(self, request, *args, **kwargs):
         if not paydunya.paiement_en_ligne_actif():

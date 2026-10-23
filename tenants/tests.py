@@ -1750,3 +1750,67 @@ class EssaiGratuitPublicTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.data, {'detail': "Essai gratuit introuvable."})
+
+
+@paiement_en_ligne_ouvert
+class CreerPaiementThrottlingTests(TestCase):
+    """creer-paiement/ est limité par utilisateur : chaque appel accepté
+    peut créer une facture PayDunya. Le quota d'un compte ne touche pas
+    celui d'un autre. Le cache est isolé entre chaque test."""
+
+    LIMITE = 10
+
+    def setUp(self):
+        cache.clear()
+        horloge_simulee = itertools.count(0.0, 0.01)
+        patcher_horloge = patch(
+            'rest_framework.throttling.SimpleRateThrottle.timer',
+            new=staticmethod(lambda: next(horloge_simulee)),
+        )
+        patcher_horloge.start()
+        self.addCleanup(patcher_horloge.stop)
+        self.addCleanup(cache.clear)
+        self.formule = FormuleAbonnement.objects.create(
+            nom='Mensuel', duree_jours=30, prix=5000, actif=True
+        )
+
+    def _proprietaire(self, suffixe):
+        boutique = Boutique.objects.create(nom=f'Boutique {suffixe}', slug=f'boutique-debit-{suffixe}')
+        user = User.objects.create_user(username=f'proprietaire_debit_{suffixe}', password='x')
+        Profil.objects.create(user=user, boutique=boutique, est_proprietaire=True)
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return boutique, client
+
+    def _post(self, client):
+        return client.post('/api/tenants/creer-paiement/', {'formule_id': self.formule.id})
+
+    @patch('tenants.views.paydunya.creer_facture')
+    def test_au_dela_de_la_limite_aucun_paiement_n_est_cree(self, mock_creer):
+        # Facture refusée par PayDunya : rien n'est réutilisé, chaque appel
+        # accepté crée une ligne (ECHEC) et appelle PayDunya.
+        mock_creer.return_value = (False, None)
+        boutique, client = self._proprietaire('a')
+        for _ in range(self.LIMITE):
+            self.assertEqual(self._post(client).status_code, status.HTTP_502_BAD_GATEWAY)
+
+        response = self._post(client)
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(PaiementAbonnement.objects.filter(boutique=boutique).count(), self.LIMITE)
+        self.assertEqual(mock_creer.call_count, self.LIMITE)
+
+    @patch('tenants.views.paydunya.creer_facture')
+    def test_le_quota_est_propre_a_chaque_utilisateur(self, mock_creer):
+        mock_creer.return_value = (False, None)
+        _, client_a = self._proprietaire('a')
+        boutique_b, client_b = self._proprietaire('b')
+        for _ in range(self.LIMITE):
+            self._post(client_a)
+
+        refusee = self._post(client_a)
+        acceptee = self._post(client_b)
+
+        self.assertEqual(refusee.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(acceptee.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(PaiementAbonnement.objects.filter(boutique=boutique_b).count(), 1)

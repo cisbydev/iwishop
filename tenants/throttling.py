@@ -1,4 +1,4 @@
-from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 
 
 class DemandeAccesRateThrottle(SimpleRateThrottle):
@@ -16,3 +16,11 @@ class DemandeAccesRateThrottle(SimpleRateThrottle):
         if not ident:
             return None
         return self.cache_format % {'scope': self.scope, 'ident': ident}
+
+
+class CreerPaiementRateThrottle(UserRateThrottle):
+    """Limite creer-paiement/ par utilisateur connecté (pk du compte) :
+    chaque appel accepté peut créer une facture PayDunya. La vue exige
+    IsAuthenticated, vérifié avant ce throttle : le repli par IP de
+    UserRateThrottle ne sert donc pas ici."""
+    scope = 'creer_paiement'

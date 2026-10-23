@@ -183,8 +183,9 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 50,
     # Pas de DEFAULT_THROTTLE_CLASSES ici volontairement : ces taux ne
     # s'appliquent qu'aux vues qui déclarent explicitement throttle_classes
-    # (CustomTokenObtainPairView, cf. accounts.throttling) - aucune autre
-    # route n'est limitée par ce biais.
+    # (CustomTokenObtainPairView, cf. accounts.throttling ;
+    # DemandeAccesCreateView et CreerPaiementView, cf. tenants.throttling) -
+    # aucune autre route n'est limitée par ce biais.
     #
     # CACHES (cf. bloc défini près de DATABASES ci-dessous) utilise
     # DatabaseCache, partagé par tous les workers Gunicorn - le seuil
@@ -193,6 +194,7 @@ REST_FRAMEWORK = {
         'login_ip': '10/min',
         'login_username': '5/min',
         'demande_acces': '5/hour',
+        'creer_paiement': '10/hour',
     },
 }
 
