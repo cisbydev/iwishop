@@ -202,8 +202,41 @@ describe('MonAbonnement', () => {
       await screen.findByText('Annuel');
       await user.click(screen.getAllByRole('button', { name: /Choisir cette formule/ })[0]);
 
-      expect(await screen.findByText(/Impossible de démarrer le paiement/)).toBeInTheDocument();
+      expect(await screen.findByText(
+        'Impossible de démarrer le paiement pour le moment. Réessayez dans un instant.'
+      )).toBeInTheDocument();
       expect(screen.getAllByRole('button', { name: /Choisir cette formule/ })).toHaveLength(2);
+    });
+
+    it('clic refusé en 429 (limite de débit) : message dédié, boutons gardés', async () => {
+      mocks.get.mockResolvedValue({ data: abonnementActif });
+      mocks.post.mockRejectedValue({
+        response: { status: 429, data: { detail: 'Requête ralentie (throttled). Réessayez dans 3600 secondes.' } },
+      });
+      const user = userEvent.setup();
+
+      render(<MonAbonnement />);
+      await screen.findByText('Annuel');
+      await user.click(screen.getAllByRole('button', { name: /Choisir cette formule/ })[0]);
+
+      expect(await screen.findByText(
+        'Trop de tentatives de paiement. Réessayez dans une heure.'
+      )).toBeInTheDocument();
+      expect(screen.queryByText(/Impossible de démarrer le paiement/)).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: /Choisir cette formule/ })).toHaveLength(2);
+    });
+
+    it('ne tutoie pas dans ses messages d’erreur de paiement', async () => {
+      mocks.get.mockResolvedValue({ data: abonnementActif });
+      mocks.post.mockRejectedValue({ response: { status: 502, data: { detail: 'Impossible.' } } });
+      const user = userEvent.setup();
+
+      const { container } = render(<MonAbonnement />);
+      await screen.findByText('Annuel');
+      await user.click(screen.getAllByRole('button', { name: /Choisir cette formule/ })[0]);
+
+      await screen.findByText(/Impossible de démarrer le paiement/);
+      expect(container.textContent).not.toMatch(/\b(tu|ta|ton|tes|toi|réessaie)\b/i);
     });
   });
 });

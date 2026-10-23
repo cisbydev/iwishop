@@ -102,7 +102,12 @@ export default function MonAbonnement() {
           setRefusPaiementFerme(getErrorMessage(err, TEXTE_PAIEMENT_FERME));
           return;
         }
-        setErreur("Impossible de démarrer le paiement pour le moment. Réessaie dans un instant.");
+        // 429 : limite de creer-paiement par utilisateur (10 par heure).
+        if (err?.response?.status === 429) {
+          setErreur("Trop de tentatives de paiement. Réessayez dans une heure.");
+          return;
+        }
+        setErreur("Impossible de démarrer le paiement pour le moment. Réessayez dans un instant.");
       });
   };
 
