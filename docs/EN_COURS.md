@@ -62,10 +62,17 @@ Fait le 2026-10-23 par Mahamadou, dans sa fenêtre PowerShell :
 
 Pièges notés dans la procédure : le dossier de l'export contient des « : » (`2026-10-23T21:11Z`), interdits sous Windows, et le `tar` de Windows ne connaît pas `-s` : extraire avec `--strip-components=2`. Les outils PostgreSQL ne sont pas dans le PATH : chemins complets (`C:\Program Files\PostgreSQL\18\bin\…`).
 
-Reste à faire :
-- Deuxième exemplaire de la nouvelle clé privée, rangé ailleurs que la clé USB (aujourd'hui, la clé USB est le seul exemplaire).
-- Supprimer les anciennes archives non chiffrées de `backups/` (décision 6 : le test a réussi).
-- R2 `weekly/` (règle de conservation de 12 semaines et verrou), si la sauvegarde hebdomadaire continue après le commit 4.
+Anciennes archives en clair : les 11 `.dump` de `backups/` (du 2026-09-02 au 2026-10-14, 1 326 609 octets) supprimés le 2026-10-23 par Mahamadou, après les avoir listés (11 fichiers, noms et tailles relus) ; il ne reste que `comptage_dev.txt` (comptes de la base de dev, sans données de clients). Suppression ordinaire sur SSD, pas un effacement garanti (voir BitLocker dans « En attente, côté code »). L'archive du 2026-10-14, la seule validée avant ce soir, est remplacée par la sauvegarde chiffrée et restaurée de ce soir.
+
+Décision de Mahamadou (2026-10-23) : un seul exemplaire de la clé privée (clé USB E:). Risque accepté : il faudrait une panne de la clé ET une perte de la base Render en même temps. Le test de restauration mensuel détecte une clé morte ; dans ce cas, créer une nouvelle clé et refaire une sauvegarde immédiatement. La clé USB est rangée à la maison et ne sert à rien d'autre. (Remplace la règle des deux exemplaires du 2026-10-15, préalable P2.)
+
+Pour le 2026-10-24, dans cet ordre (décidé par Mahamadou le 2026-10-23) :
+1. Vérifier que le bucket R2 `iwishop-backups` est vide (aucune archive chiffrée avec l'ancienne clé perdue).
+2. Sauvegarde quotidienne automatique (commit 4 du chantier « sauvegarde de la base »), avec la nouvelle clé publique.
+
+Plus tard : R2 `weekly/` (règle de conservation de 12 semaines et verrou), si la sauvegarde hebdomadaire continue après le commit 4.
+
+Poussé ensuite : `43f02b3..9811685` (`9811685` docs, cette procédure), CI verte sur `9811685` (jobs backend, frontend et landing en succès, de 21 h 50 à 21 h 51 UTC).
 
 Poussé le 2026-10-23, avant cette sauvegarde : `1a2dd23..43f02b3` (`66e625e` docs, `f1e579c` remboursement d'une autre boutique en 404, `43f02b3` docs), CI verte sur `43f02b3` (jobs backend, frontend et landing en succès, de 20 h 00 à 20 h 01 UTC). `f1e579c` non vérifié en prod : seul le test automatique le prouve (le tester en prod demanderait une vente d'une autre boutique).
 
@@ -1138,6 +1145,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté code (pour plus tard)
 
+- Chiffrer le disque du PC avec BitLocker (la suppression sur SSD n'est pas un effacement garanti). (Décidé par Mahamadou le 2026-10-23, après la suppression des archives en clair de `backups/`.)
 - ProduitPrixViewSet : 403/400 au lieu de 404 et aucun test d'isolation. Aucune donnée ne fuit, seulement l'existence d'un objet. À corriger avec les messages des serializers. (Relevé le 2026-10-23, revue des vues en lecture seule ; même lot que le chantier « objets d'une autre boutique qui renvoient autre chose qu'un 404 identique ».)
 - Envoi d'image en 3-4 s (photo complète envoyée puis réduite sur Render). Piste : réduire l'image dans le navigateur avant l'envoi. (Relevé par Mahamadou le 2026-10-23, en prod, sur les images de catégories ; c'est aussi la livraison 2c prévue pour les photos de produits.)
 - CI (relevé le 2026-10-05, annotation GitHub) : le libellé `ubuntu-latest` passera à Ubuntu 26 à partir du 19 octobre 2026. Surveiller la CI après cette date (versions de Python, de Node et de PostgreSQL de l'image). Constaté le 2026-10-19 : Runner Image `ubuntu-24.04` (20261012.334.1) ; le passage à Ubuntu 26 n'a pas encore eu lieu. Fait le 2026-10-20 : `runs-on: ubuntu-24.04` fixé pour les deux jobs (`160c66e`), CI verte (run 39412654406, les deux jobs sous l'étiquette `ubuntu-24.04`). Reste une tâche à part : le passage à Ubuntu 26.

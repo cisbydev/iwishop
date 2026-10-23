@@ -22,9 +22,11 @@ Une sauvegarde n'est validée que par une restauration réussie (voir
 - `age` (v1.3.2) dans `C:\Tools\age` (`age.exe`, `age-keygen.exe`).
 - Clé publique, dans `C:\Tools\age\iwishop-backup.pub` :
   `age1q9kz7w9m4lujlyf0pkl6drzjfjw2svcam0xz2t9f62h93s0l243sjjs24w`
-- Clé privée : sur la clé USB, et en second exemplaire rangé ailleurs. Jamais
-  sur le PC, ni dans le dépôt, ni dans une conversation. Elle n'est nécessaire
-  que pour déchiffrer (vérification et restauration).
+- Clé privée : un seul exemplaire, sur la clé USB (rangée à la maison, ne sert
+  à rien d'autre ; décision du 2026-10-23). Jamais sur le PC, ni dans le
+  dépôt, ni dans une conversation. Elle n'est nécessaire que pour déchiffrer
+  (vérification et restauration). Une clé morte est détectée par le test de
+  restauration mensuel : voir « En cas de problème ».
 - Outils PostgreSQL : pas dans le PATH, à appeler par leur chemin complet
   (`C:\Program Files\PostgreSQL\18\bin\psql.exe`, `pg_restore.exe`,
   `createdb.exe`, `dropdb.exe`).
