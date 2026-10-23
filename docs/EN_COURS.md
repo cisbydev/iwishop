@@ -71,8 +71,8 @@ Vérification (tâche 3, rien n'est modifié) : limites de débit et workers.
 - Nombre de workers gunicorn : pas dans le dépôt (ni `Procfile`, ni `render.yaml`, ni `gunicorn.conf.py`) ; la commande de démarrage est dans le tableau de bord Render. Sans `--workers`, gunicorn lit `WEB_CONCURRENCY`, sinon 1 worker. À relever par Mahamadou : Settings → Start Command, et Environment → `WEB_CONCURRENCY`. La prod répond `x-render-origin-server: gunicorn`.
 - Risque trouvé à la lecture du code (Django 6.0.7, DRF), puis reproduit par les tests du lot 3 : le cache a la limite par défaut de 300 entrées. Au-delà, chaque écriture supprime les entrées expirées puis le premier tiers des clés par ordre alphabétique : `throttle_creer_paiement_…`, puis `throttle_demande_acces_…`, puis `throttle_login_ip_…`, avant `throttle_login_username_…`. Une tentative de connexion bloquée par la limite par IP écrit quand même une clé par nouvel identifiant (DRF évalue toutes les limites). Une seule IP peut donc dépasser 300 entrées en une minute et effacer les compteurs, y compris le sien.
 - Autre limite, mineure : lecture puis écriture non atomiques ; des requêtes simultanées sur deux workers peuvent dépasser un peu le seuil.
-- Pistes retenues par Mahamadou et faites par le lot 3 (`12d4cad`, `f7ad50f`). Reste la lecture non atomique : non traitée, à décider par Mahamadou.
-- Toujours à relever par Mahamadou : le nombre de workers (Start Command et `WEB_CONCURRENCY` sur Render).
+- Pistes retenues par Mahamadou et faites par le lot 3 (`12d4cad`, `f7ad50f`). Lecture non atomique des compteurs acceptée (dépassement de 1-2 unités, Redis plus tard si besoin).
+- Workers (relevé par Mahamadou le 2026-10-23) : gunicorn tourne sans `--workers` et `WEB_CONCURRENCY` n'existe pas sur Render, donc probablement 1 worker. À revoir avec les premiers clients (Metrics Render).
 
 ## Hook de secrets : échec fermé (2026-10-22)
 
