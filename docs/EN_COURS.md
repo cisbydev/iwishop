@@ -51,19 +51,20 @@ Horloge du PC : saut d'environ 12 h le 2026-10-23 au matin (00 h 27 puis 12 h 37
 
 Plan validé par Mahamadou le 2026-10-23 : carré recadré au centre, 320 px, WebP qualité 80 ; tout employé peut envoyer ou retirer l'image ; affichage dans l'écran Catégories seulement (le filtre par catégorie sur l'écran de vente est un chantier séparé, prévu le 2026-10-24) ; hors ligne, icône par défaut sans cache ; tout en un seul push ; logo passé par le même traitement (étape 6), anciens logos gardés pour les factures.
 
-Commits locaux, pas encore poussés (le push attend « oui, push ») :
+Poussés le 2026-10-23 (`e980150..1a2dd23`, avec `5cd8a00` et `a5bc53d`), CI verte sur `1a2dd23` (jobs backend, frontend et landing en succès, de 18 h 46 à 18 h 48 UTC) :
 1. `69c64b9` `feat(products)` : `traiter_photo(fichier, cote_max=800, carre=False)`.
 2. `b1a74de` `refactor(products)` : `enregistrer_image`, `retirer_image` et `supprimer_image_apres_commit` communs à tout champ image (option `supprimer_ancienne=False` pour le logo). Tests des produits inchangés (80/80), dont celui de concurrence sur deux connexions PostgreSQL.
 3. `4a450c6` `feat(categories)` : `Categorie.image`, migration `categories/0005` (`ADD COLUMN NULL`) ; `POST`/`DELETE categories/{id}/image/` ; `image` en lecture seule dans la catégorie ; image supprimée après le commit au remplacement, au retrait et à la suppression de la catégorie.
 4. `38eaf98` `feat(frontend)` : image dans le formulaire de création (envoyée après la catégorie ; échec : « Catégorie créée, image non envoyée : … »).
 5. `a32f125` `feat(frontend)` : miniature de 48 px sur la carte ; l'écran n'a pas de fiche de modification, donc « Ajouter / Changer l'image » et « Retirer l'image » sur la carte, envoyés tout de suite. Champ absent (backend pas encore déployé) : icône, aucune action. Mesuré à 360 et 390 px (Playwright, API simulée) : pas de débordement.
 6. `568aabf` `fix(parametres)` : le logo passe par `traiter_photo` (format réel, 40 mégapixels, WebP 800 px, métadonnées supprimées), chemin `logos/<id boutique>/<uuid>.webp` (migration `parametres/0008`, no-op en SQL). Les anciens logos restent à leur chemin. `Settings.jsx` ne propose plus que JPG, PNG et WebP.
-7. commit `docs` : cette note.
+7. `7637639` `docs` : cette note.
+8. `1a2dd23` `test(sales)` : vraie facture PDF avec un logo WebP envoyé par `PATCH parametres/` (une image de 40 x 20 dans le PDF, aucune erreur journalisée). Échoue si Pillow, donc ReportLab, ne lit plus le WebP (journal « Logo de facture illisible », 0 image au lieu de 1).
 
 Preuves : chaque correctif vu échouer avant (validation : GIF nommé .png, texte nommé .jpg, 5 Mo, 40 mégapixels, position GPS ; suppression : remplacement, retrait, suppression de la catégorie, échec de la base ; accès : abonnement expiré ; migration : INSERT de l'ancien code en SQL brut). Une contre-épreuve survit : retirer `if (isSaving) return;` du formulaire de création, déjà doublé par le bouton désactivé.
-Tests au moment du commit docs : backend 727 OK, hook 8 OK, frontend 403/403 (39 fichiers), lint et build OK.
+Tests au moment du commit docs `7637639` : backend 727 OK, hook 8 OK, frontend 403/403 (39 fichiers), lint et build OK ; backend 728 OK après `1a2dd23`.
 
-À vérifier en prod après le push (rien n'est vérifié) : envoyer une image de catégorie, puis la changer et la retirer ; vérifier dans R2 que `categories/<id>/` ne garde que le dernier fichier ; envoyer un nouveau logo et vérifier qu'il est en `.webp` dans `logos/<id>/`, que l'ancien reste, et qu'une facture déjà émise garde son ancien logo.
+Vérifié en prod par Mahamadou le 2026-10-23 : images de catégories (ajout, changement, retrait), miniatures carrées, logo, factures ; « tout fonctionne ». Le refus d'un GIF renommé en `.png` n'est pas mentionné dans ce compte rendu.
 
 Relevés, rien n'est corrigé :
 - `ProductsMiniature.test.jsx`, « hors ligne : image par défaut… », a échoué une fois (« Pas de photo pour Savon » introuvable) dans un groupe de 5 fichiers ; seul : 4/4, avec et sans le changement de `PhotoProduit` ; deux passages du groupe ensuite : 42/42. À surveiller.
@@ -1114,6 +1115,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté code (pour plus tard)
 
+- Envoi d'image en 3-4 s (photo complète envoyée puis réduite sur Render). Piste : réduire l'image dans le navigateur avant l'envoi. (Relevé par Mahamadou le 2026-10-23, en prod, sur les images de catégories ; c'est aussi la livraison 2c prévue pour les photos de produits.)
 - CI (relevé le 2026-10-05, annotation GitHub) : le libellé `ubuntu-latest` passera à Ubuntu 26 à partir du 19 octobre 2026. Surveiller la CI après cette date (versions de Python, de Node et de PostgreSQL de l'image). Constaté le 2026-10-19 : Runner Image `ubuntu-24.04` (20261012.334.1) ; le passage à Ubuntu 26 n'a pas encore eu lieu. Fait le 2026-10-20 : `runs-on: ubuntu-24.04` fixé pour les deux jobs (`160c66e`), CI verte (run 39412654406, les deux jobs sous l'étiquette `ubuntu-24.04`). Reste une tâche à part : le passage à Ubuntu 26.
 
 - Petit défaut (relevé en prod le 2026-10-04) : couleurs des dettes à harmoniser, fournisseurs et clients. Le total de l'écran Fournisseurs est en rouge, alors que le badge « Doit X » peut être vert : `couleurBadgeDette` colore le badge selon l'ancienneté de la plus vieille dette (vert à moins de 7 jours, orange jusqu'à 30, rouge au-delà), c'est voulu, mais la juxtaposition avec le total rouge prête à confusion. « Reste dû 0 » (fiche fournisseur) et « Dû 0 » (fiche client) s'affichent en rouge. Décider d'une règle commune avant de corriger.
