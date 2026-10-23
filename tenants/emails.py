@@ -17,13 +17,13 @@ def envoyer_identifiants_email(destinataire_email, destinataire_nom, username, m
     <body style="font-family: Arial, sans-serif; color: #333;">
         <h2 style="color: #0891b2;">Bienvenue sur iwiShop !</h2>
         <p>Bonjour {destinataire_nom},</p>
-        <p>Ta demande d'accès pour <strong>{boutique_nom}</strong> a été approuvée.</p>
-        <p>Voici tes identifiants de connexion :</p>
+        <p>Votre demande d'accès pour <strong>{boutique_nom}</strong> a été approuvée.</p>
+        <p>Voici vos identifiants de connexion :</p>
         <div style="background: #f3f4f6; padding: 16px; border-radius: 8px; margin: 16px 0;">
             <p><strong>Nom d'utilisateur :</strong> {username}</p>
             <p><strong>Mot de passe temporaire :</strong> {mot_de_passe}</p>
         </div>
-        <p style="color: #dc2626;">⚠️ Pour ta sécurité, change ce mot de passe dès ta première connexion, depuis Paramètres &gt; Mon Compte.</p>
+        <p style="color: #dc2626;">⚠️ Pour votre sécurité, changez ce mot de passe dès votre première connexion, depuis Paramètres &gt; Mon Compte.</p>
         <p>À bientôt sur iwiShop !</p>
     </body>
     </html>
@@ -31,7 +31,7 @@ def envoyer_identifiants_email(destinataire_email, destinataire_nom, username, m
     payload = {
         "sender": {"name": config('BREVO_SENDER_NAME', default='iwiShop'), "email": config('BREVO_SENDER_EMAIL')},
         "to": [{"email": destinataire_email, "name": destinataire_nom}],
-        "subject": "Tes identifiants de connexion iwiShop",
+        "subject": "Vos identifiants de connexion iwiShop",
         "htmlContent": html_content,
     }
     try:
@@ -57,10 +57,10 @@ def envoyer_alerte_expiration_email(destinataire_email, destinataire_nom, boutiq
     html_content = f"""
     <html>
     <body style="font-family: Arial, sans-serif; color: #333;">
-        <h2 style="color: #ea580c;">Ton abonnement iwiShop expire bientôt</h2>
+        <h2 style="color: #ea580c;">Votre abonnement iwiShop expire bientôt</h2>
         <p>Bonjour {destinataire_nom},</p>
         <p>L'abonnement de <strong>{boutique_nom}</strong> expire <strong>{jours_texte}</strong> (le {date_fin.strftime('%d/%m/%Y')}).</p>
-        <p>Pense à le renouveler pour éviter toute interruption d'accès à ton espace iwiShop.</p>
+        <p>Pensez à le renouveler pour éviter toute interruption d'accès à votre espace iwiShop.</p>
         <p>À bientôt sur iwiShop !</p>
     </body>
     </html>
@@ -68,7 +68,7 @@ def envoyer_alerte_expiration_email(destinataire_email, destinataire_nom, boutiq
     payload = {
         "sender": {"name": config('BREVO_SENDER_NAME', default='iwiShop'), "email": config('BREVO_SENDER_EMAIL')},
         "to": [{"email": destinataire_email, "name": destinataire_nom}],
-        "subject": f"Ton abonnement iwiShop expire {jours_texte}",
+        "subject": f"Votre abonnement iwiShop expire {jours_texte}",
         "htmlContent": html_content,
     }
     try:

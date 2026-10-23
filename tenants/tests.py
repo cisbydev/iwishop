@@ -1683,3 +1683,46 @@ class RechercherUtilisateurTests(TestCase):
         response = client.get('/api/tenants/utilisateurs/rechercher/?email=existant@example.com')
 
         self.assertEqual(response.status_code, 403)
+
+
+class EmailsVouvoiementTests(TestCase):
+    """Les emails envoyés aux propriétaires vouvoient, comme la landing et
+    la demande d'accès. On lit le sujet et le HTML envoyés à Brevo."""
+
+    TUTOIEMENT = r"(?i)\b(tu|ta|tes|ton|toi|pense|change)\b"
+
+    def _envoyer(self, fonction, **kwargs):
+        reponse = Mock(status_code=201)
+        valeurs = {'BREVO_API_KEY': 'cle-test', 'BREVO_SENDER_EMAIL': 'expediteur@example.com'}
+        with patch('tenants.emails.config', side_effect=lambda cle, default=None: valeurs.get(cle, default)), \
+                patch('tenants.emails.requests.post', return_value=reponse) as mock_post:
+            envoye, erreur = fonction(**kwargs)
+        self.assertTrue(envoye, erreur)
+        self.assertEqual(mock_post.call_count, 1)
+        return mock_post.call_args.kwargs['json']
+
+    def test_identifiants_vouvoient(self):
+        from .emails import envoyer_identifiants_email
+        payload = self._envoyer(
+            envoyer_identifiants_email,
+            destinataire_email='awa@example.com', destinataire_nom='Awa',
+            username='awa', mot_de_passe='Temp-1234', boutique_nom='Boutique Awa',
+        )
+
+        self.assertEqual(payload['subject'], "Vos identifiants de connexion iwiShop")
+        self.assertIn("Votre demande d'accès", payload['htmlContent'])
+        self.assertIn("changez ce mot de passe dès votre première connexion", payload['htmlContent'])
+        self.assertNotRegex(payload['subject'] + payload['htmlContent'], self.TUTOIEMENT)
+
+    def test_alerte_expiration_vouvoie(self):
+        from .emails import envoyer_alerte_expiration_email
+        payload = self._envoyer(
+            envoyer_alerte_expiration_email,
+            destinataire_email='awa@example.com', destinataire_nom='Awa',
+            boutique_nom='Boutique Awa', jours_restants=3, date_fin=timezone.localdate(),
+        )
+
+        self.assertEqual(payload['subject'], "Votre abonnement iwiShop expire dans 3 jours")
+        self.assertIn("Pensez à le renouveler", payload['htmlContent'])
+        self.assertIn("votre espace iwiShop", payload['htmlContent'])
+        self.assertNotRegex(payload['subject'] + payload['htmlContent'], self.TUTOIEMENT)
