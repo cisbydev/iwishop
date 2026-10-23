@@ -47,6 +47,28 @@ Tests au moment du push : backend 698 OK, hook 8 OK, frontend 387/387 (38 fichie
 Relevés pendant ce lot (`MonAbonnement.jsx` qui tutoie, carte `w-96` d'`AdminPlateformePage.jsx`, contradiction avec `CLAUDE.md`) : traités par le lot 2 du même jour.
 Horloge du PC : saut d'environ 12 h le 2026-10-23 au matin (00 h 27 puis 12 h 37) ; l'heure des commits concorde ensuite avec celle de GitHub (CI à 14 h 41 UTC, dernier commit à 14 h 27).
 
+## Sauvegarde hebdomadaire manuelle (2026-10-23)
+
+Solution provisoire, décidée par Mahamadou le 2026-10-23 : export Render (page Recovery), jamais `pg_dump`, donc jamais l'adresse secrète de la base. La sauvegarde quotidienne automatique (commit 4 du chantier « sauvegarde de la base ») reste prévue : dernière tâche du projet, le 2026-10-24. Procédure : `docs/sauvegarde-hebdomadaire.md`.
+
+Décisions (Mahamadou, 2026-10-23) : manuel ce soir en provisoire ; `weekly/` dans R2 gardé 12 semaines ; second endroit Google Drive ; test de restauration tout de suite, puis chaque mois ; clé publique écrite dans la procédure ; anciennes archives non chiffrées de `backups/` supprimées après le test réussi (vérifié le 2026-10-23 : aucune n'est suivie par git, ni ne l'a jamais été ; `/backups/` ignoré par `.gitignore`).
+
+Fait le 2026-10-23 par Mahamadou, dans sa fenêtre PowerShell :
+- Ancienne clé privée `age` du 2026-10-15 introuvable (ni sur la clé USB, fichiers cachés compris, ni dans `C:\Tools` ou `C:\Users\User` ; papier non retrouvé). Nouvelle paire créée avec `age-keygen -o E:\iwishop-backup-cle-privee.txt` (clé privée écrite directement sur la clé USB, jamais affichée). Clé publique `age1q9kz7w9m4lujlyf0pkl6drzjfjw2svcam0xz2t9f62h93s0l243sjjs24w`, dans `C:\Tools\age\iwishop-backup.pub`.
+- Export Render `2026-10-23T21_11Z.dir.tar.gz` (118 320 octets) : `toc.dat` et 39 fichiers `.dat` (format « directory » de `pg_dump`), 342 entrées, PostgreSQL 18.6, `pg_dump` 18.6.
+- Chiffré en `2026-10-23T21_11Z.dir.tar.gz.age` (118 536 octets) avec la clé publique ; déchiffré avec la clé USB, empreintes SHA-256 identiques (`0E030A0B…E4CD7A`) ; original et copie en clair supprimés ; `.age` copié sur Google Drive (`iwishop-sauvegardes`). R2 `weekly/` : pas ce soir.
+- Test de restauration en local réussi : base neuve `iwishop_restore_test_20261023`, `pg_restore --no-owner --no-privileges --exit-on-error`, code de sortie 0 ; comptage (`scripts/comptage_restauration.sql`) : 4 boutiques, 59 ventes, 7 produits, 5 catégories, ventes témoins V-2F621063 et V-AD91351B présentes ; 38 tables, 36 séquences, 126 index, 355 contraintes (tous en hausse depuis le 2026-10-14, cohérent avec les migrations ajoutées). Comptes gardés dans `C:\Sauvegardes\iwishop\comptage_20261023.txt`. Base de test supprimée (`dropdb -i`, compte vérifié à 0), dossier de travail supprimé.
+- Limite : sans accès à la prod, les comptes ne sont pas comparés à ceux de la base Render au même moment.
+
+Pièges notés dans la procédure : le dossier de l'export contient des « : » (`2026-10-23T21:11Z`), interdits sous Windows, et le `tar` de Windows ne connaît pas `-s` : extraire avec `--strip-components=2`. Les outils PostgreSQL ne sont pas dans le PATH : chemins complets (`C:\Program Files\PostgreSQL\18\bin\…`).
+
+Reste à faire :
+- Deuxième exemplaire de la nouvelle clé privée, rangé ailleurs que la clé USB (aujourd'hui, la clé USB est le seul exemplaire).
+- Supprimer les anciennes archives non chiffrées de `backups/` (décision 6 : le test a réussi).
+- R2 `weekly/` (règle de conservation de 12 semaines et verrou), si la sauvegarde hebdomadaire continue après le commit 4.
+
+Poussé le 2026-10-23, avant cette sauvegarde : `1a2dd23..43f02b3` (`66e625e` docs, `f1e579c` remboursement d'une autre boutique en 404, `43f02b3` docs), CI verte sur `43f02b3` (jobs backend, frontend et landing en succès, de 20 h 00 à 20 h 01 UTC). `f1e579c` non vérifié en prod : seul le test automatique le prouve (le tester en prod demanderait une vente d'une autre boutique).
+
 ## Images de catégories et logo (lot du 2026-10-23, méthode par lot)
 
 Plan validé par Mahamadou le 2026-10-23 : carré recadré au centre, 320 px, WebP qualité 80 ; tout employé peut envoyer ou retirer l'image ; affichage dans l'écran Catégories seulement (le filtre par catégorie sur l'écran de vente est un chantier séparé, prévu le 2026-10-24) ; hors ligne, icône par défaut sans cache ; tout en un seul push ; logo passé par le même traitement (étape 6), anciens logos gardés pour les factures.
@@ -788,6 +810,7 @@ Préalables (Mahamadou, dans les tableaux de bord, sans code ; valeurs secrètes
   - Fait par Mahamadou le 2026-10-15 : bucket `iwishop-backups`, 2 règles de cycle de vie et 2 verrous conformes à la décision 4, accès public désactivé. Jeton R2 à créer seulement au moment de la tâche Render.
 - P2. Paire de clés `age` (`age-keygen` sur le PC), clé privée rangée en deux exemplaires.
   - Fait par Mahamadou le 2026-10-15 : `age-keygen` (v1.3.2, windows-amd64, dans `C:\Tools\age`) lancé sur le PC avec `-o` vers la clé USB (`E:`) : clé privée écrite directement sur `E:` par `-o`, aucun fichier sur le disque du PC. Affichée une fois à l'écran pour la copie papier (`Select-String`, ligne `AGE-SECRET-KEY` seule), puis `Clear-Host`. Aller-retour prouvé : texte chiffré avec la clé publique (`age-keygen -y`), déchiffré avec la clé privée de la clé USB ; fichier de test supprimé. Deux exemplaires, clé USB et papier, à deux endroits.
+  - Clé perdue (constat de Mahamadou le 2026-10-23) : introuvable sur la clé USB, sur le PC et sur papier. Toute archive chiffrée avec elle est illisible, définitivement ; d'après ce fichier, aucune ne l'a été (seul le texte de test du 2026-10-15, supprimé ; le commit 4 n'a jamais tourné), à confirmer en vérifiant que le bucket `iwishop-backups` est vide. Remplacée le 2026-10-23 par une nouvelle paire : voir « Sauvegarde hebdomadaire manuelle (2026-10-23) ». La tâche quotidienne (commit 4) devra utiliser la nouvelle clé publique.
 - P3. Healthchecks.io : contrôle « iwishop-sauvegarde », période d'un jour, marge de 2 h, alerte par e-mail.
   - Fait par Mahamadou le 2026-10-15 : contrôle « iwishop-sauvegarde » créé, période 1 jour, marge 2 h (vérifié sur capture), alerte par e-mail ; contrôle d'exemple supprimé. L'URL de ping n'est notée nulle part : elle ira seulement dans les variables de la tâche Render.
 - P4. Render : notifications d'échec par e-mail activées.
