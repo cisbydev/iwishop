@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -61,6 +61,29 @@ describe('RetourPaiement', () => {
     expect(await screen.findByRole('heading', { name: 'Paiement introuvable' })).toBeInTheDocument();
     expect(mocks.get).not.toHaveBeenCalled();
     expect(screen.queryByRole('heading', { name: 'Abonnement confirmé' })).not.toBeInTheDocument();
+  });
+
+  it('après 12 vérifications encore EN_ATTENTE, invite à réessayer en vouvoyant', async () => {
+    vi.useFakeTimers();
+    try {
+      definirUrl('/?paiement_id=15');
+      mocks.get.mockResolvedValue({ data: { statut: 'EN_ATTENTE' } });
+
+      const { container } = render(<RetourPaiement />);
+      // 12 vérifications, espacées de 5 s.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12 * 5000);
+      });
+
+      expect(screen.getByRole('heading', { name: 'Confirmation toujours en cours' })).toBeInTheDocument();
+      expect(screen.getByText(
+        "Le paiement n'est pas encore confirmé. Réessayez cette page dans quelques instants."
+      )).toBeInTheDocument();
+      expect(container.textContent).not.toMatch(/\b(tu|ta|ton|tes|toi|réessaie)\b/i);
+      expect(mocks.get).toHaveBeenCalledTimes(12);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejette un paiement_id invalide sans appeler l’API', async () => {

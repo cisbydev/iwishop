@@ -95,7 +95,7 @@ export default function RetourPaiement() {
             <AlertTriangle className="w-12 h-12 text-yellow-600 mx-auto" />
             <h2 className="text-lg font-semibold text-gray-800">Confirmation toujours en cours</h2>
             <p className="text-gray-600 text-sm">
-              Le paiement n'est pas encore confirmé. Réessaie cette page dans quelques instants.
+              Le paiement n'est pas encore confirmé. Réessayez cette page dans quelques instants.
             </p>
           </>
         ) : (
