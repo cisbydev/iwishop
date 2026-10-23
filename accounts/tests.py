@@ -945,6 +945,20 @@ class LoginThrottlingTests(APITestCase):
         # Les 400 entrées sont toutes restées : rien n'a été effacé.
         self.assertGreater(self._compter_entrees_cache(), 400)
 
+    def test_requete_bloquee_par_ip_n_ecrit_rien_dans_le_cache(self):
+        """Une tentative refusée par la limite par IP ne doit plus évaluer
+        la limite par identifiant : sinon chaque nouvel identifiant
+        essayé écrivait une entrée de cache, même requête bloquée."""
+        ip = '91.0.0.1'
+        self._epuiser_limite_ip(ip)
+        avant = self._compter_entrees_cache()
+
+        for i in range(20):
+            response = self._login(f'identifiant_nouveau_{i}', 'peu_importe', ip=ip)
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+        self.assertEqual(self._compter_entrees_cache(), avant)
+
 
 class MeBoutiqueIdTests(APITestCase):
     """Isolation hors ligne (plan validé le 2026-10-16) : accounts/me/

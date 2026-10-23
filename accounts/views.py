@@ -39,6 +39,16 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     # accès (IP/identifiant) est temporairement ralenti.
     throttle_classes = [LoginIPRateThrottle, LoginUsernameRateThrottle]
 
+    def check_throttles(self, request):
+        # DRF évalue toutes les limites, même après un refus : une tentative
+        # bloquée par la limite par IP écrivait quand même une entrée de
+        # cache pour chaque nouvel identifiant. On s'arrête au premier
+        # refus (IP d'abord, cf. throttle_classes) : une requête bloquée
+        # n'écrit plus rien.
+        for throttle in self.get_throttles():
+            if not throttle.allow_request(request, self):
+                self.throttled(request, throttle.wait())
+
     def post(self, request, *args, **kwargs):
         response = super().post(request, *args, **kwargs)
         refresh = response.data.pop('refresh', None)
