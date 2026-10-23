@@ -1,5 +1,17 @@
+import uuid
+
 from django.db import models
 from tenants.validators import extensions_image_autorisees, valider_taille_image
+
+
+def chemin_logo_boutique(instance, filename):
+    # Un dossier par boutique, un nouveau nom à chaque envoi : le nom du
+    # fichier envoyé n'est jamais utilisé, le logo est ré-encodé en WebP
+    # (ParametresBoutiqueSerializer.validate_logo). Les anciens logos gardent
+    # leur chemin (logos/<nom d'origine>) : les factures émises le citent.
+    # Référencée par la migration 0008 : ne pas renommer.
+    return f'logos/{instance.boutique_id}/{uuid.uuid4().hex}.webp'
+
 
 class ParametresBoutique(models.Model):
     boutique = models.ForeignKey('tenants.Boutique', on_delete=models.CASCADE)
@@ -8,7 +20,7 @@ class ParametresBoutique(models.Model):
     # déjà vérifié comme étant une image décodable par Pillow (ImageField),
     # mais rien ne limitait jusqu'ici le format ou le poids du fichier.
     logo = models.ImageField(
-        upload_to='logos/', blank=True, null=True,
+        upload_to=chemin_logo_boutique, blank=True, null=True,
         validators=[extensions_image_autorisees, valider_taille_image],
     )
     adresse = models.TextField(blank=True, null=True)

@@ -2,7 +2,7 @@ from copy import deepcopy
 from decimal import Decimal
 from io import BytesIO
 
-from PIL import Image
+from PIL import ExifTags, Image
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.files.storage import InMemoryStorage, default_storage
@@ -238,6 +238,102 @@ class ParametresBoutiqueLogoUploadTests(APITestCase):
         response = self.client.patch(self.url, {"logo": image_valide()}, format='multipart')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class ParametresBoutiqueLogoTraitementTests(APITestCase):
+    """Logo (lot du 2026-10-23, étape 6) : même traitement que la photo de
+    produit. Format lu dans le contenu, ré-encodage en WebP (800 px au
+    plus, proportions gardées), métadonnées supprimées, chemin par
+    boutique. L'ancien logo n'est jamais supprimé : les factures émises
+    gardent son chemin."""
+
+    MESSAGE_FORMAT = "Format d'image non accepté. Choisissez une photo JPG ou PNG."
+
+    def setUp(self):
+        self._upload_settings = override_settings(STORAGES=deepcopy(UPLOAD_TEST_STORAGES))
+        self._upload_settings.enable()
+        self.addCleanup(self._upload_settings.disable)
+        self.assertIsInstance(default_storage, InMemoryStorage)
+
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-logo-traitement")
+        self.proprietaire = User.objects.create_user(username="proprio_logo_traitement", password="pass1234")
+        Profil.objects.create(user=self.proprietaire, boutique=self.boutique, est_proprietaire=True)
+        self.parametres = ParametresBoutique.objects.create(boutique=self.boutique, nom_boutique="Boutique")
+        self.client.force_authenticate(user=self.proprietaire)
+        self.url = reverse('parametres-boutique')
+
+    def _envoyer(self, fichier):
+        return self.client.patch(self.url, {"logo": fichier}, format='multipart')
+
+    def _logo_stocke(self):
+        self.parametres.refresh_from_db()
+        with default_storage.open(self.parametres.logo.name) as fichier:
+            image = Image.open(fichier)
+            image.load()
+        return image
+
+    def test_logo_avec_position_gps_ressort_sans_metadonnees(self):
+        exif = Image.Exif()
+        exif[ExifTags.Base.Make] = "Appareil de test"
+        gps = exif.get_ifd(ExifTags.IFD.GPSInfo)
+        gps[ExifTags.GPS.GPSLatitudeRef] = 'N'
+        gps[ExifTags.GPS.GPSLatitude] = (12.0, 39.0, 0.0)
+        buffer = BytesIO()
+        Image.new('RGB', (400, 200), 'blue').save(buffer, format='JPEG', exif=exif)
+        source = Image.open(BytesIO(buffer.getvalue()))
+        self.assertIn(ExifTags.GPS.GPSLatitude, source.getexif().get_ifd(ExifTags.IFD.GPSInfo))
+
+        response = self._envoyer(SimpleUploadedFile('logo.jpg', buffer.getvalue(), content_type='image/jpeg'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        logo = self._logo_stocke()
+        self.assertEqual(len(logo.getexif()), 0)
+        for cle in ('exif', 'xmp', 'icc_profile'):
+            self.assertNotIn(cle, logo.info)
+
+    def test_gif_renomme_en_png_refuse(self):
+        buffer = BytesIO()
+        Image.new('RGB', (10, 10)).save(buffer, format='GIF')
+
+        response = self._envoyer(SimpleUploadedFile('logo.png', buffer.getvalue(), content_type='image/png'))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data, {'logo': [self.MESSAGE_FORMAT]})
+        self.parametres.refresh_from_db()
+        self.assertFalse(self.parametres.logo)
+
+    def test_logo_reencode_en_webp_800_px_proportions_gardees_dans_le_dossier_de_la_boutique(self):
+        buffer = BytesIO()
+        Image.new('RGB', (1600, 400), 'blue').save(buffer, format='PNG')
+
+        response = self._envoyer(SimpleUploadedFile('../../mon logo.php.png', buffer.getvalue(), content_type='image/png'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertRegex(self.parametres.__class__.objects.get(pk=self.parametres.pk).logo.name,
+                         rf'^logos/{self.boutique.id}/[0-9a-f]{{32}}\.webp$')
+        logo = self._logo_stocke()
+        self.assertEqual((logo.format, logo.size), ('WEBP', (800, 200)))
+
+    def test_remplacement_garde_l_ancien_logo_pour_les_factures(self):
+        self.assertEqual(self._envoyer(image_valide()).status_code, status.HTTP_200_OK)
+        self.parametres.refresh_from_db()
+        ancien = self.parametres.logo.name
+
+        self.assertEqual(self._envoyer(image_valide(taille=(20, 20))).status_code, status.HTTP_200_OK)
+
+        self.parametres.refresh_from_db()
+        self.assertNotEqual(self.parametres.logo.name, ancien)
+        self.assertTrue(default_storage.exists(ancien))
+        self.assertTrue(default_storage.exists(self.parametres.logo.name))
+
+    def test_facture_pdf_lit_un_logo_webp(self):
+        from sales.services.facture_pdf import _logo
+
+        self.assertEqual(self._envoyer(image_valide(taille=(40, 20))).status_code, status.HTTP_200_OK)
+        self.parametres.refresh_from_db()
+        self.assertTrue(self.parametres.logo.name.endswith('.webp'))
+
+        self.assertIsNotNone(_logo(self.parametres.logo.name))
 
 
 class FormaterMontantTests(APITestCase):

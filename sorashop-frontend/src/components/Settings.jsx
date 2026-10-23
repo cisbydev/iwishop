@@ -138,7 +138,7 @@ function BoutiqueSettings() {
             </div>
             <label className="inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 sm:w-auto">
               <Upload className="h-4 w-4" /> Choisir une image
-              <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleLogoChange} className="hidden" />
             </label>
           </div>
         </div>
