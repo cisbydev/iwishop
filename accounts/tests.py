@@ -913,6 +913,38 @@ class LoginThrottlingTests(APITestCase):
                 self.assertIsInstance(entree, float)
             self.assertNotIn(mot_de_passe_distinctif, str(valeur))
 
+    def _compter_entrees_cache(self):
+        from django.db import connection
+
+        with connection.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM django_cache_table")
+            (nb_lignes,) = cur.fetchone()
+        return nb_lignes
+
+    def _epuiser_limite_ip(self, ip):
+        for i in range(self.LIMITE_IP):
+            self._login(f'epuisement_{ip}_{i}', 'peu_importe', ip=ip)
+        self.assertEqual(
+            self._login(f'epuisement_{ip}_suivant', 'peu_importe', ip=ip).status_code,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    def test_compteur_ip_survit_a_plus_de_300_entrees_en_cache(self):
+        """Au-delà de MAX_ENTRIES, DatabaseCache efface le premier tiers des
+        clés par ordre alphabétique : la clé throttle_login_ip_… passait
+        avant les clés throttle_login_username_…, et une rafale
+        d'identifiants remettait le compteur de l'IP à zéro."""
+        ip = '90.0.0.1'
+        self._epuiser_limite_ip(ip)
+
+        for i in range(400):
+            cache.set(f'throttle_login_username_remplissage{i:04d}', [0.0], 60)
+
+        response = self._login('apres_remplissage', 'peu_importe', ip=ip)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        # Les 400 entrées sont toutes restées : rien n'a été effacé.
+        self.assertGreater(self._compter_entrees_cache(), 400)
+
 
 class MeBoutiqueIdTests(APITestCase):
     """Isolation hors ligne (plan validé le 2026-10-16) : accounts/me/

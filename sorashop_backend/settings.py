@@ -255,10 +255,20 @@ DATABASES = {
 # Redis séparé à opérer) : la table est créée automatiquement par la
 # migration accounts.0001_create_cache_table, exécutée par `migrate` à
 # chaque déploiement (build.sh) - aucune étape manuelle.
+#
+# MAX_ENTRIES : au-delà (300 par défaut), DatabaseCache efface le premier
+# tiers des clés par ordre alphabétique, compteurs de limite compris - une
+# rafale d'identifiants à la connexion remettait ainsi à zéro les compteurs
+# throttle_creer_paiement_…, throttle_demande_acces_… et
+# throttle_login_ip_…. Les entrées expirent en une heure au plus : 50 000
+# reste léger pour la base.
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
         'LOCATION': 'django_cache_table',
+        'OPTIONS': {
+            'MAX_ENTRIES': 50000,
+        },
     }
 }
 
