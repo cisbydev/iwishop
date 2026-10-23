@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.files.storage import default_storage
 from django.db import connection
 from django.test import override_settings
@@ -3023,6 +3024,32 @@ class FacturePdfTests(APITestCase):
         facture, _ = emettre_facture(self._vente(), self.proprietaire)
 
         self.assertIn(b'/Subtype /Image', self._pdf(facture).content)
+
+    def test_logo_webp_envoye_par_les_parametres_bien_dans_le_pdf(self):
+        """Depuis 568aabf, tout nouveau logo est ré-encodé en WebP : la
+        facture doit l'embarquer, pas seulement se générer. Logo envoyé par
+        la vraie route (PATCH parametres/), donc passé par traiter_photo."""
+        tampon = BytesIO()
+        ImagePil.new('RGB', (40, 20), (37, 99, 235)).save(tampon, format='PNG')
+        envoi = self.client.patch(
+            reverse('parametres-boutique'),
+            {'logo': SimpleUploadedFile('logo.png', tampon.getvalue(), content_type='image/png')},
+            format='multipart',
+        )
+        self.assertEqual(envoi.status_code, status.HTTP_200_OK)
+        self.parametres.refresh_from_db()
+        with default_storage.open(self.parametres.logo.name) as fichier:
+            self.assertEqual(ImagePil.open(fichier).format, 'WEBP')
+        facture, _ = emettre_facture(self._vente(), self.proprietaire)
+
+        with self.assertNoLogs('sales.services.facture_pdf', level='ERROR'):
+            response = self._pdf(facture)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        contenu = response.content
+        self.assertEqual(contenu.count(b'/Subtype /Image'), 1)
+        self.assertIn(b'/Width 40', contenu)
+        self.assertIn(b'/Height 20', contenu)
 
     def test_logo_illisible_pdf_sans_logo(self):
         self.parametres.logo.name = "logos/absent.png"
