@@ -47,20 +47,32 @@ Tests au moment du push : backend 698 OK, hook 8 OK, frontend 387/387 (38 fichie
 Relevés pendant ce lot (`MonAbonnement.jsx` qui tutoie, carte `w-96` d'`AdminPlateformePage.jsx`, contradiction avec `CLAUDE.md`) : traités par le lot 2 du même jour.
 Horloge du PC : saut d'environ 12 h le 2026-10-23 au matin (00 h 27 puis 12 h 37) ; l'heure des commits concorde ensuite avec celle de GitHub (CI à 14 h 41 UTC, dernier commit à 14 h 27).
 
-## Lot 2 du 2026-10-23 (méthode par lot)
+## Lot 3 du 2026-10-23 (méthode par lot, sécurité)
 
 Commits locaux, pas encore poussés (le push attend « oui, push ») :
+- `12d4cad` `fix(settings)` : `CACHES` avec `OPTIONS: {'MAX_ENTRIES': 50000}`. Avant, au-delà de 300 entrées, le cache effaçait le premier tiers des clés par ordre alphabétique, compteurs de limite compris. Test `test_compteur_ip_survit_a_plus_de_300_entrees_en_cache` : IP bloquée, 400 entrées écrites, nouvelle tentative ; sans le correctif, 401 au lieu de 429 (compteur effacé).
+- `f7ad50f` `fix(accounts)` : `CustomTokenObtainPairView.check_throttles` s'arrête au premier refus (IP d'abord). Avant, une tentative bloquée par IP écrivait quand même une entrée par nouvel identifiant, et comptait contre la limite de cet identifiant. Test `test_requete_bloquee_par_ip_n_ecrit_rien_dans_le_cache` : IP bloquée puis 20 identifiants nouveaux ; sans le correctif, 32 lignes de cache au lieu de 12.
+- Contre-épreuve sur l'état final : chaque correctif retiré seul fait échouer son propre test, et seulement lui ; fichiers restaurés à l'identique (empreintes vérifiées).
+- Tâche 3, vérification : `demande-acces` et `creer-paiement` n'ont qu'une limite chacune (pas de `DEFAULT_THROTTLE_CLASSES`). Un refus passe par `throttle_failure()`, qui n'écrit rien : pas le même défaut, rien à corriger.
+- `5f7844d` `fix(frontend)` : `RetourPaiement.jsx` vouvoie (« Réessayez cette page dans quelques instants »). Nouveau test (horloge simulée, 12 vérifications) : premier test de l'état « délai dépassé ».
+- commit `docs` : cette note.
+Tests au moment du commit docs : backend 700 OK, hook 8 OK, frontend 390/390 (38 fichiers), lint et build OK.
+
+## Lot 2 du 2026-10-23 (méthode par lot)
+
+Poussés le 2026-10-23 (`583ca1a..c9ec562`), CI verte sur `c9ec562` (jobs backend, frontend et landing en succès, de 15 h 21 à 15 h 22 UTC). Non vérifiés en prod :
 - `60d1bd6` `fix(frontend)` : `MonAbonnement.jsx` vouvoie (« Réessayez dans un instant ») ; un 429 de `creer-paiement` affiche « Trop de tentatives de paiement. Réessayez dans une heure. », boutons gardés. 3 tests vus échouer avant, 15/15 après.
 - `0a6ea75` `fix(frontend)` : `AdminPlateformePage.jsx`, carte `w-full max-w-sm` dans `px-4` (16→344 à 360 px, au lieu de 0→360 ; 1366 px inchangé).
 - commit `docs` : `CLAUDE.md` (méthode par lot, durée de l'essai dans la landing) et cette note.
-Relevé, rien n'est corrigé : `RetourPaiement.jsx` tutoie encore (« Réessaie cette page dans quelques instants »).
+Relevé : `RetourPaiement.jsx` tutoyait encore ; corrigé par le lot 3 (`5f7844d`).
 
 Vérification (tâche 3, rien n'est modifié) : limites de débit et workers.
 - `CACHES` : `DatabaseCache` (table `django_cache_table` dans la base Postgres), sans variante par environnement : la prod l'utilise. Les compteurs (connexion, demande d'accès, `creer-paiement`) sont donc partagés entre tous les workers, et même entre plusieurs instances.
 - Nombre de workers gunicorn : pas dans le dépôt (ni `Procfile`, ni `render.yaml`, ni `gunicorn.conf.py`) ; la commande de démarrage est dans le tableau de bord Render. Sans `--workers`, gunicorn lit `WEB_CONCURRENCY`, sinon 1 worker. À relever par Mahamadou : Settings → Start Command, et Environment → `WEB_CONCURRENCY`. La prod répond `x-render-origin-server: gunicorn`.
-- Risque trouvé à la lecture du code (Django 6.0.7, DRF), non reproduit : le cache a la limite par défaut de 300 entrées. Au-delà, chaque écriture supprime les entrées expirées puis le premier tiers des clés par ordre alphabétique : `throttle_creer_paiement_…`, puis `throttle_demande_acces_…`, puis `throttle_login_ip_…`, avant `throttle_login_username_…`. Une tentative de connexion bloquée par la limite par IP écrit quand même une clé par nouvel identifiant (DRF évalue toutes les limites). Une seule IP peut donc dépasser 300 entrées en une minute et effacer les compteurs, y compris le sien.
+- Risque trouvé à la lecture du code (Django 6.0.7, DRF), puis reproduit par les tests du lot 3 : le cache a la limite par défaut de 300 entrées. Au-delà, chaque écriture supprime les entrées expirées puis le premier tiers des clés par ordre alphabétique : `throttle_creer_paiement_…`, puis `throttle_demande_acces_…`, puis `throttle_login_ip_…`, avant `throttle_login_username_…`. Une tentative de connexion bloquée par la limite par IP écrit quand même une clé par nouvel identifiant (DRF évalue toutes les limites). Une seule IP peut donc dépasser 300 entrées en une minute et effacer les compteurs, y compris le sien.
 - Autre limite, mineure : lecture puis écriture non atomiques ; des requêtes simultanées sur deux workers peuvent dépasser un peu le seuil.
-- Pistes proposées, à décider par Mahamadou : relever `MAX_ENTRIES` (dans `OPTIONS` de `CACHES`) ; arrêter l'évaluation des limites de connexion à la première refusée ; test qui crée plus de 300 clés et vérifie qu'un compteur survit, vu échouer avant.
+- Pistes retenues par Mahamadou et faites par le lot 3 (`12d4cad`, `f7ad50f`). Reste la lecture non atomique : non traitée, à décider par Mahamadou.
+- Toujours à relever par Mahamadou : le nombre de workers (Start Command et `WEB_CONCURRENCY` sur Render).
 
 ## Hook de secrets : échec fermé (2026-10-22)
 
