@@ -35,8 +35,8 @@ export default function Login() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-white to-gray-100">
-      <div className="px-8 py-6 mt-4 text-left bg-white shadow-xl rounded-2xl w-96">
+    <div className="flex items-center justify-center min-h-screen px-4 bg-gradient-to-br from-blue-50 via-white to-gray-100">
+      <div className="w-full max-w-sm px-8 py-6 mt-4 text-left bg-white shadow-xl rounded-2xl">
         <div className="w-16 h-16 rounded-full overflow-hidden bg-white flex items-center justify-center border border-gray-200 mx-auto mb-2">
           <img src={logoParDefaut} alt="Logo" className="w-4/5 h-4/5 object-contain" />
         </div>
