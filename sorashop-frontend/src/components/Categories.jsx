@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import api, { getAll } from '../services/api';
 import { useSupportView } from '../context/supportViewContextValue';
 import { useSettings } from '../context/settingsContextValue';
-import { alerterErreur } from '../services/errorUtils';
-import { Plus, Tag, Trash2 } from 'lucide-react';
+import { alerterErreur, getErrorMessage } from '../services/errorUtils';
+import PhotoProduit from './PhotoProduit';
+import { Camera, Plus, Tag, Trash2, X } from 'lucide-react';
 
 export default function Categories() {
   const { actif: modeSupport, boutiqueId } = useSupportView();
@@ -17,6 +18,26 @@ export default function Categories() {
 
   const [nom, setNom] = useState('');
   const [description, setDescription] = useState('');
+  // Image (carré de 320 px, recadré par le serveur) : envoyée après la
+  // création de la catégorie, par sa propre route (POST categories/{id}/image/).
+  const [imageChoisie, setImageChoisie] = useState(null); // File
+  const [apercuImage, setApercuImage] = useState(null); // URL locale (blob:)
+  const [envoiImage, setEnvoiImage] = useState(false);
+  // Échec de l'image une fois la catégorie créée : affiché dans la page.
+  const [erreurImage, setErreurImage] = useState('');
+
+  const choisirImage = (fichier) => {
+    if (apercuImage) URL.revokeObjectURL(apercuImage);
+    setImageChoisie(fichier);
+    setApercuImage(fichier ? URL.createObjectURL(fichier) : null);
+  };
+
+  const fermerModal = () => {
+    setShowModal(false);
+    setNom('');
+    setDescription('');
+    choisirImage(null);
+  };
 
   const fetchCategories = async () => {
     setLoading(true);
@@ -44,11 +65,28 @@ export default function Categories() {
     e.preventDefault();
     if (isSaving) return;
     setIsSaving(true);
+    setErreurImage('');
     try {
-      await api.post('categories/', { nom, description });
-      setShowModal(false);
-      setNom('');
-      setDescription('');
+      const response = await api.post('categories/', { nom, description });
+
+      if (imageChoisie) {
+        setEnvoiImage(true);
+        try {
+          const formData = new FormData();
+          formData.append('image', imageChoisie);
+          // Le navigateur définit lui-même le Content-Type multipart (boundary).
+          await api.post(`categories/${response.data.id}/image/`, formData, {
+            headers: { 'Content-Type': undefined },
+          });
+        } catch (err) {
+          const raison = getErrorMessage(err, "Erreur lors de l'envoi de l'image.");
+          setErreurImage(`Catégorie créée, image non envoyée : ${raison}`);
+        } finally {
+          setEnvoiImage(false);
+        }
+      }
+
+      fermerModal();
       fetchCategories();
     } catch (err) {
       alerterErreur(err, "Erreur lors de la création de la catégorie.");
@@ -104,6 +142,20 @@ export default function Categories() {
           </button>
         </div>
       </section>
+
+      {erreurImage && (
+        <div role="alert" className="flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <p>{erreurImage}</p>
+          <button
+            type="button"
+            onClick={() => setErreurImage('')}
+            aria-label="Fermer le message"
+            className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-red-700 hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {categories.length === 0 ? (
         <div className="bg-white p-8 rounded-lg shadow-sm border border-gray-100 text-center">
@@ -182,10 +234,56 @@ export default function Categories() {
                   rows="3"
                 />
               </div>
+              <div>
+                <span className="block text-sm font-medium text-slate-700">Image de la catégorie (optionnel)</span>
+                <div className="mt-2 flex items-center gap-4">
+                  <PhotoProduit
+                    src={apercuImage}
+                    nom={nom || 'cette catégorie'}
+                    Icone={Tag}
+                    texteAbsente={`Pas d'image pour ${nom || 'cette catégorie'}`}
+                    texteImage={`Image de ${nom || 'cette catégorie'}`}
+                    className="h-20 w-20 rounded-lg"
+                  />
+                  <div className="flex flex-col items-start gap-2">
+                    <label
+                      className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition focus-within:ring-2 focus-within:ring-blue-600 focus-within:ring-offset-2 ${
+                        isSaving || modeSupport ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-slate-50'
+                      }`}
+                    >
+                      <Camera className="h-4 w-4" aria-hidden="true" />
+                      {imageChoisie ? "Changer l'image" : 'Choisir une image'}
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="sr-only"
+                        disabled={isSaving || modeSupport}
+                        onChange={(e) => {
+                          const fichier = e.target.files?.[0];
+                          // Permet de rechoisir le même fichier.
+                          e.target.value = '';
+                          if (fichier) choisirImage(fichier);
+                        }}
+                      />
+                    </label>
+                    {imageChoisie && (
+                      <button
+                        type="button"
+                        onClick={() => choisirImage(null)}
+                        disabled={isSaving}
+                        className="text-sm font-medium text-slate-600 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Annuler le choix
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">JPG, PNG ou WebP. Recadrée en carré à l'enregistrement.</p>
+              </div>
               <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowModal(false)}
+                  onClick={fermerModal}
                   disabled={isSaving}
                   className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -197,7 +295,7 @@ export default function Categories() {
                   aria-busy={isSaving}
                   className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isSaving ? 'Enregistrement...' : 'Enregistrer'}
+                  {envoiImage ? "Envoi de l'image..." : isSaving ? 'Enregistrement...' : 'Enregistrer'}
                 </button>
               </div>
             </form>
