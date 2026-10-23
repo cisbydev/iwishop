@@ -122,6 +122,19 @@ class ParametresBoutiqueModificationPermissionTests(APITestCase):
         self.parametres.refresh_from_db()
         self.assertEqual(self.parametres.seuil_dette_retard_jours, 15)
 
+    def test_proprietaire_ne_peut_pas_modifier_la_limite_de_l_assistant(self):
+        """Le quota de l'assistant (facturé au token) est réservé à la
+        plateforme : le propriétaire le lit, mais ne le change pas."""
+        self.client.force_authenticate(user=self.proprietaire)
+        response = self.client.patch(
+            self.url, {"limite_questions_assistant_par_jour": 10000}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['limite_questions_assistant_par_jour'], 30)
+        self.parametres.refresh_from_db()
+        self.assertEqual(self.parametres.limite_questions_assistant_par_jour, 30)
+
 
 class ParametresBoutiqueAbonnementExpireTests(APITestCase):
     """Audit complémentaire point 1 : une boutique dont l'abonnement a
