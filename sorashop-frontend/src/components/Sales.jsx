@@ -606,8 +606,10 @@ export default function Sales() {
               </div>
             ) : (
               <div className="overflow-x-auto">
+                {/* Sur téléphone (< sm), Type, Qté et Prix U. passent sous le
+                    nom du produit : six colonnes ne tiennent pas en 360 px. */}
                 <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                  <thead className="hidden bg-gray-50 sm:table-header-group">
                     <tr>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Produit</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
@@ -620,12 +622,17 @@ export default function Sales() {
                   <tbody className="divide-y divide-gray-200">
                     {panier.map((item, index) => (
                       <tr key={index}>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.nom}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{item.unite_nom}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{item.quantite}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{formatCurrency(item.prix_unitaire, devise)}</td>
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-800">{formatCurrency(item.sous_total, devise)}</td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-2 py-3 text-sm font-medium text-gray-900 sm:px-4">
+                          {item.nom}
+                          <p className="mt-0.5 text-xs font-normal text-gray-500 sm:hidden">
+                            {item.unite_nom} · {item.quantite} × {formatCurrency(item.prix_unitaire, devise)}
+                          </p>
+                        </td>
+                        <td className="hidden px-4 py-3 text-sm text-gray-500 sm:table-cell">{item.unite_nom}</td>
+                        <td className="hidden px-4 py-3 text-sm text-gray-500 sm:table-cell">{item.quantite}</td>
+                        <td className="hidden px-4 py-3 text-sm text-gray-500 sm:table-cell">{formatCurrency(item.prix_unitaire, devise)}</td>
+                        <td className="whitespace-nowrap px-2 py-3 text-right text-sm font-semibold text-gray-800 sm:px-4 sm:text-left">{formatCurrency(item.sous_total, devise)}</td>
+                        <td className="px-0 py-3 text-right sm:px-4">
                           <button
                             onClick={() => handleRemoveLigne(index)}
                             disabled={modeSupport}
