@@ -25,6 +25,8 @@ export default function Categories() {
   const [envoiImage, setEnvoiImage] = useState(false);
   // Échec de l'image une fois la catégorie créée : affiché dans la page.
   const [erreurImage, setErreurImage] = useState('');
+  // Catégorie dont l'image est en cours d'envoi ou de retrait (depuis sa carte).
+  const [imageEnCours, setImageEnCours] = useState(null);
 
   const choisirImage = (fichier) => {
     if (apercuImage) URL.revokeObjectURL(apercuImage);
@@ -92,6 +94,32 @@ export default function Categories() {
       alerterErreur(err, "Erreur lors de la création de la catégorie.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // Depuis la carte : envoi ou retrait immédiat, la carte prend la
+  // catégorie renvoyée par l'API (nouvelle URL de l'image).
+  const modifierImage = async (categorie, fichier) => {
+    if (imageEnCours || modeSupport) return;
+    setImageEnCours(categorie.id);
+    setErreurImage('');
+    try {
+      let response;
+      if (fichier) {
+        const formData = new FormData();
+        formData.append('image', fichier);
+        response = await api.post(`categories/${categorie.id}/image/`, formData, {
+          headers: { 'Content-Type': undefined },
+        });
+      } else {
+        response = await api.delete(`categories/${categorie.id}/image/`);
+      }
+      setCategories((actuelles) => actuelles.map((c) => (c.id === categorie.id ? response.data : c)));
+    } catch (err) {
+      const raison = getErrorMessage(err, "Erreur lors de l'envoi de l'image.");
+      setErreurImage(fichier ? `Image non envoyée : ${raison}` : `Image non retirée : ${raison}`);
+    } finally {
+      setImageEnCours(null);
     }
   };
 
@@ -182,13 +210,54 @@ export default function Categories() {
           {categories.map((cat) => (
             <div key={cat.id} className="flex items-start justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-blue-200 hover:shadow-md">
               <div className="flex min-w-0 items-start gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 ring-1 ring-blue-100">
-                  <Tag className="h-5 w-5" />
-                </div>
+                {/* Champ absent (backend pas encore déployé) : icône, sans actions. */}
+                <PhotoProduit
+                  src={cat.image}
+                  nom={cat.nom}
+                  Icone={Tag}
+                  texteAbsente={`Pas d'image pour ${cat.nom}`}
+                  texteImage={`Image de ${cat.nom}`}
+                  className="h-12 w-12 rounded-xl"
+                />
                 <div className="min-w-0">
                   <h3 className="truncate font-semibold text-slate-900">{cat.nom}</h3>
                   {cat.description && (
                     <p className="mt-1 text-sm text-slate-500">{cat.description}</p>
+                  )}
+                  {'image' in cat && (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                      <label
+                        className={`inline-flex min-h-8 items-center gap-1.5 text-sm font-medium text-blue-700 focus-within:ring-2 focus-within:ring-blue-600 ${
+                          modeSupport || imageEnCours ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:text-blue-900'
+                        }`}
+                      >
+                        <Camera className="h-4 w-4" aria-hidden="true" />
+                        {imageEnCours === cat.id ? 'Envoi...' : cat.image ? "Changer l'image" : 'Ajouter une image'}
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          aria-label={`Image de la catégorie ${cat.nom}`}
+                          className="sr-only"
+                          disabled={modeSupport || Boolean(imageEnCours)}
+                          onChange={(e) => {
+                            const fichier = e.target.files?.[0];
+                            e.target.value = '';
+                            if (fichier) modifierImage(cat, fichier);
+                          }}
+                        />
+                      </label>
+                      {cat.image && (
+                        <button
+                          type="button"
+                          onClick={() => modifierImage(cat, null)}
+                          disabled={modeSupport || Boolean(imageEnCours)}
+                          aria-label={`Retirer l'image de la catégorie ${cat.nom}`}
+                          className="min-h-8 text-sm font-medium text-red-700 hover:text-red-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Retirer l'image
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
