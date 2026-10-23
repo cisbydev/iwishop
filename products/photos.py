@@ -29,8 +29,12 @@ MESSAGE_TROP_LOURDE = f"L'image ne doit pas dépasser {TAILLE_MAX_IMAGE // (1024
 MESSAGE_TROP_GRANDE = f"L'image est trop grande ({PIXELS_MAX // 1_000_000} mégapixels au plus)."
 
 
-def traiter_photo(fichier):
+def traiter_photo(fichier, cote_max=COTE_MAX, carre=False):
     """Contrôle la photo envoyée et renvoie ses octets en WebP.
+
+    cote_max : plus grand côté de la sortie (800 px pour un produit).
+    carre : recadre au centre en carré (image de catégorie), de cote_max
+    au plus. Dans les deux cas, une petite image n'est jamais agrandie.
 
     Ordre des contrôles : taille du fichier, puis ouverture par Pillow
     (en-tête seulement), nombre de pixels et format réel, et seulement
@@ -66,8 +70,12 @@ def traiter_photo(fichier):
         redressee.mode == 'P' and 'transparency' in redressee.info
     )
     propre = redressee.convert('RGBA' if transparente else 'RGB')
-    # thumbnail ne fait que réduire : une petite image garde sa taille.
-    propre.thumbnail((COTE_MAX, COTE_MAX), Image.Resampling.LANCZOS)
+    if carre:
+        cote = min(cote_max, *propre.size)
+        propre = ImageOps.fit(propre, (cote, cote), Image.Resampling.LANCZOS, centering=(0.5, 0.5))
+    else:
+        # thumbnail ne fait que réduire : une petite image garde sa taille.
+        propre.thumbnail((cote_max, cote_max), Image.Resampling.LANCZOS)
     # Aucune métadonnée ne doit être réécrite (EXIF, XMP, profil ICC).
     # Pillow 12 n'écrit dans un WebP que celles passées en option à save()
     # (exif=, icc_profile=, xmp=) : ne jamais en passer. info, que convert()

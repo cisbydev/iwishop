@@ -1226,6 +1226,36 @@ class TraiterPhotoTests(SimpleTestCase):
 
         self.assertEqual(sortie.size, (300, 200))
 
+    def test_cote_max_reglable(self):
+        sortie = _relire(traiter_photo(
+            _fichier_image(Image.new('RGB', (1600, 1200), 'red'), 'JPEG'), cote_max=320,
+        ))
+
+        self.assertEqual(sortie.size, (320, 240))
+
+    def test_carre_recadre_au_centre(self):
+        # Trois bandes verticales : bleu, rouge, vert. Le carré central ne
+        # garde que la bande rouge.
+        image = Image.new('RGB', (300, 100), 'blue')
+        image.paste('red', (100, 0, 200, 100))
+        image.paste('green', (200, 0, 300, 100))
+
+        sortie = _relire(traiter_photo(_fichier_image(image, 'PNG', nom='bandes.png'), cote_max=320, carre=True))
+
+        self.assertEqual(sortie.size, (100, 100))
+        for point in ((2, 2), (97, 2), (50, 50), (2, 97), (97, 97)):
+            rouge, vert, bleu = sortie.getpixel(point)[:3]
+            self.assertGreater(rouge, 200, point)
+            self.assertLess(vert, 60, point)
+            self.assertLess(bleu, 60, point)
+
+    def test_carre_reduit_a_cote_max(self):
+        sortie = _relire(traiter_photo(
+            _fichier_image(Image.new('RGB', (1600, 1200), 'red'), 'JPEG'), cote_max=320, carre=True,
+        ))
+
+        self.assertEqual(sortie.size, (320, 320))
+
     def test_exif_et_position_gps_supprimes(self):
         exif = Image.Exif()
         exif[ExifTags.Base.Make] = "Appareil de test"
