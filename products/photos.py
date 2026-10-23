@@ -87,51 +87,72 @@ def traiter_photo(fichier, cote_max=COTE_MAX, carre=False):
     return sortie.getvalue()
 
 
-def _supprimer_fichier(nom):
+# Enregistrement, remplacement et retrait d'un fichier image, communs aux
+# photos de produits, aux images de catégories et au logo de la boutique
+# (même champ ImageField, même stockage, mêmes garanties).
+
+def _supprimer_fichier(stockage, nom):
     """Supprime un fichier du stockage sans jamais faire échouer la requête :
     un échec (R2 injoignable) est journalisé en ERROR (événement Sentry) et
     laisse au pire un fichier orphelin dans le bucket."""
     try:
-        Produit._meta.get_field('photo').storage.delete(nom)
+        stockage.delete(nom)
     except Exception:
-        logger.error("Photo de produit non supprimée du stockage : %s", nom, exc_info=True)
+        logger.error("Image non supprimée du stockage : %s", nom, exc_info=True)
 
 
-def supprimer_photo_apres_commit(nom):
+def supprimer_image_apres_commit(stockage, nom):
     """L'ancien fichier n'est supprimé qu'une fois la base à jour : si la
-    transaction échoue, la photo encore référencée reste en place."""
+    transaction échoue, l'image encore référencée reste en place."""
     if nom:
-        transaction.on_commit(partial(_supprimer_fichier, nom))
+        transaction.on_commit(partial(_supprimer_fichier, stockage, nom))
 
 
-def enregistrer_photo(produit, octets):
-    """Enregistre la photo (octets WebP de traiter_photo) et remplace
-    l'ancienne. Le fichier est écrit avant la transaction (pas d'appel
-    réseau pendant le verrou) ; si la base échoue ensuite, il est supprimé.
-    Le produit est verrouillé (select_for_update) : deux envois simultanés
-    ne lisent jamais le même ancien fichier, sinon l'un des nouveaux
-    resterait orphelin."""
-    champ = Produit._meta.get_field('photo')
-    nouveau = champ.storage.save(champ.generate_filename(produit, 'photo.webp'), ContentFile(octets))
+def enregistrer_image(instance, nom_champ, octets, supprimer_ancienne=True):
+    """Enregistre l'image (octets WebP de traiter_photo) dans le champ
+    `nom_champ` et remplace l'ancienne. Le fichier est écrit avant la
+    transaction (pas d'appel réseau pendant le verrou) ; si la base échoue
+    ensuite, il est supprimé. La ligne est verrouillée (select_for_update) :
+    deux envois simultanés ne lisent jamais le même ancien fichier, sinon
+    l'un des nouveaux resterait orphelin. supprimer_ancienne=False garde
+    l'ancien fichier (logo : les factures émises le référencent)."""
+    modele = type(instance)
+    champ = modele._meta.get_field(nom_champ)
+    nouveau = champ.storage.save(champ.generate_filename(instance, 'image.webp'), ContentFile(octets))
     try:
         with transaction.atomic():
-            verrouille = Produit.objects.select_for_update().get(pk=produit.pk)
-            ancien = verrouille.photo.name
-            verrouille.photo = nouveau
-            verrouille.save(update_fields=['photo'])
-            supprimer_photo_apres_commit(ancien)
+            verrouille = modele.objects.select_for_update().get(pk=instance.pk)
+            ancien = getattr(verrouille, nom_champ).name
+            setattr(verrouille, nom_champ, nouveau)
+            verrouille.save(update_fields=[nom_champ])
+            if supprimer_ancienne:
+                supprimer_image_apres_commit(champ.storage, ancien)
     except Exception:
-        _supprimer_fichier(nouveau)
+        _supprimer_fichier(champ.storage, nouveau)
         raise
     return verrouille
 
 
-def retirer_photo(produit):
+def retirer_image(instance, nom_champ):
+    modele = type(instance)
+    champ = modele._meta.get_field(nom_champ)
     with transaction.atomic():
-        verrouille = Produit.objects.select_for_update().get(pk=produit.pk)
-        ancien = verrouille.photo.name
+        verrouille = modele.objects.select_for_update().get(pk=instance.pk)
+        ancien = getattr(verrouille, nom_champ).name
         if ancien:
-            verrouille.photo = None
-            verrouille.save(update_fields=['photo'])
-            supprimer_photo_apres_commit(ancien)
+            setattr(verrouille, nom_champ, None)
+            verrouille.save(update_fields=[nom_champ])
+            supprimer_image_apres_commit(champ.storage, ancien)
     return verrouille
+
+
+def supprimer_photo_apres_commit(nom):
+    supprimer_image_apres_commit(Produit._meta.get_field('photo').storage, nom)
+
+
+def enregistrer_photo(produit, octets):
+    return enregistrer_image(produit, 'photo', octets)
+
+
+def retirer_photo(produit):
+    return retirer_image(produit, 'photo')
