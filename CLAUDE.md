@@ -6,8 +6,9 @@ L'état du travail en cours est dans `docs/EN_COURS.md`, pas ici.
 ## Discipline
 
 - Ordre : plan, puis diff, puis « oui, commit », puis « oui, push ». Chaque étape attend un accord explicite.
-- Toujours montrer le diff avant de commiter, même si un message semble autoriser plus.
+- Toujours montrer le diff avant de commiter, même si un message semble autoriser plus (seule exception : la méthode par lot, ci-dessous).
 - Début de session : lire `docs/EN_COURS.md`. Fin d'étape : le mettre à jour.
+- Méthode par lot : elle vaut seulement quand Mahamadou l'annonce. On enchaîne alors ses tâches sans attendre, un commit par tâche, avec les tests après chaque tâche ; une tâche bloquée ou ambiguë est sautée et notée. Aucun push sans son « oui, push ». À la fin, le diff complet de tout ce qui touche à la sécurité, l'argent ou le stock.
 
 ## Vérifications locales (les mêmes que la CI)
 
@@ -40,6 +41,7 @@ L'état du travail en cours est dans `docs/EN_COURS.md`, pas ici.
 
 - Aucun calcul de montant : afficher les valeurs renvoyées par l'API.
 - Supporter un champ absent (Render et Vercel se déploient de façon décalée).
+- Si la durée de l'essai change, mettre à jour `landing/index.html` (7 occurrences de « 14 jours », dont 2 dans les balises de description). L'app, elle, lit la durée dans la formule « Essai gratuit ».
 - Couches (z-index) : 40 = éléments flottants (barre de navigation du bas, bouton d'Iwi) ; 50 = fenêtres, panneaux, menus, et bannières globales (collées en haut) ; 60 = fenêtre d'installation de l'app. `z-10` est permis seulement à l'intérieur d'une zone qui défile (comme l'en-tête du tableau de Stock). Tout nouvel élément positionné doit s'y ranger. À couche égale, l'élément rendu le plus bas dans le DOM passe devant.
 
 ## Commits

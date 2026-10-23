@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-22.
+Mis à jour le 2026-10-23.
 
 ## Incident prod (2026-10-10 au 2026-10-13) : base Render expirée
 
@@ -33,6 +33,34 @@ Fait le 2026-10-22, poussé le même jour (`d574c75..bfd9138`), CI verte (run 39
 - `9c6d0e9` `docs` : `CLAUDE.md`, « iWiShop » → « iwiShop ».
 - `ad961a8` `fix(hooks)` et `bfd9138` `ci` : voir « Hook de secrets : échec fermé (2026-10-22) ».
 Reste : Mahamadou relève `BREVO_SENDER_NAME` sur Render. Les commentaires internes « audit IwiShop » (`accounts/`, `tenants/`) restent tels quels.
+
+## Lot du 2026-10-23 (méthode « par lot »)
+
+Six tâches données par Mahamadou, un commit chacune, poussées le 2026-10-23 sur « oui, push » (`09c375f..583ca1a`). CI verte sur `583ca1a` (jobs backend, frontend et landing en succès, de 14 h 41 à 14 h 42 UTC). Non vérifié en prod.
+- `37bc924` `fix(parametres)` : `limite_questions_assistant_par_jour` en lecture seule (un PATCH à 10000 laisse 30 en base). Relevé : aucun autre champ réservé à la plateforme n'est modifiable par le propriétaire.
+- `c4fd1dc` `fix(frontend)` : panier de l'écran de vente. Sous `sm`, Type, Qté et Prix U. passent sous le nom du produit. Mesure Playwright : tableau de 473 px pour 286 / 316 visibles avant, 286/286 et 316/316 après ; 1366 px inchangé.
+- `b7465e1` `fix(frontend)` : `Login.jsx`, carte `w-full max-w-sm` dans `px-4` (16→344 à 360 px, au lieu de 0→360).
+- `22d06e8` `fix(tenants)` : emails d'identifiants et d'alerte d'expiration en vouvoiement (texte seulement).
+- `f99d83a` `feat(tenants)` : route publique `GET tenants/essai-gratuit/` (`{"duree_jours": n}`, 404 sans la formule) ; `DemandeAccesPage` l'affiche, et dit « Essai gratuit, sans carte bancaire. » sans réponse exploitable. La formule reste trouvée par son nom (`NOM_FORMULE_ESSAI`) : ne jamais la renommer.
+- `583ca1a` `feat(tenants)` : `creer-paiement` limité à 10 par heure et par utilisateur (choix validé par Mahamadou), 429 avant toute écriture et tout appel à PayDunya.
+Tests au moment du push : backend 698 OK, hook 8 OK, frontend 387/387 (38 fichiers), lint et build OK.
+Relevés pendant ce lot (`MonAbonnement.jsx` qui tutoie, carte `w-96` d'`AdminPlateformePage.jsx`, contradiction avec `CLAUDE.md`) : traités par le lot 2 du même jour.
+Horloge du PC : saut d'environ 12 h le 2026-10-23 au matin (00 h 27 puis 12 h 37) ; l'heure des commits concorde ensuite avec celle de GitHub (CI à 14 h 41 UTC, dernier commit à 14 h 27).
+
+## Lot 2 du 2026-10-23 (méthode par lot)
+
+Commits locaux, pas encore poussés (le push attend « oui, push ») :
+- `60d1bd6` `fix(frontend)` : `MonAbonnement.jsx` vouvoie (« Réessayez dans un instant ») ; un 429 de `creer-paiement` affiche « Trop de tentatives de paiement. Réessayez dans une heure. », boutons gardés. 3 tests vus échouer avant, 15/15 après.
+- `0a6ea75` `fix(frontend)` : `AdminPlateformePage.jsx`, carte `w-full max-w-sm` dans `px-4` (16→344 à 360 px, au lieu de 0→360 ; 1366 px inchangé).
+- commit `docs` : `CLAUDE.md` (méthode par lot, durée de l'essai dans la landing) et cette note.
+Relevé, rien n'est corrigé : `RetourPaiement.jsx` tutoie encore (« Réessaie cette page dans quelques instants »).
+
+Vérification (tâche 3, rien n'est modifié) : limites de débit et workers.
+- `CACHES` : `DatabaseCache` (table `django_cache_table` dans la base Postgres), sans variante par environnement : la prod l'utilise. Les compteurs (connexion, demande d'accès, `creer-paiement`) sont donc partagés entre tous les workers, et même entre plusieurs instances.
+- Nombre de workers gunicorn : pas dans le dépôt (ni `Procfile`, ni `render.yaml`, ni `gunicorn.conf.py`) ; la commande de démarrage est dans le tableau de bord Render. Sans `--workers`, gunicorn lit `WEB_CONCURRENCY`, sinon 1 worker. À relever par Mahamadou : Settings → Start Command, et Environment → `WEB_CONCURRENCY`. La prod répond `x-render-origin-server: gunicorn`.
+- Risque trouvé à la lecture du code (Django 6.0.7, DRF), non reproduit : le cache a la limite par défaut de 300 entrées. Au-delà, chaque écriture supprime les entrées expirées puis le premier tiers des clés par ordre alphabétique : `throttle_creer_paiement_…`, puis `throttle_demande_acces_…`, puis `throttle_login_ip_…`, avant `throttle_login_username_…`. Une tentative de connexion bloquée par la limite par IP écrit quand même une clé par nouvel identifiant (DRF évalue toutes les limites). Une seule IP peut donc dépasser 300 entrées en une minute et effacer les compteurs, y compris le sien.
+- Autre limite, mineure : lecture puis écriture non atomiques ; des requêtes simultanées sur deux workers peuvent dépasser un peu le seuil.
+- Pistes proposées, à décider par Mahamadou : relever `MAX_ENTRIES` (dans `OPTIONS` de `CACHES`) ; arrêter l'évaluation des limites de connexion à la première refusée ; test qui crée plus de 300 clés et vérifie qu'un compteur survit, vu échouer avant.
 
 ## Hook de secrets : échec fermé (2026-10-22)
 
@@ -74,9 +102,6 @@ Non vérifié : HTML servi comparé à un build de `d995b62` (rien ne prouve enc
 - tester la réception sur `contact@iwishop.app` depuis un autre compte ;
 - activer sur les deux projets Vercel « ne pas redéployer si rien n'a changé dans le dossier » ;
 - refaire la mesure de fluidité (voir « Landing page : fait le 2026-10-22 ») ;
-- `Login.jsx` (`w-96`) et emails qui tutoient (voir « En attente, côté code ») ;
-- panier à 390 px ;
-- quota d'Iwi modifiable par le propriétaire ;
 - 2FA Render (étape 4).
 
 ## Landing page : fait le 2026-10-22
@@ -1079,9 +1104,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 - Chantier séparé : « Essai gratuit » est trouvée par son nom exact (`FormuleAbonnement.objects.get(nom='Essai gratuit')`, `ApprouverDemandeView`), ce qui est fragile : la renommer dans l'admin bloque toute nouvelle inscription. La remplacer par un identifiant stable. Relevé par Mahamadou le 2026-10-22 : `actif=False`, 14 jours, prix passé de 3 000 à 0, nom inchangé.
 - Tâche à part (décidée par Mahamadou le 2026-10-22) : faire tourner `verifier_dettes_en_retard` en prod. La commande existe (`notifications/management/commands/`), mais rien ne la lance (ni `build.sh`, ni une tâche planifiée) : les notifications « dette en retard » ne sont probablement jamais créées en prod. Retirée de la landing en attendant.
 - Relevés le 2026-10-22 (commit `cb187e3`), rien n'est corrigé :
-  - `Login.jsx` a la même carte `w-96` que `DemandeAccesPage` avant `cb187e3` : probablement collée aux bords à 360 px, non mesuré.
-  - L'email d'identifiants tutoie (« Tes identifiants de connexion iwiShop », `tenants/emails.py`), comme l'alerte d'expiration (« Ton abonnement iwiShop expire… ») ; la landing et la demande d'accès vouvoient.
-  - « 14 jours » est écrit en dur dans `DemandeAccesPage` (et dans la landing), alors que l'essai lit sa durée en base (`duree_jours` de « Essai gratuit ») : à changer ensemble si cette durée change.
+  - `Login.jsx`, emails qui tutoyaient, « 14 jours » de `DemandeAccesPage` : faits le 2026-10-23 (voir « Lot du 2026-10-23 »). La landing garde « 14 jours » en dur (décision de Mahamadou) : à changer à la main si la durée de l'essai change.
 - Chantier séparé : `Clients.jsx` : le corps de la carte de vente (~200 lignes dans le map) est à extraire en composant `CarteVente`, avec ses tests inchangés.
 - Chantier séparé : `Clients.jsx:55` (`grouperRemboursements`) calcule le montant effectif d'un remboursement côté frontend, en flottants avec arrondi, contrairement à `CLAUDE.md` (aucun calcul de montant dans le frontend). Le faire calculer par le backend, comme `montant_effectif` dans l'historique fournisseur.
 - Chantier séparé : autres calculs de montants existants dans le frontend. `Purchases.jsx` (sous-totaux et « Montant Total » du panier) et `Sales.jsx` (« Restera dû » calculé pendant la saisie d'une vente à crédit). Nuance : un total provisoire pendant la saisie est acceptable si le serveur recalcule la valeur enregistrée ; le chantier vérifiera au cas par cas.
