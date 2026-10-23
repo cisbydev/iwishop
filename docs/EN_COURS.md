@@ -49,7 +49,7 @@ Horloge du PC : saut d'environ 12 h le 2026-10-23 au matin (00 h 27 puis 12 h 37
 
 ## Lot 3 du 2026-10-23 (méthode par lot, sécurité)
 
-Commits locaux, pas encore poussés (le push attend « oui, push ») :
+Poussés le 2026-10-23 (`c9ec562..e980150`), CI verte sur `e980150` (jobs backend, frontend et landing en succès, de 16 h 10 à 16 h 11 UTC). Non vérifiés en prod. Relus par Mahamadou après le push, pas avant ; contre-épreuve des tâches 1 et 2 refaite sur `e980150`, mêmes échecs sans les correctifs (401 au lieu de 429 ; 32 lignes au lieu de 12) :
 - `12d4cad` `fix(settings)` : `CACHES` avec `OPTIONS: {'MAX_ENTRIES': 50000}`. Avant, au-delà de 300 entrées, le cache effaçait le premier tiers des clés par ordre alphabétique, compteurs de limite compris. Test `test_compteur_ip_survit_a_plus_de_300_entrees_en_cache` : IP bloquée, 400 entrées écrites, nouvelle tentative ; sans le correctif, 401 au lieu de 429 (compteur effacé).
 - `f7ad50f` `fix(accounts)` : `CustomTokenObtainPairView.check_throttles` s'arrête au premier refus (IP d'abord). Avant, une tentative bloquée par IP écrivait quand même une entrée par nouvel identifiant, et comptait contre la limite de cet identifiant. Test `test_requete_bloquee_par_ip_n_ecrit_rien_dans_le_cache` : IP bloquée puis 20 identifiants nouveaux ; sans le correctif, 32 lignes de cache au lieu de 12.
 - Contre-épreuve sur l'état final : chaque correctif retiré seul fait échouer son propre test, et seulement lui ; fichiers restaurés à l'identique (empreintes vérifiées).
