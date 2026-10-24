@@ -78,7 +78,7 @@ Poussé le 2026-10-23, avant cette sauvegarde : `1a2dd23..43f02b3` (`66e625e` do
 
 ## Images de catégories et logo (lot du 2026-10-23, méthode par lot)
 
-Plan validé par Mahamadou le 2026-10-23 : carré recadré au centre, 320 px, WebP qualité 80 ; tout employé peut envoyer ou retirer l'image ; affichage dans l'écran Catégories seulement (le filtre par catégorie sur l'écran de vente est un chantier séparé, prévu le 2026-10-24) ; hors ligne, icône par défaut sans cache ; tout en un seul push ; logo passé par le même traitement (étape 6), anciens logos gardés pour les factures.
+Plan validé par Mahamadou le 2026-10-23 : carré recadré au centre, 320 px, WebP qualité 80 ; tout employé peut envoyer ou retirer l'image ; affichage dans l'écran Catégories seulement (le filtre par catégorie sur l'écran de vente est un chantier séparé : nouvelle fonction, seulement si un client la demande, voir « En attente, côté code ») ; hors ligne, icône par défaut sans cache ; tout en un seul push ; logo passé par le même traitement (étape 6), anciens logos gardés pour les factures.
 
 Poussés le 2026-10-23 (`e980150..1a2dd23`, avec `5cd8a00` et `a5bc53d`), CI verte sur `1a2dd23` (jobs backend, frontend et landing en succès, de 18 h 46 à 18 h 48 UTC) :
 1. `69c64b9` `feat(products)` : `traiter_photo(fichier, cote_max=800, carre=False)`.
@@ -166,7 +166,6 @@ Non vérifié : HTML servi comparé à un build de `d995b62` (rien ne prouve enc
 À faire :
 - tester la réception sur `contact@iwishop.app` depuis un autre compte ;
 - activer sur les deux projets Vercel « ne pas redéployer si rien n'a changé dans le dossier » ;
-- refaire la mesure de fluidité (voir « Landing page : fait le 2026-10-22 ») ;
 - 2FA Render (étape 4).
 
 ## Landing page : fait le 2026-10-22
@@ -1146,7 +1145,9 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 ## En attente, côté code (pour plus tard)
 
 - Chiffrer le disque du PC avec BitLocker (la suppression sur SSD n'est pas un effacement garanti). (Décidé par Mahamadou le 2026-10-23, après la suppression des archives en clair de `backups/`.)
-- ProduitPrixViewSet : 403/400 au lieu de 404 et aucun test d'isolation. Aucune donnée ne fuit, seulement l'existence d'un objet. À corriger avec les messages des serializers. (Relevé le 2026-10-23, revue des vues en lecture seule ; même lot que le chantier « objets d'une autre boutique qui renvoient autre chose qu'un 404 identique ».)
+- Filtre par catégorie sur l'écran de vente : nouvelle fonction, à faire seulement si un client la demande. N'est plus prévu le 2026-10-24 (décidé par Mahamadou le 2026-10-24).
+- Mesure de fluidité de la landing (animations de `d995b62`, voir « Landing page : fait le 2026-10-22 ») : plus tard, pas le 2026-10-24 (décidé par Mahamadou le 2026-10-24).
+- ProduitPrixViewSet : 403/400 au lieu de 404 et aucun test d'isolation. Aucune donnée ne fuit, seulement l'existence d'un objet. À corriger avec les messages des serializers. (Relevé le 2026-10-23, revue des vues en lecture seule ; même lot que le chantier « objets d'une autre boutique qui renvoient autre chose qu'un 404 identique ».) Plus tard, pas le 2026-10-24 (décidé par Mahamadou le 2026-10-24).
 - Envoi d'image en 3-4 s (photo complète envoyée puis réduite sur Render). Piste : réduire l'image dans le navigateur avant l'envoi. (Relevé par Mahamadou le 2026-10-23, en prod, sur les images de catégories ; c'est aussi la livraison 2c prévue pour les photos de produits.)
 - CI (relevé le 2026-10-05, annotation GitHub) : le libellé `ubuntu-latest` passera à Ubuntu 26 à partir du 19 octobre 2026. Surveiller la CI après cette date (versions de Python, de Node et de PostgreSQL de l'image). Constaté le 2026-10-19 : Runner Image `ubuntu-24.04` (20261012.334.1) ; le passage à Ubuntu 26 n'a pas encore eu lieu. Fait le 2026-10-20 : `runs-on: ubuntu-24.04` fixé pour les deux jobs (`160c66e`), CI verte (run 39412654406, les deux jobs sous l'étiquette `ubuntu-24.04`). Reste une tâche à part : le passage à Ubuntu 26.
 
