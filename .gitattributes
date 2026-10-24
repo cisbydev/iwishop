@@ -2,3 +2,7 @@
 # côté utilisateur - un shebang (#!/usr/bin/env python) en CRLF peut
 # empêcher l'exécution du hook (interpréteur non trouvé).
 scripts/git-hooks/* text eol=lf
+
+# Sauvegarde quotidienne : script bash et Dockerfile lus dans un conteneur
+# Linux (un "\r" casse bash : « set: pipefail\r: invalid option name »).
+ops/backup/* text eol=lf
