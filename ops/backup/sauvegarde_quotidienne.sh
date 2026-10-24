@@ -91,14 +91,17 @@ EMPREINTE="$(sha256sum "$ARCHIVE_AGE" | cut -d ' ' -f 1)"
 journal "Archive chiffrée : $TAILLE octets, SHA-256 $EMPREINTE."
 
 # Configuration de rclone par variables, sans fichier. no_check_bucket :
-# le jeton n'a de droits que sur les objets, pas sur le bucket.
+# le jeton n'a de droits que sur les objets, pas sur le bucket. no_head :
+# R2 répond 501 au HEAD ?versionId= que rclone 1.60 fait après l'envoi ;
+# la taille est vérifiée plus bas par rclone lsf. Pas d'ACL : R2 ne les
+# utilise pas (bucket privé) et l'en-tête X-Amz-Acl peut valoir un 501.
 export RCLONE_CONFIG_R2_TYPE=s3
 export RCLONE_CONFIG_R2_PROVIDER=Cloudflare
 export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_BACKUP_ACCESS_KEY_ID"
 export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_BACKUP_SECRET_ACCESS_KEY"
 export RCLONE_CONFIG_R2_ENDPOINT="$R2_BACKUP_ENDPOINT"
-export RCLONE_CONFIG_R2_ACL=private
 export RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+export RCLONE_CONFIG_R2_NO_HEAD=true
 
 rclone copyto "$ARCHIVE_AGE" "$DESTINATION"
 TAILLE_R2="$(rclone lsf --format s "$DESTINATION")"
