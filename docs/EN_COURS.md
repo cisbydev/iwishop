@@ -1,6 +1,6 @@
 # Travail en cours
 
-Mis à jour le 2026-10-23.
+Mis à jour le 2026-10-24.
 
 ## Incident prod (2026-10-10 au 2026-10-13) : base Render expirée
 
@@ -17,11 +17,11 @@ Mis à jour le 2026-10-23.
 Aucun vrai client à ce jour (Mahamadou, 2026-10-21) : SoraShop n'est pas utilisée. Les notes plus anciennes parlent d'un « seul vrai client » (boutique SoraShop) : c'est dépassé. Objectif : finir la liste « prêt à vendre », puis chercher des clients.
 
 Liste « prêt à vendre », dans l'ordre :
-1. Landing page : à refaire dans le dépôt, comme un projet séparé de l'app. Une première version avait été faite avec ChatGPT Sites, mais l'abonnement ChatGPT de Mahamadou a expiré et son code ne peut pas être récupéré. Les 15 captures de cette version servent de modèle. Plan validé le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 »). Code fait et poussé le 2026-10-22, CI verte (voir « Landing page : fait le 2026-10-22 ») ; reste la mesure de fluidité, interrompue.
+1. Landing page : à refaire dans le dépôt, comme un projet séparé de l'app. Une première version avait été faite avec ChatGPT Sites, mais l'abonnement ChatGPT de Mahamadou a expiré et son code ne peut pas être récupéré. Les 15 captures de cette version servent de modèle. Plan validé le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 »). Code fait et poussé le 2026-10-22, CI verte (voir « Landing page : fait le 2026-10-22 ») ; la mesure de fluidité, interrompue, passe en « plus tard » (voir « En attente, côté code »).
 2. Essai gratuit : vérifier que l'app tient la promesse de la landing page (14 jours, gratuit, sans carte bancaire), et l'aligner si besoin. Fait le 2026-10-22 (voir « Landing page : plan validé le 2026-10-22 », essai gratuit). Reste le chantier séparé de la recherche par le nom (voir « En attente, côté code »).
 3. Mise en ligne de la landing page sur `iwishop.app`. Fait par Mahamadou le 2026-10-22, vérifié en prod le même jour (voir « Landing page : mise en ligne (2026-10-22) »).
-4. 2FA sur GitHub et sur Render. GitHub : fait le 2026-10-22 (voir « Sécurité GitHub (2026-10-22) »). Render : à faire.
-5. Sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base »). Son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19.
+4. 2FA sur GitHub et sur Render. GitHub : fait le 2026-10-22 (voir « Sécurité GitHub (2026-10-22) »). Render : vérifiée active par Mahamadou le 2026-10-24.
+5. Sauvegarde automatique : le commit 4 (voir « Chantier : sauvegarde de la base »). Son préalable, le 2FA Cloudflare, est fait depuis le 2026-10-19. Commit 4 poussé et tâche Render créée le 2026-10-24, premier lancement réussi ; reste le correctif du 501 (voir « Sauvegarde quotidienne automatique (2026-10-24) »).
 6. Sécurité : « pas d'abonnement = accès » (voir « En attente, côté code »), `/admin-plateforme`, limite de débit.
 7. Service web Render en plan payant (aujourd'hui gratuit, avec mise en veille).
 
@@ -33,6 +33,34 @@ Fait le 2026-10-22, poussé le même jour (`d574c75..bfd9138`), CI verte (run 39
 - `9c6d0e9` `docs` : `CLAUDE.md`, « iWiShop » → « iwiShop ».
 - `ad961a8` `fix(hooks)` et `bfd9138` `ci` : voir « Hook de secrets : échec fermé (2026-10-22) ».
 Reste : Mahamadou relève `BREVO_SENDER_NAME` sur Render. Les commentaires internes « audit IwiShop » (`accounts/`, `tenants/`) restent tels quels.
+
+## Sauvegarde quotidienne automatique (2026-10-24)
+
+Commit 4 du chantier « sauvegarde de la base ». Décisions de Mahamadou (2026-10-24) : objets nommés `daily/AAAA-MM-JJTHHMMZ.dump.age` (heure comprise : le verrou du bucket interdit sans doute d'écraser un objet, une 2e exécution le même jour échouerait) ; clé publique `age` du 2026-10-23 écrite dans le script ; jeton R2 sans expiration ; rclone pour l'envoi ; banc d'essai hors du dépôt. Coût d'environ 1 $ par mois accepté.
+
+Code : `1ad41d7` `feat(ops)` (`ops/backup/sauvegarde_quotidienne.sh`, `ops/backup/Dockerfile`, `.gitattributes` en LF pour `ops/backup/`), poussé avec `28cce9c` (`c0adf23..28cce9c`), CI verte (run 40102004805, jobs landing, backend et frontend en succès, de 14 h 19 à 14 h 21 UTC). Banc d'essai (Git Bash ; faux `pg_dump`, `pg_restore`, `rclone` et `curl` ; vrai `age` ; faux secrets), 12 cas :
+- variable absente, `pg_dump` en échec ou partiel, archive vide, `pg_restore` en échec, `age` en échec, envoi R2 en échec : code 1, un seul signal d'échec (aucun si l'URL de ping manque), 0 objet ;
+- lecture R2 en échec ou taille différente après l'envoi : code 1, signal d'échec, l'objet envoyé reste (voulu : aucune suppression dans le script) ;
+- réussite : code 0, signaux start puis réussite, 1 objet ; Healthchecks.io injoignable : réussite avec avertissement ;
+- dans tous les cas, dossier temporaire vide et aucun faux secret dans le journal ;
+- aller-retour `age` avec une clé jetable (copie du script) : en-tête `PGDMP` retrouvé ; contre-épreuve : sans le contrôle de taille, le cas « taille différente » passe en réussite.
+
+Fait par Mahamadou le 2026-10-24 :
+- Bucket `iwishop-backups` vérifié vide avant le lancement (aucune archive chiffrée avec l'ancienne clé perdue).
+- 2FA Render vérifiée active.
+- Jeton R2 « iwishop-sauvegarde-render » : « Object Read & Write », bucket `iwishop-backups` seulement, sans expiration.
+- Tâche planifiée Render : Ohio, runtime Docker (`ops/backup/Dockerfile`), horaire `0 3 * * *` (UTC). 6 variables saisies par Mahamadou dans la tâche (`DATABASE_URL`, `R2_BACKUP_ACCESS_KEY_ID`, `R2_BACKUP_SECRET_ACCESS_KEY`, `R2_BACKUP_ENDPOINT`, `R2_BACKUP_BUCKET`, `HEALTHCHECKS_PING_URL`), valeurs notées nulle part ailleurs.
+- Premier lancement à la main réussi le 2026-10-24 à 15 h 32 UTC : archive lisible (243 929 octets), chiffrée 244 177 octets, `daily/2026-10-24T1532Z.dump.age`, SHA-256 `d1995261dfdf1a9ce45881301848fae18b8f46a0a87b834ebd4a7983501b3af2`, « Cron job run finished successfully ».
+- Un 2e lancement a démarré à 15 h 33 min 39 s (double clic probable) : résultat, nombre d'objets dans `daily/` et signaux Healthchecks.io non relevés.
+- Non relevé : page Notifications de la tâche (« Only failure notifications » hérité ?).
+
+Erreur pendant le premier lancement : rclone (1.60.1, paquet Debian trixie de l'image) a eu « ERROR : Failed to copy: NotImplemented: Not Implemented, status code: 501 » au 1er essai, puis « Attempt 2/3 succeeded ». La taille relue dans R2 par le script (`rclone lsf`) correspond : la sauvegarde de 15 h 32 est complète. Deux causes possibles, signalées pour rclone 1.60 avec R2 (rapports isolés, pas la doc officielle) : le `HEAD ?versionId=` que rclone fait après l'envoi, que R2 ne connaît pas ; l'en-tête `X-Amz-Acl: private` (notre `RCLONE_CONFIG_R2_ACL=private`). Le verrou interdisant d'écraser un objet, la réussite du 2e essai colle mieux à la première. Décision de Mahamadou (2026-10-24) : appliquer les deux correctifs (`RCLONE_CONFIG_R2_NO_HEAD=true` et retrait de `RCLONE_CONFIG_R2_ACL`), sans lancement de diagnostic. Avertissement « Config file ... rclone.conf not found - using defaults » : sans effet (configuration par variables), laissé tel quel.
+
+Reste, dans l'ordre (première tâche de la prochaine session) :
+1. Correctif du 501 : banc d'essai (12 cas identiques), diff, commit, puis un Trigger Run qui ne montre plus ni « ERROR » ni « Attempt 2/3 ».
+2. Déchiffrement court du fichier de Render (`daily/2026-10-24T1532Z.dump.age`, empreinte ci-dessus).
+3. Échec voulu : faux nom dans `R2_BACKUP_BUCKET` (pas le secret, qu'on ne pourrait pas remettre) ; exécution en échec, deux e-mails (Render et Healthchecks.io), objets comptés ; puis remettre le vrai nom.
+Ensuite, d'après le plan : quotidiennes présentes deux matins de suite sans intervention, puis les commits 5 à 8.
 
 ## Lot du 2026-10-23 (méthode « par lot »)
 
@@ -69,6 +97,7 @@ Décision de Mahamadou (2026-10-23) : un seul exemplaire de la clé privée (cl�
 Pour le 2026-10-24, dans cet ordre (décidé par Mahamadou le 2026-10-23) :
 1. Vérifier que le bucket R2 `iwishop-backups` est vide (aucune archive chiffrée avec l'ancienne clé perdue).
 2. Sauvegarde quotidienne automatique (commit 4 du chantier « sauvegarde de la base »), avec la nouvelle clé publique.
+Fait le 2026-10-24 (bucket vide, commit 4, tâche Render, premier lancement) : voir « Sauvegarde quotidienne automatique (2026-10-24) ».
 
 Plus tard : R2 `weekly/` (règle de conservation de 12 semaines et verrou), si la sauvegarde hebdomadaire continue après le commit 4.
 
@@ -165,8 +194,7 @@ Non vérifié : HTML servi comparé à un build de `d995b62` (rien ne prouve enc
 
 À faire :
 - tester la réception sur `contact@iwishop.app` depuis un autre compte ;
-- activer sur les deux projets Vercel « ne pas redéployer si rien n'a changé dans le dossier » ;
-- 2FA Render (étape 4).
+- activer sur les deux projets Vercel « ne pas redéployer si rien n'a changé dans le dossier ».
 
 ## Landing page : fait le 2026-10-22
 
@@ -833,6 +861,7 @@ Commits prévus (chacun vérifiable) :
    - Fait : `63c37ab` (2026-10-15). Corps de la requête identique à celui de l'étape B, en-tête seul ajouté. Exception exacte `!scripts/comptage_restauration.sql` dans `.gitignore` (décidée par Mahamadou), `*.sql` reste ignoré partout ailleurs (vérifié avec `git check-ignore`). Requête lancée par Mahamadou sur la base de dev `sorashop_db` : code de sortie 0, 74 lignes au format `cle;valeur`, mêmes clés que la prod du 2026-10-14 sauf `purchases_paiementfournisseur` et sa séquence (migration `purchases/0017` absente de la base de dev) et les deux ventes témoins (prod seulement). La procédure de la doc n'a pas encore servi en entier : premier passage complet au test de restauration du commit 4.
    - 3 bis. `dbc5396` (2026-10-15) : `fix(gitignore)`, dossier `/backups/` ignoré en entier. Seuls `*.dump` et `*.sql` l'étaient : le fichier de comptage de la base de dev apparaissait comme non suivi. Vérifié avec `git check-ignore` ; aucun fichier de `backups/` n'était suivi.
 4. `feat(ops)` : sauvegarde quotidienne (Dockerfile `postgres:18`, script bash en `set -euo pipefail`) : `pg_dump` dans un fichier temporaire, `pg_restore --list`, chiffrement, envoi dans `daily/`, taille de l'objet vérifiée dans R2, signal à Healthchecks.io (réussite ou échec). Sans effet tant que la tâche n'est pas créée sur Render. Preuves : exécution à la main, objet présent ; objet téléchargé, déchiffré avec la clé privée et restauré en local avec la procédure de l'étape B ; avec un jeton R2 faussé exprès, exécution en échec, les deux e-mails reçus, aucun objet partiel (objets comptés) ; deux matins de suite, les quotidiennes présentes sans intervention.
+   - Fait : `1ad41d7` (2026-10-24), tâche Render créée et premier lancement réussi le même jour. Écart avec le plan : objets nommés avec l'heure (`daily/AAAA-MM-JJTHHMMZ.dump.age`). Reste le correctif du 501 de rclone, puis les preuves (déchiffrement, échec voulu, deux matins) : voir « Sauvegarde quotidienne automatique (2026-10-24) ».
 5. `feat(ops)` : copie mensuelle. Preuves : `monthly/AAAA-MM` créé à la première exécution, toujours 1 objet dans `monthly/` à la suivante ; échéance de suppression affichée sur un objet (cycle de vie) ; suppression refusée depuis le tableau de bord (verrou).
 6. `feat(ops)` : fichier de comptes chiffré, comptage juste avant et juste après `pg_dump`, gardé seulement si les deux sont égaux, sinon marqué « non comparable » sans faire échouer la sauvegarde. Preuve : après une restauration, `Compare-Object` avec ce fichier n'affiche rien.
 7. `docs` : procédure complète (récupérer, déchiffrer et restaurer depuis R2 ; perte ou fuite de clé ; réponse à une alerte ; test mensuel).
@@ -1144,6 +1173,7 @@ Un seul contrôle côté backend, `verifier_acces_premium` (`tenants/premium.py`
 
 ## En attente, côté code (pour plus tard)
 
+- Fermer l'accès externe de la base `iwishop-db` (aujourd'hui ouvert à `0.0.0.0/0`). La tâche de sauvegarde passe par l'adresse interne. Avant de fermer, vérifier ce qui se sert encore de l'adresse externe (accès à la base de prod depuis le PC de Mahamadou). (Décidé par Mahamadou le 2026-10-24.)
 - Chiffrer le disque du PC avec BitLocker (la suppression sur SSD n'est pas un effacement garanti). (Décidé par Mahamadou le 2026-10-23, après la suppression des archives en clair de `backups/`.)
 - Filtre par catégorie sur l'écran de vente : nouvelle fonction, à faire seulement si un client la demande. N'est plus prévu le 2026-10-24 (décidé par Mahamadou le 2026-10-24).
 - Mesure de fluidité de la landing (animations de `d995b62`, voir « Landing page : fait le 2026-10-22 ») : plus tard, pas le 2026-10-24 (décidé par Mahamadou le 2026-10-24).
