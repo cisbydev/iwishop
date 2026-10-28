@@ -28,6 +28,9 @@ export default function Purchases() {
   const [selectedUniteId, setSelectedUniteId] = useState('');
   const [quantite, setQuantite] = useState(1);
   const [prixUnitaire, setPrixUnitaire] = useState('');
+  // Facultatif : prix de vente d'une Unité, mis à jour par le serveur.
+  // Vide = le prix actuel du produit ne change pas.
+  const [prixVenteUnite, setPrixVenteUnite] = useState('');
 
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -197,6 +200,22 @@ export default function Purchases() {
       return;
     }
 
+    // 0 voudrait dire « retirer le prix » : refusé, comme par le serveur.
+    const prixVente = prixVenteUnite === '' ? null : parseFloat(prixVenteUnite);
+    if (prixVente !== null && !(prixVente > 0)) {
+      alert("Le prix de vente doit être supérieur à zéro, ou laissé vide.");
+      return;
+    }
+    // Le serveur refuse deux prix différents pour un même produit : on le
+    // signale dès l'ajout plutôt qu'à la validation de l'achat.
+    const prixVenteDejaSaisi = panier.find(
+      (l) => l.produit_id === prod.id && l.prix_vente_unite != null
+    )?.prix_vente_unite;
+    if (prixVente !== null && prixVenteDejaSaisi != null && prixVenteDejaSaisi !== prixVente) {
+      alert(`Un autre prix de vente est déjà saisi pour '${prod.nom}' dans cet achat.`);
+      return;
+    }
+
     // Nombre réel d'unités de stock à ajouter, via le facteur de
     // conversion de l'unité choisie (même règle que purchases/serializers.py).
     const unitesReellesRaw = qte * uniteChoisie.facteur_conversion;
@@ -214,11 +233,13 @@ export default function Purchases() {
       quantite: qte,
       prix_unitaire_achat: prix,
       sous_total: qte * prix,
+      prix_vente_unite: prixVente,
     };
 
     setPanier([...panier, nouvelleLigne]);
     setQuantite(1);
     setPrixUnitaire('');
+    setPrixVenteUnite('');
   };
 
   const handleRemoveLigne = (index) => {
@@ -257,6 +278,7 @@ export default function Purchases() {
         unite: item.unite_id,
         quantite: item.quantite,
         prix_unitaire_achat: item.prix_unitaire_achat,
+        ...(item.prix_vente_unite != null ? { prix_vente_unite: item.prix_vente_unite } : {}),
       })),
     };
     if (achatACredit) {
@@ -405,6 +427,21 @@ export default function Purchases() {
                     required
                   />
                 </div>
+                <div>
+                  <label htmlFor="achat-prix-vente-unite" className="block text-sm font-medium text-gray-700">
+                    Prix de vente (Unité) <span className="font-normal text-gray-500">— facultatif</span>
+                  </label>
+                  <input
+                    id="achat-prix-vente-unite"
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={prixVenteUnite}
+                    onChange={(e) => setPrixVenteUnite(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Prix d'une Unité, quelle que soit l'unité achetée. Vide : le prix de vente actuel ne change pas.</p>
+                </div>
                 <button
                   type="submit"
                   disabled={modeSupport || uniteOptions.length === 0}
@@ -446,6 +483,7 @@ export default function Purchases() {
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Qté</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Prix Achat U.</th>
                       <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sous-total</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Prix vente Unité</th>
                       <th className="px-4 py-2"></th>
                     </tr>
                   </thead>
@@ -457,6 +495,9 @@ export default function Purchases() {
                         <td className="px-4 py-3 text-sm text-gray-500">{item.quantite}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{formatCurrency(item.prix_unitaire_achat, devise)}</td>
                         <td className="px-4 py-3 text-sm font-semibold text-gray-800">{formatCurrency(item.sous_total, devise)}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">
+                          {item.prix_vente_unite != null ? formatCurrency(item.prix_vente_unite, devise) : 'Inchangé'}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <button
                             onClick={() => handleRemoveLigne(index)}
