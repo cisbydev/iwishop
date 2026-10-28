@@ -341,6 +341,15 @@ class VenteSerializer(serializers.ModelSerializer):
                 raise ValidationError(
                     f"Aucun prix configuré pour '{produit.nom}' en '{unite.nom}'."
                 )
+            # Un prix à 0 veut dire « pas de prix » : les prix sont
+            # facultatifs à la création du produit (plan du 2026-10-28).
+            # Refusé aussi en synchronisation différée. Une vente gratuite
+            # passe par la remise.
+            if produit_prix.prix <= 0:
+                raise ValidationError(
+                    f"'{produit.nom}' n'a pas de prix de vente en '{unite.nom}'. "
+                    f"Renseignez-le dans Produits avant de le vendre."
+                )
 
             # Calculer le nombre d'unités réelles à déduire du stock, via le
             # facteur de conversion centralisé sur l'unité de vente.

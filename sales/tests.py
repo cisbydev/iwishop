@@ -885,6 +885,106 @@ class VenteSynchronisationDiffereeTests(APITestCase):
         self.assertEqual(vente.horodatage_client, horodatage)
 
 
+class VenteSansPrixDeVenteTests(APITestCase):
+    """Un prix de vente à 0 veut dire « pas de prix » (plan du 2026-10-28 :
+    prix facultatifs à la création du produit). La vente est refusée, en
+    direct comme en synchronisation différée, pour Unité, Douzaine et les
+    unités personnalisées : rien n'est créé et le stock ne bouge pas. Une
+    vente gratuite passe par la remise."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-sans-prix")
+        self.user = User.objects.create_user(username="user_sans_prix", password="pass1234")
+        Profil.objects.create(user=self.user, boutique=self.boutique, est_proprietaire=True)
+
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.douzaine = UniteVente.objects.create(
+            boutique=self.boutique, nom="Douzaine", facteur_conversion=Decimal("12.000"), est_systeme=True
+        )
+        self.sac = UniteVente.objects.create(
+            boutique=self.boutique, nom="Sac", facteur_conversion=Decimal("5.000")
+        )
+        self.produit = Produit.objects.create(
+            boutique=self.boutique, nom="Savon",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("0"), prix_douzaine=Decimal("0"),
+            quantite_en_stock=100,
+        )
+        ProduitPrix.objects.create(produit=self.produit, unite=self.unite, prix=Decimal("0"))
+        ProduitPrix.objects.create(produit=self.produit, unite=self.douzaine, prix=Decimal("0"))
+        ProduitPrix.objects.create(produit=self.produit, unite=self.sac, prix=Decimal("0"))
+
+        self.client.force_authenticate(user=self.user)
+        self.url_list = reverse('ventes-list')
+
+    def _ligne(self, **kwargs):
+        ligne = {"produit": self.produit.id, "quantite": 1, "type_vente": "UNITE", "prix_applique": "0.00"}
+        ligne.update(kwargs)
+        return ligne
+
+    def _verifier_refus(self, payload):
+        response = self.client.post(self.url_list, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertIn("'Savon' n'a pas de prix de vente", str(response.data))
+        self.assertEqual(Vente.objects.count(), 0)
+        self.assertEqual(LigneVente.objects.count(), 0)
+        self.assertEqual(MouvementStock.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 100)
+
+    def test_vente_a_l_unite_sans_prix_refusee(self):
+        self._verifier_refus({"montant_paye": "0", "lignes": [self._ligne()]})
+
+    def test_vente_a_la_douzaine_sans_prix_refusee(self):
+        self._verifier_refus({"montant_paye": "0", "lignes": [self._ligne(type_vente="DOUZAINE")]})
+
+    def test_vente_unite_personnalisee_sans_prix_refusee(self):
+        self._verifier_refus({"montant_paye": "0", "lignes": [self._ligne(unite=self.sac.id)]})
+
+    def test_synchronisation_differee_sans_prix_refusee(self):
+        """Décision du 2026-10-28 : le refus vaut aussi pour une vente
+        préparée hors ligne (elle reste dans les ventes en attente)."""
+        self._verifier_refus({
+            "montant_paye": "0", "lignes": [self._ligne()],
+            "cle_idempotence": str(uuid.uuid4()), "synchronisation_differee": True,
+        })
+
+    def test_une_ligne_sans_prix_annule_toute_la_vente(self):
+        """La ligne valide qui la précède n'est pas gardée : la création
+        est atomique."""
+        autre = Produit.objects.create(
+            boutique=self.boutique, nom="Riz",
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        ProduitPrix.objects.create(produit=autre, unite=self.unite, prix=Decimal("100"))
+
+        self._verifier_refus({
+            "montant_paye": "100",
+            "lignes": [
+                {"produit": autre.id, "quantite": 1, "type_vente": "UNITE", "prix_applique": "100.00"},
+                self._ligne(),
+            ],
+        })
+        autre.refresh_from_db()
+        self.assertEqual(autre.quantite_en_stock, 10)
+
+    def test_prix_positif_toujours_accepte(self):
+        """Non-régression : un centime suffit."""
+        ProduitPrix.objects.filter(produit=self.produit, unite=self.unite).update(prix=Decimal("0.01"))
+
+        response = self.client.post(
+            self.url_list, {"montant_paye": "0.01", "lignes": [self._ligne()]}, format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(Vente.objects.count(), 1)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.quantite_en_stock, 99)
+
+
 class VenteMarqueCompteTests(APITestCase):
     """Isolation hors ligne (plan validé le 2026-10-16) : une vente porte
     l'utilisateur et la boutique pour lesquels elle a été préparée
