@@ -1130,6 +1130,262 @@ class AchatCreditTests(APITestCase):
         self._assert_rien_cree()
 
 
+class AchatPrixDeVenteTests(APITestCase):
+    """Plan du 2026-10-28 (option A) : chaque ligne d'achat peut porter un
+    prix de vente Unité facultatif. Rempli, il met à jour
+    Produit.prix_unitaire et la ligne ProduitPrix « Unité » ; vide, rien ne
+    change. Ouvert à quiconque peut acheter, comme la modification d'un
+    produit. Aucune trace sur la ligne d'achat, aucun retour en arrière à
+    l'annulation."""
+
+    def setUp(self):
+        self.boutique = Boutique.objects.create(nom="Boutique", slug="boutique-prix-vente-achat")
+        self.proprio = User.objects.create_user(username="proprio_pv", password="pass1234")
+        Profil.objects.create(user=self.proprio, boutique=self.boutique, est_proprietaire=True)
+        self.employe = User.objects.create_user(username="employe_pv", password="pass1234")
+        Profil.objects.create(user=self.employe, boutique=self.boutique, est_proprietaire=False)
+        self.fournisseur = Fournisseur.objects.create(boutique=self.boutique, nom="Fournisseur")
+        self.unite = UniteVente.objects.create(
+            boutique=self.boutique, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        self.douzaine = UniteVente.objects.create(
+            boutique=self.boutique, nom="Douzaine", facteur_conversion=Decimal("12.000"), est_systeme=True
+        )
+        self.sac = UniteVente.objects.create(
+            boutique=self.boutique, nom="Sac 25kg", facteur_conversion=Decimal("25.000")
+        )
+        self.produit = self._produit(self.boutique, "Riz")
+        self.autre_produit = self._produit(self.boutique, "Sucre")
+        self.url_list = reverse('achats-list')
+        self.client.force_authenticate(user=self.proprio)
+
+    def _produit(self, boutique, nom):
+        produit = Produit.objects.create(
+            boutique=boutique, nom=nom,
+            prix_achat=Decimal("50"), prix_unitaire=Decimal("100"), prix_douzaine=Decimal("1200"),
+            quantite_en_stock=10,
+        )
+        for unite in UniteVente.objects.filter(boutique=boutique):
+            prix = {"Unité": "100", "Douzaine": "1200"}.get(unite.nom, "2500")
+            ProduitPrix.objects.create(produit=produit, unite=unite, prix=Decimal(prix))
+        return produit
+
+    def _ligne(self, produit=None, unite=None, **extra):
+        ligne = {
+            "produit": (produit or self.produit).id, "quantite": 2,
+            "unite": (unite or self.unite).id, "prix_unitaire_achat": "60.00",
+        }
+        ligne.update(extra)
+        return ligne
+
+    def _acheter(self, *lignes, **extra):
+        payload = {"fournisseur": self.fournisseur.id, "lignes": list(lignes)}
+        payload.update(extra)
+        return self.client.post(self.url_list, payload, format='json')
+
+    def _prix_vente(self, produit, unite=None):
+        produit.refresh_from_db()
+        ligne_prix = ProduitPrix.objects.get(produit=produit, unite=unite or self.unite)
+        return produit.prix_unitaire, ligne_prix.prix
+
+    def _assert_rien_cree(self):
+        self.assertEqual(Achat.objects.count(), 0)
+        self.assertEqual(LigneAchat.objects.count(), 0)
+        self.assertEqual(MouvementStock.objects.count(), 0)
+        for produit in (self.produit, self.autre_produit):
+            self.assertEqual(self._prix_vente(produit), (Decimal("100.00"), Decimal("100.00")))
+            self.assertEqual(produit.quantite_en_stock, 10)
+
+    def test_prix_rempli_met_a_jour_produit_et_ligne_unite(self):
+        response = self._acheter(self._ligne(prix_vente_unite="150.00"))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self._prix_vente(self.produit), (Decimal("150.00"), Decimal("150.00")))
+        # Douzaine et unités personnalisées ne bougent pas.
+        self.assertEqual(self.produit.prix_douzaine, Decimal("1200.00"))
+        self.assertEqual(ProduitPrix.objects.get(produit=self.produit, unite=self.douzaine).prix, Decimal("1200.00"))
+        self.assertEqual(ProduitPrix.objects.get(produit=self.produit, unite=self.sac).prix, Decimal("2500.00"))
+        # Le reste de l'achat est inchangé.
+        self.assertEqual(self.produit.quantite_en_stock, 12)
+        self.assertEqual(self.produit.prix_achat, Decimal("60.00"))
+        # Aucune trace sur la ligne d'achat (décision du 2026-10-28).
+        self.assertNotIn('prix_vente_unite', response.data['lignes'][0])
+
+    def test_ligne_prix_unite_absente_est_creee(self):
+        ProduitPrix.objects.filter(produit=self.produit, unite=self.unite).delete()
+
+        response = self._acheter(self._ligne(prix_vente_unite="150.00"))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self._prix_vente(self.produit), (Decimal("150.00"), Decimal("150.00")))
+
+    def test_produit_sans_prix_devient_vendable(self):
+        """Le cas du prospect : produit créé sans prix (0), prix fixé à
+        l'achat ; la vente, refusée avant, passe ensuite."""
+        Produit.objects.filter(pk=self.produit.pk).update(prix_unitaire=Decimal("0"))
+        ProduitPrix.objects.filter(produit=self.produit, unite=self.unite).update(prix=Decimal("0"))
+
+        response = self._acheter(self._ligne(prix_vente_unite="150.00"))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        vente = self.client.post(reverse('ventes-list'), {
+            "montant_paye": "150",
+            "lignes": [{"produit": self.produit.id, "quantite": 1, "unite": self.unite.id, "prix_applique": "150"}],
+        }, format='json')
+        self.assertEqual(vente.status_code, status.HTTP_201_CREATED, vente.data)
+        self.assertEqual(vente.data['montant_total'], "150.00")
+
+    def test_vide_absent_ou_null_ne_change_rien(self):
+        for extra in ({}, {"prix_vente_unite": None}, {"prix_vente_unite": ""}):
+            with self.subTest(extra=extra):
+                response = self._acheter(self._ligne(**extra))
+
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+                self.assertEqual(self._prix_vente(self.produit), (Decimal("100.00"), Decimal("100.00")))
+
+    def test_prix_nul_ou_negatif_refuse_rien_cree(self):
+        for prix in ("0", "0.00", "-5.00"):
+            with self.subTest(prix=prix):
+                response = self._acheter(self._ligne(prix_vente_unite=prix))
+
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertIn("Le prix de vente doit être strictement positif.", str(response.data))
+                self._assert_rien_cree()
+
+    def test_autre_unite_prix_unite_sans_conversion(self):
+        """1 Sac 25kg à 20 000 : le prix saisi est celui d'une Unité, tel
+        quel (ni x 25, ni ÷ 25) ; le prix du Sac ne bouge pas."""
+        response = self._acheter(self._ligne(
+            unite=self.sac, quantite=1, prix_unitaire_achat="20000.00", prix_vente_unite="1000.00",
+        ))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self._prix_vente(self.produit), (Decimal("1000.00"), Decimal("1000.00")))
+        self.assertEqual(ProduitPrix.objects.get(produit=self.produit, unite=self.sac).prix, Decimal("2500.00"))
+        self.assertEqual(self.produit.prix_achat, Decimal("800.00"))
+        self.assertEqual(self.produit.quantite_en_stock, 35)
+
+    def test_boutique_sans_unite_systeme_refusee_rien_cree(self):
+        ProduitPrix.objects.filter(unite=self.unite).delete()
+        self.unite.delete()
+
+        response = self._acheter(self._ligne(unite=self.sac, quantite=1, prix_vente_unite="150.00"))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Aucune unité 'Unité'", str(response.data))
+        self.assertEqual(Achat.objects.count(), 0)
+        self.produit.refresh_from_db()
+        self.assertEqual(self.produit.prix_unitaire, Decimal("100.00"))
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+    def test_meme_produit_deux_prix_differents_refuse_rien_cree(self):
+        response = self._acheter(
+            self._ligne(prix_vente_unite="150.00"),
+            self._ligne(unite=self.sac, quantite=1, prix_vente_unite="160.00"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Deux prix de vente différents pour 'Riz'", str(response.data))
+        self._assert_rien_cree()
+
+    def test_meme_produit_meme_prix_ou_un_seul_prix_accepte(self):
+        for deuxieme in ({"prix_vente_unite": "150.00"}, {}):
+            with self.subTest(deuxieme=deuxieme):
+                response = self._acheter(
+                    self._ligne(prix_vente_unite="150.00"),
+                    self._ligne(unite=self.sac, quantite=1, **deuxieme),
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+                self.assertEqual(self._prix_vente(self.produit), (Decimal("150.00"), Decimal("150.00")))
+                Produit.objects.filter(pk=self.produit.pk).update(prix_unitaire=Decimal("100"))
+                ProduitPrix.objects.filter(produit=self.produit, unite=self.unite).update(prix=Decimal("100"))
+
+    def test_prix_saisi_sur_la_seconde_ligne_seulement(self):
+        response = self._acheter(
+            self._ligne(),
+            self._ligne(unite=self.sac, quantite=1, prix_vente_unite="150.00"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self._prix_vente(self.produit), (Decimal("150.00"), Decimal("150.00")))
+
+    def test_deux_produits_chacun_son_prix(self):
+        response = self._acheter(
+            self._ligne(prix_vente_unite="150.00"),
+            self._ligne(produit=self.autre_produit, prix_vente_unite="300.00"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self._prix_vente(self.produit), (Decimal("150.00"), Decimal("150.00")))
+        self.assertEqual(self._prix_vente(self.autre_produit), (Decimal("300.00"), Decimal("300.00")))
+
+    def test_achat_qui_echoue_ensuite_ne_garde_pas_le_prix(self):
+        """Achat à crédit sans fournisseur, refusé après les lignes : le
+        prix de vente déjà appliqué en mémoire n'est pas gardé."""
+        response = self.client.post(self.url_list, {
+            "lignes": [self._ligne(prix_vente_unite="150.00")], "montant_paye": "0",
+        }, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("Un achat à crédit doit avoir un fournisseur.", str(response.data))
+        self._assert_rien_cree()
+
+    def test_produit_d_une_autre_boutique_refuse_aucun_prix_ne_bouge(self):
+        boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-b-prix-vente-achat")
+        UniteVente.objects.create(
+            boutique=boutique_b, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        produit_b = self._produit(boutique_b, "Riz B")
+
+        response = self._acheter(
+            self._ligne(prix_vente_unite="150.00"),
+            self._ligne(produit=produit_b, prix_vente_unite="999.00"),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self._assert_rien_cree()
+        produit_b.refresh_from_db()
+        self.assertEqual(produit_b.prix_unitaire, Decimal("100.00"))
+        self.assertEqual(
+            ProduitPrix.objects.get(produit=produit_b, unite__boutique=boutique_b, unite__nom="Unité").prix,
+            Decimal("100.00"),
+        )
+
+    def test_prix_de_la_boutique_b_intact_quand_a_fixe_son_prix(self):
+        boutique_b = Boutique.objects.create(nom="Boutique B", slug="boutique-b2-prix-vente-achat")
+        unite_b = UniteVente.objects.create(
+            boutique=boutique_b, nom="Unité", facteur_conversion=Decimal("1.000"), est_systeme=True
+        )
+        produit_b = self._produit(boutique_b, "Riz")
+
+        response = self._acheter(self._ligne(prix_vente_unite="150.00"))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self._prix_vente(self.produit), (Decimal("150.00"), Decimal("150.00")))
+        self.assertEqual(self._prix_vente(produit_b, unite_b), (Decimal("100.00"), Decimal("100.00")))
+
+    def test_employe_peut_fixer_le_prix(self):
+        """Option A : même règle que la modification d'un produit
+        (products.tests, test_employe_peut_toujours_creer_et_modifier)."""
+        self.client.force_authenticate(user=self.employe)
+
+        response = self._acheter(self._ligne(prix_vente_unite="150.00"))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(self._prix_vente(self.produit), (Decimal("150.00"), Decimal("150.00")))
+
+    def test_annulation_ne_ramene_pas_le_prix_de_vente(self):
+        response = self._acheter(self._ligne(prix_vente_unite="150.00"))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+
+        annulation = self.client.post(reverse('achats-annuler', args=[response.data['id']]))
+
+        self.assertEqual(annulation.status_code, status.HTTP_200_OK, annulation.data)
+        self.assertEqual(self._prix_vente(self.produit), (Decimal("150.00"), Decimal("150.00")))
+        self.assertEqual(self.produit.quantite_en_stock, 10)
+
+
 class AchatBackfillMontantPayeMigrationTests(TransactionTestCase):
     """D4 : 0016 remplit montant_paye = montant_total pour les achats
     existants (tous payés comptant avant ce champ), annulés compris. Le

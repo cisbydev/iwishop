@@ -2,7 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from rest_framework import serializers
 from .models import Achat, LigneAchat, PaiementFournisseur
 from inventory.models import MouvementStock
-from products.models import Produit, UniteVente
+from products.models import Produit, ProduitPrix, UniteVente
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from django.db import transaction
 from tenants.profil import boutique_de
@@ -18,11 +18,29 @@ class LigneAchatSerializer(serializers.ModelSerializer):
     # unités de stock). Si présent, permet d'acheter en unité
     # personnalisée (Sac 25kg...), comme pour les ventes (Phase 4A/4B).
     unite = serializers.PrimaryKeyRelatedField(queryset=UniteVente.objects.all(), required=False)
+    # Facultatif (plan du 2026-10-28, option A) : prix de vente d'UNE Unité,
+    # quelle que soit l'unité d'achat, sans conversion. Rempli, il met à
+    # jour Produit.prix_unitaire et la ligne ProduitPrix « Unité » (cf.
+    # AchatSerializer.create) ; vide, rien ne change. Pas de colonne sur
+    # LigneAchat (aucune trace), et l'annulation ne le ramène pas.
+    prix_vente_unite = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True, write_only=True
+    )
 
     class Meta:
         model = LigneAchat
-        fields = ['id', 'produit', 'produit_nom', 'quantite', 'unite', 'unite_nom', 'prix_unitaire_achat', 'sous_total']
+        fields = [
+            'id', 'produit', 'produit_nom', 'quantite', 'unite', 'unite_nom', 'prix_unitaire_achat',
+            'sous_total', 'prix_vente_unite',
+        ]
         read_only_fields = ['sous_total']
+
+    def validate_prix_vente_unite(self, value):
+        # 0 voudrait dire « retirer le prix » (la vente serait refusée,
+        # cf. sales.serializers) : contraire à « vide = rien ne change ».
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Le prix de vente doit être strictement positif.")
+        return value
 
     def validate_quantite(self, value):
         # Une quantité négative inverserait le sens de l'opération : au
@@ -131,11 +149,15 @@ class AchatSerializer(serializers.ModelSerializer):
             for produit in Produit.objects.select_for_update().filter(pk__in=produit_ids).order_by('pk')
         }
 
+        # produit.pk -> prix de vente Unité saisi sur l'achat.
+        prix_vente_par_produit = {}
+
         for ligne_data in lignes_data:
             produit = produits_par_id[ligne_data['produit'].pk]
             quantite = ligne_data['quantite']
             prix = ligne_data['prix_unitaire_achat']
             unite_soumise = ligne_data.pop('unite', None)
+            prix_vente = ligne_data.pop('prix_vente_unite', None)
 
             # Vérification explicite d'appartenance - ne jamais supposer
             # qu'un produit ou une unité soumis appartiennent à la
@@ -198,6 +220,18 @@ class AchatSerializer(serializers.ModelSerializer):
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
 
+            # Après le contrôle d'appartenance ci-dessus. Deux prix
+            # différents pour un même produit : demande contradictoire,
+            # refusée (create() est atomique), jamais « le dernier gagne ».
+            if prix_vente is not None:
+                deja_saisi = prix_vente_par_produit.get(produit.pk)
+                if deja_saisi is not None and deja_saisi != prix_vente:
+                    raise ValidationError(
+                        f"Deux prix de vente différents pour '{produit.nom}' dans le même achat."
+                    )
+                prix_vente_par_produit[produit.pk] = prix_vente
+                produit.prix_unitaire = prix_vente
+
             produit.save()
             verifier_stock_bas(produit)
 
@@ -209,6 +243,23 @@ class AchatSerializer(serializers.ModelSerializer):
                 quantite=unites_a_ajouter,
                 motif=f"Achat fournisseur #{achat.id}"
             )
+
+        if prix_vente_par_produit:
+            # Même ligne ProduitPrix que celle lue par la vente à l'Unité
+            # (sales.serializers, NOM_UNITE_PAR_TYPE) ; les produits sont
+            # déjà verrouillés plus haut.
+            try:
+                unite_systeme = UniteVente.objects.get(boutique=boutique, nom='Unité')
+            except UniteVente.DoesNotExist:
+                raise ValidationError(
+                    "Aucune unité 'Unité' n'est configurée pour votre boutique. "
+                    "Contactez le support."
+                )
+            for produit_id, prix_vente in prix_vente_par_produit.items():
+                ProduitPrix.objects.update_or_create(
+                    produit=produits_par_id[produit_id], unite=unite_systeme,
+                    defaults={'prix': prix_vente},
+                )
 
         achat.montant_total = montant_total
         self._appliquer_paiement(achat, montant_paye_soumis, boutique)
