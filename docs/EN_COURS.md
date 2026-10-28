@@ -34,6 +34,18 @@ Fait le 2026-10-22, poussé le même jour (`d574c75..bfd9138`), CI verte (run 39
 - `ad961a8` `fix(hooks)` et `bfd9138` `ci` : voir « Hook de secrets : échec fermé (2026-10-22) ».
 Reste : Mahamadou relève `BREVO_SENDER_NAME` sur Render. Les commentaires internes « audit IwiShop » (`accounts/`, `tenants/`) restent tels quels.
 
+## Prix de vente dans l'achat (2026-10-28)
+
+Demande de Mahamadou le 2026-10-28 (méthode par lot) : dans l'écran Nouvel achat, un champ facultatif « Prix de vente (Unité) » par ligne. Rempli, il met à jour le prix de vente Unité du produit et sa ligne ProduitPrix ; vide, rien ne change. Décisions : option A (ouvert à quiconque peut acheter, comme la modification d'un produit aujourd'hui) ; aucune trace du prix saisi sur la ligne d'achat, aucune migration ; l'annulation de l'achat ne ramène pas le prix de vente. Commits locaux, non poussés, non vérifiés en prod :
+- `ab666c5` `feat(purchases)` : `prix_vente_unite` en écriture seule sur la ligne. Prix d'une Unité quelle que soit l'unité d'achat, sans conversion (Douzaine et unités personnalisées inchangées). Refusés (400, rien n'est créé) : prix ≤ 0, deux prix différents pour un même produit dans l'achat, boutique sans unité « Unité ». `AchatPrixDeVenteTests` : 13 tests sur 16 en échec sans le correctif, 16 sur 16 avec ; les 3 garde-fous (vide, achat qui échoue ensuite, produit d'une autre boutique) vus échouer sur du code cassé exprès. Backend complet : 750 tests OK.
+- `f4c6e1c` `feat(frontend)` : le champ dans le formulaire de ligne (`min="0.01"`, vide accepté), « Inchangé » dans le panier si vide, envoyé seulement s'il est rempli ; second prix différent pour un même produit refusé dès l'ajout. `PurchasesPrixVente.test.jsx` : 8 échecs sur 8 sans la modification, 8 sur 8 avec. Lint propre, build OK, Vitest complet 420 tests OK (42 fichiers, 304 s, 1,8 Go de RAM libre sur 7,9).
+
+À décider après le rendez-vous du 2026-10-29 : option B, réserver les prix de vente au propriétaire partout (champ de l'achat caché et refusé côté serveur, modification d'un produit, prix des unités personnalisées, revoir `test_employe_peut_toujours_creer_et_modifier` et la matrice des droits du P1 point 6). Estimation : environ 2 h. Aujourd'hui, un employé peut changer un prix de vente, depuis Produits comme depuis l'achat.
+
+Plus tard (relevé le 2026-10-28, rien n'est corrigé) :
+- Un produit d'une autre boutique dans un achat renvoie un 400 « Le produit 'X' n'appartient pas à votre boutique. », qui révèle son existence et son nom, au lieu du 404 identique à un objet inexistant (`CLAUDE.md`, Sécurité). Même message côté vente (`sales/serializers.py`), et même chose pour une unité d'une autre boutique.
+- `getErrorMessage` affiche « lignes : [object Object] » pour une erreur de champ imbriquée dans une ligne (achat ou vente). Sans effet aujourd'hui pour le prix de vente de l'achat, refusé par l'écran avant l'envoi.
+
 ## Produits sans prix ni stock : version rapide (2026-10-28)
 
 Retour d'un prospect, que Mahamadou revoit le 2026-10-29 : pour créer un produit, le formulaire exigeait le prix d'achat, le prix de vente et le stock initial, que le commerçant ne connaît qu'après l'achat. Constats dans le code (2026-10-28) : le backend exigeait les trois prix (Unité, Douzaine, achat), pas le stock ; un achat met à jour `Produit.prix_achat` (dernier prix payé, ramené à l'unité de stock ; l'annulation reprend le dernier achat valide, ou 0) ; une vente à 0 FCFA était acceptée ; le stock initial ne crée aucun mouvement de stock.
