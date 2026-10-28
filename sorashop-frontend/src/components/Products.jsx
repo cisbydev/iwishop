@@ -213,14 +213,20 @@ export default function Products() {
       return;
     }
 
+    // Seul le nom est obligatoire : le commerçant ne connaît souvent ses
+    // prix et son stock qu'après l'achat. Prix vide -> 0, qui veut dire
+    // « pas de prix » (la vente est refusée par le serveur). Stock vide ->
+    // non envoyé : le serveur garde sa valeur (0 et 5 à la création).
+    const estVide = (valeur) => valeur === '' || valeur === null || valeur === undefined;
+    const prixOuZero = (valeur) => (estVide(valeur) ? 0 : valeur);
     const payload = {
       nom: form.nom,
       categorie: form.categorie || null,
-      prix_achat: form.prixAchat,
-      prix_unitaire: form.prixVenteUnite,
-      prix_douzaine: form.prixVenteDouzaine,
-      quantite_en_stock: form.quantiteStock,
-      stock_minimum: form.stockMinimum,
+      prix_achat: prixOuZero(form.prixAchat),
+      prix_unitaire: prixOuZero(form.prixVenteUnite),
+      prix_douzaine: prixOuZero(form.prixVenteDouzaine),
+      ...(estVide(form.quantiteStock) ? {} : { quantite_en_stock: form.quantiteStock }),
+      ...(estVide(form.stockMinimum) ? {} : { stock_minimum: form.stockMinimum }),
     };
 
     setIsSaving(true);
@@ -582,8 +588,8 @@ export default function Products() {
                     value={form.prixAchat}
                     onChange={(e) => updateForm('prixAchat', e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    required
                   />
+                  <p className="mt-1 text-xs text-gray-500">Laisser vide si inconnu : le prix d'achat sera rempli par le premier achat.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700">Prix vente (Unité)</label>
@@ -593,7 +599,6 @@ export default function Products() {
                     value={form.prixVenteUnite}
                     onChange={(e) => updateForm('prixVenteUnite', e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    required
                   />
                 </div>
               </div>
@@ -606,7 +611,6 @@ export default function Products() {
                     value={form.prixVenteDouzaine}
                     onChange={(e) => updateForm('prixVenteDouzaine', e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    required
                   />
                 </div>
                 <div>
@@ -618,7 +622,6 @@ export default function Products() {
                     value={form.quantiteStock}
                     onChange={(e) => updateForm('quantiteStock', e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                    required
                   />
                   {editingId && (
                     <p className="text-xs text-gray-500 mt-1">
@@ -634,7 +637,6 @@ export default function Products() {
                   value={form.stockMinimum}
                   onChange={(e) => updateForm('stockMinimum', e.target.value)}
                   className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  required
                 />
               </div>
 
