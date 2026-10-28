@@ -34,6 +34,14 @@ Fait le 2026-10-22, poussé le même jour (`d574c75..bfd9138`), CI verte (run 39
 - `ad961a8` `fix(hooks)` et `bfd9138` `ci` : voir « Hook de secrets : échec fermé (2026-10-22) ».
 Reste : Mahamadou relève `BREVO_SENDER_NAME` sur Render. Les commentaires internes « audit IwiShop » (`accounts/`, `tenants/`) restent tels quels.
 
+## Incident Iwi : clé Anthropic invalide (2026-10-28)
+
+- Symptôme : alerte Sentry du 2026-10-28 à 10:05 UTC, `/api/assistant/` répond 401 `authentication_error` « invalid x-api-key » : Iwi ne répondait plus en prod.
+- Cause : la clé contenue dans `ANTHROPIC_API_KEY` sur Render était invalide. Pas de fuite par le dépôt, vérifié le 2026-10-28 (sans afficher aucune valeur) : aucun commit, sur aucune branche, n'ajoute ni ne retire le motif `sk-ant-` (`git log --all -G`) ; aucun `.env` n'a jamais été commité ; le seul fichier local qui en contient est `.env`, ignoré par `.gitignore`.
+- Réparation par Mahamadou le 2026-10-28 : nouvelle clé « iwishop-prod-render », mise dans `ANTHROPIC_API_KEY` sur Render ; Iwi testé et fonctionnel en prod (constat de Mahamadou).
+- Non relevé : si l'ancienne clé a été supprimée dans la console Anthropic.
+- Hook de secrets : il ne voyait une clé Anthropic que si elle était affectée à un nom en `…API_KEY`. Motif `sk-ant-` ajouté le 2026-10-28 dans `1519a6e` `fix(hooks)`, avec 3 tests (les 2 tests de blocage vus échouer sans le motif, 11 sur 11 avec).
+
 ## Prix de vente dans l'achat (2026-10-28)
 
 Demande de Mahamadou le 2026-10-28 (méthode par lot) : dans l'écran Nouvel achat, un champ facultatif « Prix de vente (Unité) » par ligne. Rempli, il met à jour le prix de vente Unité du produit et sa ligne ProduitPrix ; vide, rien ne change. Décisions : option A (ouvert à quiconque peut acheter, comme la modification d'un produit aujourd'hui) ; aucune trace du prix saisi sur la ligne d'achat, aucune migration ; l'annulation de l'achat ne ramène pas le prix de vente. Commits locaux, non poussés, non vérifiés en prod :
