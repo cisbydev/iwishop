@@ -95,11 +95,16 @@ export default function Sales() {
     prixRecus.forEach((p) => {
       const facteur = facteurParUnite[p.unite];
       if (facteur === undefined) return; // unité inconnue : on ignore ce prix par sécurité
+      // Prix à 0 (ou absent) = « pas de prix » : le serveur refuse la
+      // vente, l'unité n'est donc pas proposée. Sans aucune unité, l'écran
+      // affiche « Aucun prix configuré » et grise le bouton.
+      const prix = parseFloat(p.prix);
+      if (!(prix > 0)) return;
       if (!map[p.produit]) map[p.produit] = [];
       map[p.produit].push({
         unite_id: p.unite,
         unite_nom: p.unite_nom,
-        prix: parseFloat(p.prix),
+        prix,
         facteur_conversion: facteur,
       });
     });
