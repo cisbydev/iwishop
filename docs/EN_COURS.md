@@ -34,6 +34,23 @@ Fait le 2026-10-22, poussé le même jour (`d574c75..bfd9138`), CI verte (run 39
 - `ad961a8` `fix(hooks)` et `bfd9138` `ci` : voir « Hook de secrets : échec fermé (2026-10-22) ».
 Reste : Mahamadou relève `BREVO_SENDER_NAME` sur Render. Les commentaires internes « audit IwiShop » (`accounts/`, `tenants/`) restent tels quels.
 
+## Produits sans prix ni stock : version rapide (2026-10-28)
+
+Retour d'un prospect, que Mahamadou revoit le 2026-10-29 : pour créer un produit, le formulaire exigeait le prix d'achat, le prix de vente et le stock initial, que le commerçant ne connaît qu'après l'achat. Constats dans le code (2026-10-28) : le backend exigeait les trois prix (Unité, Douzaine, achat), pas le stock ; un achat met à jour `Produit.prix_achat` (dernier prix payé, ramené à l'unité de stock ; l'annulation reprend le dernier achat valide, ou 0) ; une vente à 0 FCFA était acceptée ; le stock initial ne crée aucun mouvement de stock.
+
+Version rapide décidée par Mahamadou le 2026-10-28 (méthode par lot, aucune migration). Commits locaux, non poussés, non vérifiés en prod :
+- `8af9c5f` `fix(sales)` : une ligne de vente à prix ≤ 0 est refusée (Unité, Douzaine, unités personnalisées), aussi en synchronisation différée (décision : on garde le refus, la vente reste dans les ventes en attente). Une vente gratuite passe par la remise. `VenteSansPrixDeVenteTests` : 5 échecs sur 6 sans le correctif, 6 sur 6 avec ; backend complet : 734 tests OK.
+- `7ca5d8f` `feat(frontend)` : fiche produit, seul le nom est obligatoire. Prix vides envoyés à 0 (« pas de prix ») ; stock initial et stock minimum vides non envoyés (le serveur met 0 et 5) ; texte d'aide « Laisser vide si inconnu : le prix d'achat sera rempli par le premier achat. »
+- `42cf01c` `feat(frontend)` : écran de vente, une unité à prix 0 ou absent n'est pas proposée, catalogue hors ligne compris ; on retombe sur « Aucun prix configuré » et le bouton grisé. Le message d'un refus du serveur était déjà affiché tel quel (`alert`) : verrouillé par un test.
+- Frontend : lint propre, build OK, Vitest complet 412 tests OK (41 fichiers, 369 s, 1,5 Go de RAM libre sur 7,9). Sans les modifications : 3 échecs sur 4 (`ProductsChampsFacultatifs.test.jsx`) et 4 sur 5 (`SalesSansPrix.test.jsx`), les autres verrouillant le comportement d'avant.
+
+Plus tard (décisions de Mahamadou, 2026-10-28) :
+- Migration `default=0` et `db_default=0` sur `prix_achat`, `prix_unitaire` et `prix_douzaine` : l'API accepterait alors un produit sans prix (aujourd'hui, c'est le frontend qui envoie 0).
+- Mouvement ENTREE « Stock initial » à la création d'un produit avec un stock > 0 (accepté) : aujourd'hui, le stock de départ n'apparaît pas dans l'historique.
+- Le PUT d'un produit change `quantite_en_stock` sans mouvement de stock, donc sans trace (l'écran conseille seulement l'ajustement d'inventaire).
+- Bénéfice surestimé, accepté : un produit vendu depuis son stock initial sans prix d'achat a un coût figé à 0 sur la ligne de vente. À signaler dans les rapports.
+- Liste des produits : afficher « Non renseigné » plutôt que « 0 FCFA » pour un prix à 0.
+
 ## Sauvegarde quotidienne automatique (2026-10-24)
 
 Commit 4 du chantier « sauvegarde de la base ». Décisions de Mahamadou (2026-10-24) : objets nommés `daily/AAAA-MM-JJTHHMMZ.dump.age` (heure comprise : le verrou du bucket interdit sans doute d'écraser un objet, une 2e exécution le même jour échouerait) ; clé publique `age` du 2026-10-23 écrite dans le script ; jeton R2 sans expiration ; rclone pour l'envoi ; banc d'essai hors du dépôt. Coût d'environ 1 $ par mois accepté.
