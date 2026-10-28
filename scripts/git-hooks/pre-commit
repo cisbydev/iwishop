@@ -51,6 +51,10 @@ MOTIFS = [
     ("Clé d'accès AWS (AKIA...)", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),
     ("Token de service connu (Stripe/GitHub/Slack)",
      re.compile(r"\b(sk_live_|sk_test_|ghp_|gho_|xox[baprs]-)[A-Za-z0-9_-]{10,}\b")),
+    # Clé de l'API Anthropic (assistant Iwi), vue même hors d'une
+    # affectation à un nom en ...API_KEY. Au moins 20 caractères après le
+    # préfixe : la documentation qui cite « sk-ant- » passe.
+    ("Clé Anthropic (sk-ant-...)", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}")),
 ]
 
 # Faux positifs avérés, autorisés UNIQUEMENT dans ce fichier et pour cette

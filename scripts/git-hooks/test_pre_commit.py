@@ -25,6 +25,9 @@ CHEMIN_HOOK = Path(__file__).resolve().parent / "pre-commit"
 # Reconnu par le motif « Token de service connu » du hook.
 FAUX_SECRET = "ghp_" + "a1B2c3D4" * 3
 
+# Forme d'une clé Anthropic (sk-ant-api03-...), valeur inventée.
+FAUSSE_CLE_ANTHROPIC = "sk-" + "ant-api03-" + "Zx9_Yw8-Vu7" * 8 + "AA"
+
 # U+26A0 U+FE0F : emoji « attention ». En UTF-8, U+FE0F donne l'octet
 # 0x8F, inconnu de cp1252 (Windows).
 EMOJI_ATTENTION = "⚠️"
@@ -139,6 +142,31 @@ class HookSecretsTests(unittest.TestCase):
         code, sortie = self.lancer_hook()
         self.assertEqual(code, 0, sortie)
         self.assertIn("Fichier binaire non analysé : image.png", sortie)
+
+    def test_cle_anthropic_seule_bloquee(self):
+        """Hors d'une affectation à un nom en ...API_KEY (que la règle
+        « Clé/secret assigné en dur » voit déjà) : dans un texte, un
+        journal, une variable nommée autrement."""
+        contenu = f"Notes de prod\nclé collée ici : {FAUSSE_CLE_ANTHROPIC}\n"
+        self.indexer("notes.md", contenu.encode("utf-8"))
+        code, sortie = self.lancer_hook()
+        self.assertEqual(code, 1, sortie)
+        self.assertIn("notes.md:2", sortie)
+        self.assertIn("Clé Anthropic (sk-ant-...)", sortie)
+        self.assertNotIn(FAUSSE_CLE_ANTHROPIC, sortie)
+
+    def test_cle_anthropic_dans_une_variable_autrement_nommee_bloquee(self):
+        self.indexer("iwi.py", f'cle = "{FAUSSE_CLE_ANTHROPIC}"\n'.encode("utf-8"))
+        code, sortie = self.lancer_hook()
+        self.assertEqual(code, 1, sortie)
+        self.assertIn("iwi.py:1", sortie)
+
+    def test_simple_mention_du_prefixe_sk_ant_passe(self):
+        """Faux positif à éviter : la documentation qui cite le préfixe."""
+        self.indexer("doc.md", "Le hook bloque les clés Anthropic (préfixe sk-ant-).\n".encode("utf-8"))
+        code, sortie = self.lancer_hook()
+        self.assertEqual(code, 0, sortie)
+        self.assertEqual(sortie, "")
 
     def test_fichier_avec_emoji_sans_secret_passe(self):
         self.indexer("alerte.py", f'TITRE = "{EMOJI_ATTENTION} Attention"\n'.encode("utf-8"))
