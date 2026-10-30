@@ -14,6 +14,7 @@ export default function Purchases() {
   const { actif: modeSupport, boutiqueId } = useSupportView();
   const [produits, setProduits] = useState([]);
   const [unitesParProduit, setUnitesParProduit] = useState({}); // produitId -> [{ unite_id, unite_nom, facteur_conversion }]
+  const [prixVenteUniteParProduit, setPrixVenteUniteParProduit] = useState({}); // produitId -> prix de vente actuel d'une Unité
   const [fournisseurs, setFournisseurs] = useState([]);
   const [achats, setAchats] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,10 +28,12 @@ export default function Purchases() {
   const [selectedProduit, setSelectedProduit] = useState('');
   const [selectedUniteId, setSelectedUniteId] = useState('');
   const [quantite, setQuantite] = useState(1);
-  const [prixUnitaire, setPrixUnitaire] = useState('');
+  // Saisies de l'utilisateur ; null = pas touché, le champ affiche alors
+  // la proposition tirée du catalogue (voir plus bas).
+  const [prixUnitaireSaisi, setPrixUnitaireSaisi] = useState(null);
   // Facultatif : prix de vente d'une Unité, mis à jour par le serveur.
-  // Vide = le prix actuel du produit ne change pas.
-  const [prixVenteUnite, setPrixVenteUnite] = useState('');
+  // Vide ou égal au prix actuel = le prix du produit ne change pas.
+  const [prixVenteUniteSaisi, setPrixVenteUniteSaisi] = useState(null);
 
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -76,12 +79,14 @@ export default function Purchases() {
 
       // Les unités disponibles à l'achat pour un produit sont les mêmes
       // que celles configurées pour sa vente (ProduitPrix) : c'est la
-      // liste des unités pertinentes pour ce produit, indépendamment du
-      // prix de vente qui y est attaché (non utilisé ici, l'achat a son
-      // propre prix négocié).
+      // liste des unités pertinentes pour ce produit. Seul le prix de
+      // vente de l'Unité est gardé, pour pré-remplir son champ ; l'achat a
+      // son propre prix négocié.
       const rangUnite = (nom) => (nom === 'Unité' ? 0 : nom === 'Douzaine' ? 1 : 2);
       const map = {};
+      const prixVenteUnite = {};
       prix.forEach((p) => {
+        if (p.unite_nom === 'Unité') prixVenteUnite[p.produit] = parseFloat(p.prix);
         const facteur = facteurParUnite[p.unite];
         if (facteur === undefined) return; // unité inconnue : on ignore par sécurité
         if (!map[p.produit]) map[p.produit] = [];
@@ -97,6 +102,7 @@ export default function Purchases() {
 
       setProduits(produits);
       setUnitesParProduit(map);
+      setPrixVenteUniteParProduit(prixVenteUnite);
       if (produits.length > 0) setSelectedProduit(produits[0].id);
     } catch (err) {
       console.error("Erreur chargement catalogue", err);
@@ -176,6 +182,30 @@ export default function Purchases() {
     : (uniteOptions[0]?.unite_id ?? '');
   const uniteChoisieCourante = uniteOptions.find(u => u.unite_id === uniteIdEffectif);
 
+  // Propositions de prix, toujours modifiables. Exception assumée à
+  // « aucun calcul de montant dans le frontend » : le prix d'achat est
+  // stocké par unité de stock et converti ici vers l'unité choisie, mais
+  // ce n'est qu'une valeur proposée ; le serveur recalcule tout à partir
+  // de ce qui est envoyé. Prix à 0 ou absent : champ vide, jamais 0.
+  const versChamp = (valeur) => (valeur > 0 ? String(Math.round(valeur * 100) / 100) : '');
+  const produitCourant = produits.find(p => p.id === parseInt(selectedProduit));
+  const prixUnitairePropose = uniteChoisieCourante
+    ? versChamp(parseFloat(produitCourant?.prix_achat) * uniteChoisieCourante.facteur_conversion)
+    : '';
+  const prixVenteUniteActuel = prixVenteUniteParProduit[parseInt(selectedProduit)];
+  const prixVenteUnitePropose = versChamp(prixVenteUniteActuel);
+  const prixUnitaire = prixUnitaireSaisi ?? prixUnitairePropose;
+  const prixVenteUnite = prixVenteUniteSaisi ?? prixVenteUnitePropose;
+
+  // Un prix tapé valait pour l'ancien produit : on repart des propositions.
+  // Changer d'unité ne touche pas aux saisies (le prix d'achat proposé,
+  // lui, suit l'unité tant qu'il n'a pas été modifié).
+  const handleChangeProduit = (valeur) => {
+    setSelectedProduit(valeur);
+    setPrixUnitaireSaisi(null);
+    setPrixVenteUniteSaisi(null);
+  };
+
   const handleAddLigne = (e) => {
     e.preventDefault();
     if (modeSupport) return;
@@ -201,11 +231,14 @@ export default function Purchases() {
     }
 
     // 0 voudrait dire « retirer le prix » : refusé, comme par le serveur.
-    const prixVente = prixVenteUnite === '' ? null : parseFloat(prixVenteUnite);
-    if (prixVente !== null && !(prixVente > 0)) {
+    const prixVenteChamp = prixVenteUnite === '' ? null : parseFloat(prixVenteUnite);
+    if (prixVenteChamp !== null && !(prixVenteChamp > 0)) {
       alert("Le prix de vente doit être supérieur à zéro, ou laissé vide.");
       return;
     }
+    // Laissé au prix actuel : non envoyé, pour ne pas écraser un prix
+    // changé entre-temps ailleurs (Produits).
+    const prixVente = prixVenteChamp === prixVenteUniteActuel ? null : prixVenteChamp;
     // Le serveur refuse deux prix différents pour un même produit : on le
     // signale dès l'ajout plutôt qu'à la validation de l'achat.
     const prixVenteDejaSaisi = panier.find(
@@ -238,8 +271,8 @@ export default function Purchases() {
 
     setPanier([...panier, nouvelleLigne]);
     setQuantite(1);
-    setPrixUnitaire('');
-    setPrixVenteUnite('');
+    setPrixUnitaireSaisi(null);
+    setPrixVenteUniteSaisi(null);
   };
 
   const handleRemoveLigne = (index) => {
@@ -377,7 +410,7 @@ export default function Purchases() {
                   <label className="block text-sm font-medium text-gray-700">Produit</label>
                   <select
                     value={selectedProduit}
-                    onChange={(e) => setSelectedProduit(e.target.value)}
+                    onChange={(e) => handleChangeProduit(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   >
                     {produits.map((p) => (
@@ -421,7 +454,7 @@ export default function Purchases() {
                     step="0.01"
                     min="0"
                     value={prixUnitaire}
-                    onChange={(e) => setPrixUnitaire(e.target.value)}
+                    onChange={(e) => setPrixUnitaireSaisi(e.target.value)}
                     placeholder="0.00"
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                     required
@@ -437,7 +470,7 @@ export default function Purchases() {
                     step="0.01"
                     min="0.01"
                     value={prixVenteUnite}
-                    onChange={(e) => setPrixVenteUnite(e.target.value)}
+                    onChange={(e) => setPrixVenteUniteSaisi(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   />
                   <p className="mt-1 text-xs text-gray-500">Prix d'une Unité, quelle que soit l'unité achetée. Vide : le prix de vente actuel ne change pas.</p>
