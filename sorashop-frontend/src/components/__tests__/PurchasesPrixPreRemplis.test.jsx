@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -185,6 +185,23 @@ describe('Nouvel achat : prix pré-remplis', () => {
       { produit: 1, unite: 10, quantite: 1, prix_unitaire_achat: 800 },
       { produit: 1, unite: 12, quantite: 1, prix_unitaire_achat: 20000, prix_vente_unite: 1100 },
     ]);
+  });
+
+  // Prix actuel « 1000.00 » côté serveur, proposé « 1000 » dans le champ.
+  // fireEvent.change plutôt que paste : user-event ramène « 1000.0 » à
+  // « 1000 » dans un champ numérique, un vrai navigateur garde le texte.
+  it.each(['1000', '1000.00', '1000.0'])('prix de vente « %s » : comparé en nombre au prix actuel, non envoyé', async (ecriture) => {
+    const user = userEvent.setup();
+    render(<Purchases />);
+    const ajouter = await screen.findByRole('button', { name: /Ajouter à l'achat/ });
+
+    fireEvent.change(champPrixVente(), { target: { value: ecriture } });
+    expect(champPrixVente().value).toBe(ecriture);
+    await user.click(ajouter);
+
+    const [ligne] = within(screen.getByRole('table')).getAllByRole('row').slice(1);
+    expect(within(ligne).getAllByRole('cell')[5]).toHaveTextContent('Inchangé');
+    expect((await validerAchat(user))[0]).not.toHaveProperty('prix_vente_unite');
   });
 
   it('après « Ajouter » : les champs sont de nouveau pré-remplis', async () => {

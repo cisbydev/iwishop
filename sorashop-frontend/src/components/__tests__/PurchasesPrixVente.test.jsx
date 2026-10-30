@@ -85,13 +85,13 @@ describe('Nouvel achat : prix de vente (Unité) facultatif', () => {
     vi.restoreAllMocks();
   });
 
-  it('le champ est facultatif et explique qu’il porte sur une Unité', async () => {
+  it('le champ est facultatif et explique qu’il est pré-rempli', async () => {
     render(<Purchases />);
     const champ = await screen.findByLabelText(/Prix de vente \(Unité\)/);
 
     expect(champ).not.toBeRequired();
     expect(screen.getByText(
-      "Prix d'une Unité, quelle que soit l'unité achetée. Vide : le prix de vente actuel ne change pas."
+      'Pré-rempli avec le prix actuel. Le changer met à jour le prix de vente.'
     )).toBeInTheDocument();
   });
 

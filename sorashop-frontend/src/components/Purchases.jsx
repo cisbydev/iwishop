@@ -233,7 +233,8 @@ export default function Purchases() {
       return;
     }
     // Laissé au prix actuel : non envoyé, pour ne pas écraser un prix
-    // changé entre-temps ailleurs (Produits).
+    // changé entre-temps ailleurs (Produits). Comparaison de nombres (les
+    // deux côtés passent par parseFloat) : « 32000 » égale « 32000.00 ».
     const prixVente = prixVenteChamp === prixVenteUniteActuel ? null : prixVenteChamp;
     // Le serveur refuse deux prix différents pour un même produit : on le
     // signale dès l'ajout plutôt qu'à la validation de l'achat.
@@ -469,7 +470,7 @@ export default function Purchases() {
                     onChange={(e) => setPrixVenteUniteSaisi(e.target.value)}
                     className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                   />
-                  <p className="mt-1 text-xs text-gray-500">Prix d'une Unité, quelle que soit l'unité achetée. Vide : le prix de vente actuel ne change pas.</p>
+                  <p className="mt-1 text-xs text-gray-500">Pré-rempli avec le prix actuel. Le changer met à jour le prix de vente.</p>
                 </div>
                 <button
                   type="submit"
