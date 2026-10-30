@@ -51,19 +51,9 @@ export default function Purchases() {
   const acompteVerse = achatACredit && parseFloat(acompte) > 0;
   const modePaiementDemande = !achatACredit || acompteVerse;
 
-  // Recharge uniquement les produits (stock à jour après un achat) sans
-  // retoucher aux unités, qui ne changent pas en cours de session.
-  const fetchProduits = async () => {
-    try {
-      const produits = await getAll('produits/');
-      setProduits(produits);
-      if (produits.length > 0) setSelectedProduit(produits[0].id);
-    } catch (err) {
-      console.error("Erreur chargement produits", err);
-      setErreurChargement("Impossible de charger les données des achats. Vérifiez votre connexion puis réessayez.");
-    }
-  };
-
+  // Rechargé aussi après un achat ou une annulation : ils changent le prix
+  // d'achat du produit, et parfois son prix de vente, proposés dans le
+  // formulaire.
   const fetchCatalogue = async () => {
     try {
       const [produits, prix, unites] = await Promise.all([
@@ -103,7 +93,13 @@ export default function Purchases() {
       setProduits(produits);
       setUnitesParProduit(map);
       setPrixVenteUniteParProduit(prixVenteUnite);
-      if (produits.length > 0) setSelectedProduit(produits[0].id);
+      // Le produit sélectionné est gardé s'il existe encore (rechargement),
+      // sinon le premier (arrivée sur la page, autre boutique).
+      if (produits.length > 0) {
+        setSelectedProduit((actuel) =>
+          produits.some((p) => p.id === parseInt(actuel)) ? actuel : produits[0].id
+        );
+      }
     } catch (err) {
       console.error("Erreur chargement catalogue", err);
       setErreurChargement("Impossible de charger les données des achats. Vérifiez votre connexion puis réessayez.");
@@ -142,7 +138,7 @@ export default function Purchases() {
     setAnnulationEnCours(achat.id);
     try {
       await api.post(`achats/${achat.id}/annuler/`);
-      await fetchAchats();
+      await Promise.all([fetchAchats(), fetchCatalogue()]);
     } catch (err) {
       alerterErreur(err, "Erreur lors de l'annulation de l'achat.");
     } finally {
@@ -340,7 +336,7 @@ export default function Purchases() {
       setAcompte('');
       setModePaiement('');
       fetchAchats();
-      fetchProduits(); // Rafraîchir les stocks
+      fetchCatalogue(); // Stocks et prix à jour pour la suite
       setTimeout(() => setSuccessMessage(''), 4000);
     } catch (err) {
       alerterErreur(err, "Erreur lors de l'enregistrement de l'achat.");
